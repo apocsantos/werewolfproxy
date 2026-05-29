@@ -1,0 +1,7 @@
+[workspace]
+members = [
+  "crates/werewolf-core",
+  "crates/werewolfd",
+  "crates/werewolfctl"
+]
+resolver = "2"

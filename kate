@@ -1,0 +1,1246 @@
+37-    #[arg(long, default_value = "/tmp/werewolf.sock")]
+38-    socket: String,
+39-
+40-    #[arg(long, default_value = "~/.config/werewolf")]
+41-    home: String,
+42-
+43-    #[arg(long, default_value = "127.0.0.1:8443")]
+44-    listen: String,
+45-
+46-    #[arg(long, default_value = "127.0.0.1:9560")]
+47-    quic_listen: String,
+48-}
+49-
+50-#[derive(Default)]
+51-struct DaemonState {
+52-    peers: Vec<PeerRecord>,
+53-    fangs: Vec<FangRecord>,
+54-    fang_profiles: Vec<FangProfile>,
+55-    fang_tasks: HashMap<String, JoinHandle<()>>,
+56-    fang_started: HashMap<String, std::time::Instant>,
+57:    seen_nonces: HashMap<String, Instant>,
+58-    status: Status,
+59-    pelt: Option<PeltIdentity>,
+60-    den_socket: String,
+61-    den_home: String,
+62-    den_listen: String,
+63-    den_quic_listen: String,
+64-}
+65-
+66-#[tokio::main]
+67-async fn main() -> anyhow_free::Result<()> {
+68-    tracing_subscriber::fmt::init();
+69-
+70-    let args = Args::parse();
+71-    let home = expand_home(&args.home);
+72-
+73-    let mut initial_state = DaemonState::default();
+74-    initial_state.den_socket = args.socket.clone();
+75-    initial_state.den_home = home.display().to_string();
+76-    initial_state.den_listen = args.listen.clone();
+77-    initial_state.den_quic_listen = args.quic_listen.clone();
+78-
+79-    let pelt_path = home.join("pelt.json");
+80-    match load_identity(&pelt_path) {
+81-        Ok(Some(identity)) => {
+82-            println!("🐾 Pelt loaded: {}", identity.fingerprint);
+83-            initial_state.status.pelt_ready = true;
+84-            initial_state.pelt = Some(identity);
+85-        }
+86-        Ok(None) => {
+87-            println!("🐾 No Pelt found. Run: werewolfctl pelt init");
+88-        }
+89-        Err(e) => {
+90-            eprintln!("⚠️ Failed to load Pelt: {}", e);
+91-        }
+92-    }
+93-
+94-    let pack_path = home.join("pack.json");
+95-    match load_pack(&pack_path) {
+96-        Ok(peers) => {
+97-            println!("🐾 Loaded {} packmates", peers.len());
+98-            initial_state.peers = peers;
+99-        }
+100-        Err(e) => {
+101-            eprintln!("⚠️ Failed to load Pack: {}", e);
+102-        }
+103-    }
+104-
+105-    let fang_profiles_path = home.join("fangs.json");
+106-    match load_fang_profiles(&fang_profiles_path) {
+107-        Ok(profiles) => {
+108-            println!("🦷 Loaded {} Fang profiles", profiles.len());
+109-            initial_state.fang_profiles = profiles;
+110-        }
+111-        Err(e) => {
+112-            eprintln!("⚠️ Failed to load Fang profiles: {}", e);
+113-        }
+114-    }
+115-
+116-    let state = Arc::new(Mutex::new(initial_state));
+117-
+--
+156-
+157-async fn run_quic_fang_listener(
+158-    listen_addr: &str,
+159-    state: Arc<Mutex<DaemonState>>,
+160-) -> io::Result<()> {
+161-    let addr: std::net::SocketAddr = listen_addr
+162-        .parse()
+163-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("bad QUIC listen addr: {}", e)))?;
+164-
+165-    let endpoint = make_server_endpoint(addr)
+166-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+167-
+168-    println!("⚡ Native QUIC Fang listening on {}", listen_addr);
+169-
+170-    while let Some(incoming) = endpoint.accept().await {
+171-        let state = state.clone();
+172-
+173-        tokio::spawn(async move {
+174-            match incoming.await {
+175-                Ok(connection) => {
+176:                    println!("⚡ Native QUIC Fang connection from {}", connection.remote_address());
+177-
+178-                    while let Ok((mut send, mut recv)) = connection.accept_bi().await {
+179-                        let state = state.clone();
+180-
+181-                        println!("⚡ Native QUIC Fang stream accepted");
+182-
+183-                        let mut line_buf = Vec::new();
+184-
+185-                        loop {
+186-                            match recv.read_chunk(1, true).await {
+187-                                Ok(Some(chunk)) => {
+188-                                    line_buf.extend_from_slice(&chunk.bytes);
+189-
+190-                                    if line_buf.ends_with(b"\n") {
+191-                                        break;
+192-                                    }
+193-
+194-                                    if line_buf.len() > 2048 {
+195-                                        eprintln!("QUIC Fang request line too long");
+196-                                        break;
+197-                                    }
+198-                                }
+199-                                Ok(None) => {
+200-                                    eprintln!("stream closed before request line");
+201-                                    break;
+202-                                }
+203-                                Err(e) => {
+204-                                    eprintln!("QUIC request read failed: {}", e);
+205-                                    break;
+206-                                }
+207-                            }
+208-                        }
+209-
+210-                        let request_line = String::from_utf8_lossy(&line_buf).trim().to_string();
+211-
+212-                        let request_value: serde_json::Value = match serde_json::from_str(&request_line) {
+213-                            Ok(v) => v,
+214-                            Err(e) => {
+215-                                eprintln!("bad QUIC Fang request JSON: {}", e);
+216-                                eprintln!("raw request line: {}", request_line);
+217-                                continue;
+218-                            }
+219-                        };
+220-
+221-                        if request_value["cmd"].as_str() != Some("fang.quic.open") {
+222-                            eprintln!("bad QUIC Fang request cmd");
+223-                            continue;
+224-                        }
+225-
+226:                        let sender_fp = match request_value["sender_fingerprint"].as_str() {
+227-                            Some(v) => v,
+228-                            None => {
+229-                                eprintln!("missing sender fingerprint");
+230-                                continue;
+231-                            }
+232-                        };
+233-
+234:                        let target = match request_value["remote"].as_str() {
+235-                            Some(v) if !v.trim().is_empty() => v.trim().to_string(),
+236-                            _ => {
+237:                                eprintln!("missing QUIC Fang remote target");
+238-                                continue;
+239-                            }
+240-                        };
+241-
+242-                        println!("🐾 QUIC sender fingerprint: {}", sender_fp);
+243-
+244-                        {
+245-                            let st = state.lock().await;
+246-
+247-                            if !st.peers.iter().any(|p| p.fingerprint == sender_fp) {
+248-                                eprintln!("❌ QUIC sender not in Pack: {}", sender_fp);
+249-                                continue;
+250-                            }
+251-                        }
+252-
+253:                        let nonce = match request_value["nonce"].as_str() {
+254-                            Some(v) if !v.trim().is_empty() => v.trim().to_string(),
+255-                            _ => {
+256:                                eprintln!("missing QUIC nonce");
+257-                                continue;
+258-                            }
+259-                        };
+260-
+261-                        {
+262-                            let mut st = state.lock().await;
+263-
+264:                            let replay_key = format!("quic|{}|{}", sender_fp, nonce);
+265-
+266:                            if st.seen_nonces.contains_key(&replay_key) {
+267-                                eprintln!("❌ QUIC replay detected: {}", replay_key);
+268-                                continue;
+269-                            }
+270-
+271:                            st.seen_nonces.insert(replay_key, std::time::Instant::now());
+272-                        }
+273-
+274-                        println!("✅ QUIC sender trusted by Pack");
+275:                        println!("🧠 QUIC nonce accepted");
+276-                        println!("🦷 Native QUIC target request: {}", target);
+277-
+278-                        match tokio::net::TcpStream::connect(&target).await {
+279-                            Ok(mut target_stream) => {
+280-                                println!("✅ target connected: {}", target);
+281-
+282-                                let (mut target_read, mut target_write) = target_stream.split();
+283-
+284-                                let up = async {
+285-                                    tokio::io::copy(&mut recv, &mut target_write).await
+286-                                };
+287-
+288-                                let down = async {
+289-                                    tokio::io::copy(&mut target_read, &mut send).await
+290-                                };
+291-
+292-                                let _ = tokio::join!(up, down);
+293-                            }
+294-                            Err(e) => {
+295-                                eprintln!("❌ target connect failed {}: {}", target, e);
+296-                            }
+297-                        }
+298-                    }
+299-                }
+300-                Err(e) => eprintln!("QUIC connection failed: {}", e),
+301-            }
+302-        });
+303-    }
+304-
+305-    Ok(())
+306-}
+307-
+308-async fn run_fang_listener(listen_addr: &str, state: Arc<Mutex<DaemonState>>) -> io::Result<()> {
+309-    let listener = TcpListener::bind(listen_addr).await?;
+310-
+311-    loop {
+312-        let (stream, peer_addr) = listener.accept().await?;
+313-        let state_for_client = state.clone();
+314-
+315-        tokio::spawn(async move {
+316-            if let Err(e) = handle_fang_pipe(stream, state_for_client).await {
+317-                eprintln!("fang pipe from {} error: {}", peer_addr, e);
+318-            }
+319-        });
+320-    }
+321-}
+322-
+323-async fn handle_fang_pipe(stream: TcpStream, state: Arc<Mutex<DaemonState>>) -> io::Result<()> {
+324-    let mut reader = BufReader::new(stream);
+325-    let mut line = String::new();
+326-
+327-    reader.read_line(&mut line).await?;
+328-    let mut stream = reader.into_inner();
+329-
+330-    let value: serde_json::Value = serde_json::from_str(&line)
+331-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+332-
+333:    let remote = value["remote"]
+334-        .as_str()
+335:        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing remote"))?;
+336-
+337-    let sender_pubkey = value["sender_pubkey"]
+338-        .as_str()
+339-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing sender_pubkey"))?;
+340-
+341:    let sender_fingerprint = value["sender_fingerprint"]
+342-        .as_str()
+343:        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing sender_fingerprint"))?;
+344-
+345-    let client_x25519 = value["client_x25519"]
+346-        .as_str()
+347-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing client_x25519"))?;
+348-
+349:    let nonce = value["nonce"]
+350-        .as_str()
+351:        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing nonce"))?;
+352-
+353-    let signature = value["signature"]
+354-        .as_str()
+355-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing signature"))?;
+356-
+357-    let derived_fp = fingerprint_from_public_key_b64(sender_pubkey)
+358-        .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, e))?;
+359-
+360:    if derived_fp != sender_fingerprint {
+361-        stream
+362-            .write_all(b"{\"ok\":false,\"error\":\"fingerprint mismatch\"}\n")
+363-            .await?;
+364-        return Err(io::Error::new(
+365-            io::ErrorKind::PermissionDenied,
+366-            "fingerprint mismatch",
+367-        ));
+368-    }
+369-
+370-    let signed_text = format!(
+371-        "fang.pipe|{}|{}|{}|{}",
+372:        sender_fingerprint, remote, nonce, client_x25519
+373-    );
+374-
+375-    if let Err(e) = verify_message(sender_pubkey, signed_text.as_bytes(), signature) {
+376-        stream
+377-            .write_all(b"{\"ok\":false,\"error\":\"bad signature\"}\n")
+378-            .await?;
+379-        return Err(io::Error::new(io::ErrorKind::PermissionDenied, e));
+380-    }
+381-
+382-    {
+383-        let mut st = state.lock().await;
+384-
+385:        if !st.peers.iter().any(|p| p.fingerprint == sender_fingerprint) {
+386-            stream
+387-                .write_all(b"{\"ok\":false,\"error\":\"sender not in pack\"}\n")
+388-                .await?;
+389-            return Err(io::Error::new(
+390-                io::ErrorKind::PermissionDenied,
+391-                "sender not in pack",
+392-            ));
+393-        }
+394-
+395-        const REPLAY_WINDOW: Duration = Duration::from_secs(300);
+396-
+397-        let now = Instant::now();
+398-
+399:        st.seen_nonces
+400-            .retain(|_, seen_at| now.duration_since(*seen_at) < REPLAY_WINDOW);
+401-
+402:        let replay_key = format!("{}|{}", sender_fingerprint, nonce);
+403-
+404:        if st.seen_nonces.contains_key(&replay_key) {
+405-            stream
+406-                .write_all(b"{\"ok\":false,\"error\":\"replay detected\"}\n")
+407-                .await?;
+408-            return Err(io::Error::new(
+409-                io::ErrorKind::PermissionDenied,
+410-                "replay detected",
+411-            ));
+412-        }
+413-
+414:        st.seen_nonces.insert(replay_key, now);
+415-    }
+416-
+417-    let receiver_identity = {
+418-        let st = state.lock().await;
+419-        st.pelt.clone().ok_or_else(|| {
+420-            io::Error::new(io::ErrorKind::PermissionDenied, "receiver has no Pelt")
+421-        })?
+422-    };
+423-
+424-    let server_secret = StaticSecret::random_from_rng(OsRng);
+425-    let server_public = X25519PublicKey::from(&server_secret);
+426-    let server_public_b64 = STANDARD.encode(server_public.as_bytes());
+427-
+428-    let ack_text = format!(
+429-        "fang.ack|{}|{}|{}|{}",
+430:        receiver_identity.fingerprint, sender_fingerprint, nonce, server_public_b64
+431-    );
+432-
+433-    let ack_signature = sign_message(&receiver_identity, ack_text.as_bytes())
+434-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+435-
+436:    let remote_stream = TcpStream::connect(remote).await?;
+437-
+438-    let ack = json!({
+439-        "ok": true,
+440-        "session": "fang-v1-secure",
+441-        "receiver_pubkey": receiver_identity.public_key_b64,
+442-        "receiver_fingerprint": receiver_identity.fingerprint,
+443-        "server_x25519": server_public_b64,
+444:        "nonce": nonce,
+445-        "signature": ack_signature
+446-    });
+447-
+448-    stream
+449-        .write_all(serde_json::to_string(&ack).unwrap().as_bytes())
+450-        .await?;
+451-    stream.write_all(b"\n").await?;
+452-
+453-    let key = derive_shared_key(&server_secret, client_x25519)?;
+454-
+455:    secure_copy_server_side(stream, remote_stream, key).await?;
+456-
+457-    Ok(())
+458-}
+459-
+460-async fn handle_control_client(
+461-    stream: UnixStream,
+462-    state: Arc<Mutex<DaemonState>>,
+463-    home: PathBuf,
+464-) -> io::Result<()> {
+465-    let (reader, mut writer) = stream.into_split();
+466-    let mut lines = BufReader::new(reader).lines();
+467-
+468-    while let Some(line) = lines.next_line().await? {
+469-        let response = match serde_json::from_str::<ControlRequest>(&line) {
+470-            Ok(req) => handle_request(req, state.clone(), home.clone()).await,
+471-            Err(e) => ControlResponse::err("unknown", "BAD_JSON", e.to_string()),
+472-        };
+473-
+474-        let encoded = serde_json::to_string(&response).unwrap();
+475-        writer.write_all(encoded.as_bytes()).await?;
+476-        writer.write_all(b"\n").await?;
+477-    }
+478-
+479-    Ok(())
+480-}
+481-
+482-
+483-async fn open_fang_from_parts(
+484-    req_id: String,
+485-    state: Arc<Mutex<DaemonState>>,
+486-    peer: String,
+487-    local: String,
+488:    remote: String,
+489-) -> ControlResponse {
+490-    let mut st = state.lock().await;
+491-
+492-    if matches!(st.status.mode, WolfMode::Silver) {
+493-        return ControlResponse::err(
+494-            req_id,
+495-            "SILVER_ACTIVE",
+496-            "Silver mode is active. Fang open rejected.",
+497-        );
+498-    }
+499-
+500:    if peer.is_empty() || local.is_empty() || remote.is_empty() {
+501-        return ControlResponse::err(
+502-            req_id,
+503-            "FANG_INVALID",
+504:            "peer, local and remote are required",
+505-        );
+506-    }
+507-
+508-    if st.fangs.iter().any(|f| f.local == local && matches!(f.state, FangState::Active)) {
+509-        return ControlResponse::err(
+510-            req_id,
+511-            "FANG_ALREADY_ACTIVE",
+512-            format!("Fang already active on local address: {}", local),
+513-        );
+514-    }
+515-
+516-    let peer_record = match st.peers.iter().find(|p| p.name == peer) {
+517-        Some(p) => p.clone(),
+518-        None => {
+519-            return ControlResponse::err(
+520-                req_id,
+521-                "FANG_UNKNOWN_PEER",
+522-                format!("Unknown peer: {}", peer),
+523-            )
+524-        }
+525-    };
+526-
+527-    let identity = match &st.pelt {
+528-        Some(pelt) => pelt.clone(),
+529-        None => {
+530-            return ControlResponse::err(
+531-                req_id,
+532-                "NO_PELT",
+533-                "No local Pelt identity exists",
+534-            )
+535-        }
+536-    };
+537-
+538-    let peer_addr = match parse_fang_transport(&peer_record.address) {
+539-        Ok(FangTransport::Tcp(a)) => a,
+540-        Ok(FangTransport::Quic(a)) => {
+541-            let fang_id = format!("fang_{}", st.fangs.len() + 1);
+542-
+543:            let handle = match open_quic_fang(local.clone(), a.clone(), remote.clone(), identity.clone()).await {
+544-                Ok(h) => h,
+545-                Err(e) => {
+546-                    return ControlResponse::err(
+547-                        req_id,
+548-                        "QUIC_FANG_FAILED",
+549-                        e.to_string(),
+550-                    );
+551-                }
+552-            };
+553-
+554-            let fang = FangRecord {
+555-                id: fang_id.clone(),
+556-                peer: peer.clone(),
+557-                local: local.clone(),
+558:                remote: remote.clone(),
+559-                state: FangState::Active,
+560-            };
+561-
+562-            st.fangs.push(fang);
+563-            st.fang_tasks.insert(fang_id.clone(), handle);
+564-    st.fang_started.insert(fang_id.clone(), std::time::Instant::now());
+565-            st.fang_started.insert(fang_id.clone(), std::time::Instant::now());
+566-            st.status.active_fangs = st.fangs.len();
+567-            st.status.mode = WolfMode::Wolf;
+568-
+569-            return ControlResponse::ok(
+570-                req_id,
+571-                json!({
+572-                    "fang_id": fang_id,
+573-                    "peer": peer,
+574-                    "local": local,
+575:                    "remote": remote,
+576-                    "state": "active",
+577-                    "transport": "quic",
+578-                    "quic_server": a
+579-                }),
+580-            );
+581-        }
+582-        Err(e) => return ControlResponse::err(req_id, "FANG_BAD_PEER_ADDRESS", e),
+583-    };
+584-
+585-    let fang_id = format!("fang_{}", st.fangs.len() + 1);
+586-
+587-    let fang = FangRecord {
+588-        id: fang_id.clone(),
+589-        peer: peer.clone(),
+590-        local: local.clone(),
+591:        remote: remote.clone(),
+592-        state: FangState::Active,
+593-    };
+594-
+595-    st.fangs.push(fang);
+596-    st.status.active_fangs = st.fangs.len();
+597-    st.status.mode = WolfMode::Wolf;
+598-
+599-    let task_fang_id = fang_id.clone();
+600-    let task_local = local.clone();
+601-    let task_peer_addr = peer_addr.clone();
+602:    let task_remote = remote.clone();
+603-    let task_identity = identity.clone();
+604-
+605-    let handle = tokio::spawn(async move {
+606-        if let Err(e) = run_local_fang_forwarder(
+607-            &task_fang_id,
+608-            &task_local,
+609-            &task_peer_addr,
+610:            &task_remote,
+611-            task_identity,
+612-        )
+613-        .await
+614-        {
+615-            eprintln!("🦷 Fang {} failed: {}", task_fang_id, e);
+616-        }
+617-    });
+618-
+619-    st.fang_tasks.insert(fang_id.clone(), handle);
+620-    st.fang_started.insert(fang_id.clone(), std::time::Instant::now());
+621-
+622-    ControlResponse::ok(
+623-        req_id,
+624-        json!({
+625-            "fang_id": fang_id,
+626-            "state": "active",
+627-            "local": local,
+628-            "peer": peer,
+629:            "remote": remote
+630-        }),
+631-    )
+632-}
+633-
+634-async fn handle_request(
+635-    req: ControlRequest,
+636-    state: Arc<Mutex<DaemonState>>,
+637-    home: PathBuf,
+638-) -> ControlResponse {
+639-    match req.cmd.as_str() {
+640-        "den.info" => {
+641-            let st = state.lock().await;
+642-            ControlResponse::ok(
+643-                req.id,
+644-                json!({
+645-                    "socket": st.den_socket,
+646-                    "home": st.den_home,
+647-                    "listen": st.den_listen,
+648-                    "quic_listen": st.den_quic_listen,
+649-                    "mode": st.status.mode,
+650-                    "pelt_ready": st.status.pelt_ready,
+651-                    "packmates": st.peers.len(),
+652-                    "fang_profiles": st.fang_profiles.len(),
+653-                    "active_fangs": st.fangs.len(),
+654-                    "silver": st.status.silver,
+655-                    "hide": st.status.hide
+656-                }),
+657-            )
+658-        }
+659-
+660-        "status" => {
+661-            let mut st = state.lock().await;
+662-            st.status.packmates = st.peers.len();
+663-            st.status.active_fangs = st.fangs.len();
+664-
+665-            ControlResponse::ok(req.id, json!({
+666-                "mode": st.status.mode,
+667-                "pelt_ready": st.status.pelt_ready,
+668-                "packmates": st.peers.len(),
+669-                "fang_profiles": st.fang_profiles.len(),
+670-                "active_fangs": st.fangs.len(),
+671-                "silver": st.status.silver,
+672-                "hide": st.status.hide,
+673-                "listen": st.den_listen,
+674-                "quic_listen": st.den_quic_listen
+675-            }))
+676-        }
+677-
+678-        "pelt.init" => {
+679-            let mut st = state.lock().await;
+680-            let identity = generate_identity();
+681-            let pelt_path = home.join("pelt.json");
+682-
+683-            match save_identity(&pelt_path, &identity) {
+684-                Ok(_) => {
+685-                    st.status.pelt_ready = true;
+686-                    st.pelt = Some(identity.clone());
+687-                    ControlResponse::ok(
+688-                        req.id,
+689-                        json!({
+--
+837-                );
+838-            }
+839-
+840-            let path = home.join("pack.json");
+841-
+842-            match save_pack(&path, &st.peers) {
+843-                Ok(_) => ControlResponse::ok(
+844-                    req.id,
+845-                    json!({
+846-                        "status": "removed",
+847-                        "packmates": st.peers.len()
+848-                    }),
+849-                ),
+850-                Err(e) => ControlResponse::err(req.id, "PACK_SAVE_FAILED", e.to_string()),
+851-            }
+852-        }
+853-
+854-        "fang.open" => {
+855-            let peer = req.args["peer"].as_str().unwrap_or("").trim().to_string();
+856-            let local = req.args["local"].as_str().unwrap_or("").trim().to_string();
+857:            let remote = req.args["remote"].as_str().unwrap_or("").trim().to_string();
+858-
+859:            open_fang_from_parts(req.id, state.clone(), peer, local, remote).await
+860-        }
+861-
+862-        "fang.profile.add" => {
+863-            let mut st = state.lock().await;
+864-
+865-            let name = req.args["name"].as_str().unwrap_or("").trim().to_string();
+866-            let peer = req.args["peer"].as_str().unwrap_or("").trim().to_string();
+867-            let local = req.args["local"].as_str().unwrap_or("").trim().to_string();
+868:            let remote = req.args["remote"].as_str().unwrap_or("").trim().to_string();
+869-
+870:            if name.is_empty() || peer.is_empty() || local.is_empty() || remote.is_empty() {
+871:                return ControlResponse::err(req.id, "FANG_PROFILE_INVALID", "name, peer, local and remote are required");
+872-            }
+873-
+874-            if st.fang_profiles.iter().any(|p| p.name == name) {
+875-                return ControlResponse::err(req.id, "FANG_PROFILE_DUP_NAME", format!("Fang profile already exists: {}", name));
+876-            }
+877-
+878-            st.fang_profiles.push(FangProfile {
+879-                name: name.clone(),
+880-                peer,
+881-                local,
+882:                remote,
+883-            });
+884-
+885-            let path = home.join("fangs.json");
+886-
+887-            match save_fang_profiles(&path, &st.fang_profiles) {
+888-                Ok(_) => ControlResponse::ok(req.id, json!({
+889-                    "status": "profile_added",
+890-                    "name": name,
+891-                    "profiles": st.fang_profiles.len()
+892-                })),
+893-                Err(e) => ControlResponse::err(req.id, "FANG_PROFILE_SAVE_FAILED", e.to_string()),
+894-            }
+895-        }
+896-
+897-        "fang.profile.list" => {
+898-            let st = state.lock().await;
+899-            ControlResponse::ok(req.id, json!(st.fang_profiles))
+900-        }
+901-
+902-        "fang.profile.remove" => {
+903-            let mut st = state.lock().await;
+904-            let name = req.args["name"].as_str().unwrap_or("").trim().to_string();
+905-
+906-            if name.is_empty() {
+907-                return ControlResponse::err(req.id, "FANG_PROFILE_INVALID", "name is required");
+908-            }
+909-
+910-            let before = st.fang_profiles.len();
+911-            st.fang_profiles.retain(|p| p.name != name);
+912-
+913-            if st.fang_profiles.len() == before {
+914-                return ControlResponse::err(req.id, "FANG_PROFILE_NOT_FOUND", format!("Fang profile not found: {}", name));
+915-            }
+916-
+917-            let path = home.join("fangs.json");
+918-
+919-            match save_fang_profiles(&path, &st.fang_profiles) {
+920-                Ok(_) => ControlResponse::ok(req.id, json!({
+921-                    "status": "profile_removed",
+922-                    "profiles": st.fang_profiles.len()
+923-                })),
+924-                Err(e) => ControlResponse::err(req.id, "FANG_PROFILE_SAVE_FAILED", e.to_string()),
+925-            }
+926-        }
+927-
+928-        "fang.open_profile" => {
+929-            let profile_name = req.args["name"].as_str().unwrap_or("").trim().to_string();
+930-
+931-            if profile_name.is_empty() {
+932-                return ControlResponse::err(req.id, "FANG_PROFILE_INVALID", "name is required");
+933-            }
+934-
+935-            let profile = {
+936-                let st = state.lock().await;
+937-                match st.fang_profiles.iter().find(|p| p.name == profile_name) {
+938-                    Some(p) => p.clone(),
+939-                    None => return ControlResponse::err(req.id, "FANG_PROFILE_NOT_FOUND", format!("Fang profile not found: {}", profile_name)),
+940-                }
+941-            };
+942-
+943:            open_fang_from_parts(req.id, state.clone(), profile.peer, profile.local, profile.remote).await
+944-        }
+945-
+946-        "silver.trigger" => {
+947-            let mut st = state.lock().await;
+948-
+949-            for (_, handle) in st.fang_tasks.drain() {
+950-                handle.abort();
+951-            }
+952-            st.fang_started.clear();
+953-
+954-            st.fangs.clear();
+955-            st.status.active_fangs = 0;
+956-            st.status.mode = WolfMode::Silver;
+957-            st.status.silver = "active".to_string();
+958-
+959-            ControlResponse::ok(
+960-                req.id,
+961-                json!({
+962-                    "status": "silver_active",
+963-                    "message": "Silver mode active. New Fangs rejected."
+964-                }),
+965-            )
+966-        }
+967-
+968-        "silver.reset" => {
+969-            let mut st = state.lock().await;
+970-            st.status.mode = WolfMode::Human;
+971-            st.status.silver = "armed".to_string();
+972-
+973-            ControlResponse::ok(
+974-                req.id,
+975-                json!({
+976-                    "status": "silver_reset",
+977-                    "message": "Silver reset. Wolf returned to Human mode."
+978-                }),
+979-            )
+980-        }
+981-
+982-        "fang.cleanup" => {
+983-            let mut st = state.lock().await;
+984-
+985-            let dead_ids: Vec<String> = st.fang_tasks
+986-                .iter()
+987-                .filter_map(|(id, handle)| {
+988-                    if handle.is_finished() {
+989-                        Some(id.clone())
+990-                    } else {
+991-                        None
+992-                    }
+993-                })
+994-                .collect();
+995-
+996-            for id in &dead_ids {
+997-                st.fang_tasks.remove(id);
+998-                st.fang_started.remove(id);
+999-            }
+1000-
+1001-            st.fangs.retain(|f| !dead_ids.contains(&f.id));
+1002-            st.status.active_fangs = st.fangs.len();
+1003-
+--
+1039-                        .map(|p| {
+1040-                            if p.address.starts_with("quic://") {
+1041-                                "quic"
+1042-                            } else if p.address.starts_with("tcp://") {
+1043-                                "tcp"
+1044-                            } else {
+1045-                                "unknown"
+1046-                            }
+1047-                        })
+1048-                        .unwrap_or("unknown");
+1049-
+1050-                    let uptime_seconds = st.fang_started
+1051-                        .get(&f.id)
+1052-                        .map(|t| t.elapsed().as_secs())
+1053-                        .unwrap_or(0);
+1054-
+1055-                    json!({
+1056-                        "id": f.id,
+1057-                        "peer": f.peer,
+1058-                        "local": f.local,
+1059:                        "remote": f.remote,
+1060-                        "state": f.state,
+1061-                        "transport": transport,
+1062-                        "uptime_seconds": uptime_seconds
+1063-                    })
+1064-                })
+1065-                .collect();
+1066-
+1067-            ControlResponse::ok(req.id, json!(fangs))
+1068-        }
+1069-
+1070-        "fang.close" => {
+1071-            let mut st = state.lock().await;
+1072-            let fang_id = req.args["fang_id"]
+1073-                .as_str()
+1074-                .unwrap_or("")
+1075-                .trim()
+1076-                .to_string();
+1077-
+1078-            if fang_id.is_empty() {
+1079-                return ControlResponse::err(req.id, "FANG_INVALID", "fang_id is required");
+1080-            }
+1081-
+1082-            let before = st.fangs.len();
+1083-            st.fangs.retain(|f| f.id != fang_id);
+1084-
+1085-            if st.fangs.len() == before {
+1086-                return ControlResponse::err(
+1087-                    req.id,
+1088-                    "FANG_NOT_FOUND",
+1089-                    format!("Fang not found: {}", fang_id),
+1090-                );
+1091-            }
+1092-
+1093-            if let Some(handle) = st.fang_tasks.remove(&fang_id) {
+1094-                handle.abort();
+1095-            }
+1096-            st.fang_started.remove(&fang_id);
+1097-
+1098-            st.status.active_fangs = st.fangs.len();
+1099-
+1100-            if st.fangs.is_empty() {
+1101-                st.status.mode = WolfMode::Human;
+1102-            }
+1103-
+1104-            ControlResponse::ok(
+1105-                req.id,
+1106-                json!({
+1107-                    "status": "closed",
+1108-                    "active_fangs": st.fangs.len()
+1109-                }),
+1110-            )
+1111-        }
+1112-
+1113-        _ => ControlResponse::err(
+1114-            req.id,
+1115-            "UNKNOWN_CMD",
+1116-            format!("Unknown command: {}", req.cmd),
+1117-        ),
+1118-    }
+1119-}
+1120-
+1121-async fn run_local_fang_forwarder(
+1122-    fang_id: &str,
+1123-    local: &str,
+1124-    peer_addr: &str,
+1125:    remote: &str,
+1126-    identity: PeltIdentity,
+1127-) -> io::Result<()> {
+1128-    let listener = TcpListener::bind(local).await?;
+1129-    println!("🦷 {} listening locally on {}", fang_id, local);
+1130-
+1131-    loop {
+1132-        let (mut inbound, client_addr) = listener.accept().await?;
+1133-        let peer_addr = peer_addr.to_string();
+1134:        let remote = remote.to_string();
+1135-        let fang_id = fang_id.to_string();
+1136-        let identity = identity.clone();
+1137-
+1138-        tokio::spawn(async move {
+1139-            if let Err(e) =
+1140:                pipe_one_fang_connection(&mut inbound, &peer_addr, &remote, identity).await
+1141-            {
+1142-                eprintln!("🦷 {} client {} pipe error: {}", fang_id, client_addr, e);
+1143-            }
+1144-        });
+1145-    }
+1146-}
+1147-
+1148-async fn pipe_one_fang_connection(
+1149-    inbound: &mut TcpStream,
+1150-    peer_addr: &str,
+1151:    remote: &str,
+1152-    identity: PeltIdentity,
+1153-) -> io::Result<()> {
+1154-    let mut outbound = TcpStream::connect(peer_addr).await?;
+1155-
+1156:    let nonce = format!(
+1157-        "{}",
+1158-        std::time::SystemTime::now()
+1159-            .duration_since(std::time::UNIX_EPOCH)
+1160-            .unwrap()
+1161-            .as_nanos()
+1162-    );
+1163-
+1164-    let client_secret = StaticSecret::random_from_rng(OsRng);
+1165-    let client_public = X25519PublicKey::from(&client_secret);
+1166-    let client_public_b64 = STANDARD.encode(client_public.as_bytes());
+1167-
+1168-    let signed_text = format!(
+1169-        "fang.pipe|{}|{}|{}|{}",
+1170:        identity.fingerprint, remote, nonce, client_public_b64
+1171-    );
+1172-
+1173-    let signature = sign_message(&identity, signed_text.as_bytes())
+1174-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+1175-
+1176-    let hello = json!({
+1177-        "cmd": "fang.pipe",
+1178:        "remote": remote,
+1179-        "sender_pubkey": identity.public_key_b64,
+1180:        "sender_fingerprint": identity.fingerprint,
+1181-        "client_x25519": client_public_b64,
+1182:        "nonce": nonce,
+1183-        "signature": signature
+1184-    });
+1185-
+1186-    outbound
+1187-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+1188-        .await?;
+1189-    outbound.write_all(b"\n").await?;
+1190-
+1191-    let mut reader = BufReader::new(outbound);
+1192-    let mut ack = String::new();
+1193-    reader.read_line(&mut ack).await?;
+1194-    let outbound = reader.into_inner();
+1195-
+1196-    let ack_value: serde_json::Value = serde_json::from_str(&ack)
+1197-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+1198-
+1199-    if ack_value["ok"].as_bool() != Some(true) {
+1200-        return Err(io::Error::new(
+1201-            io::ErrorKind::PermissionDenied,
+1202-            format!("fang rejected: {}", ack),
+1203-        ));
+1204-    }
+1205-
+1206-    let receiver_pubkey = ack_value["receiver_pubkey"]
+1207-        .as_str()
+1208-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing receiver_pubkey"))?;
+1209-
+1210-    let receiver_fingerprint = ack_value["receiver_fingerprint"].as_str().ok_or_else(|| {
+1211-        io::Error::new(io::ErrorKind::InvalidData, "missing receiver_fingerprint")
+1212-    })?;
+1213-
+1214-    let server_x25519 = ack_value["server_x25519"]
+1215-        .as_str()
+1216-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing server_x25519"))?;
+1217-
+1218:    let ack_nonce = ack_value["nonce"]
+1219-        .as_str()
+1220:        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing ack nonce"))?;
+1221-
+1222-    let ack_signature = ack_value["signature"]
+1223-        .as_str()
+1224-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing ack signature"))?;
+1225-
+1226:    if ack_nonce != nonce {
+1227-        return Err(io::Error::new(
+1228-            io::ErrorKind::PermissionDenied,
+1229:            "ack nonce mismatch",
+1230-        ));
+1231-    }
+1232-
+1233-    let derived_receiver_fp = fingerprint_from_public_key_b64(receiver_pubkey)
+1234-        .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, e))?;
+1235-
+1236-    if derived_receiver_fp != receiver_fingerprint {
+1237-        return Err(io::Error::new(
+1238-            io::ErrorKind::PermissionDenied,
+1239-            "receiver fingerprint mismatch",
+1240-        ));
+1241-    }
+1242-
+1243-    let expected_ack_text = format!(
+1244-        "fang.ack|{}|{}|{}|{}",
+1245:        receiver_fingerprint, identity.fingerprint, nonce, server_x25519
+1246-    );
+1247-
+1248-    verify_message(receiver_pubkey, expected_ack_text.as_bytes(), ack_signature)
+1249-        .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, e))?;
+1250-
+1251-    let key = derive_shared_key(&client_secret, server_x25519)?;
+1252-
+1253-    secure_copy_client_side(inbound, outbound, key).await?;
+1254-
+1255-    Ok(())
+1256-}
+1257-
+1258-
+1259-#[derive(Debug, Clone)]
+1260-enum FangTransport {
+1261-    Tcp(String),
+1262-    Quic(String),
+1263-}
+1264-
+1265-fn parse_fang_transport(address: &str) -> Result<FangTransport, String> {
+1266-    if let Some(rest) = address.strip_prefix("tcp://") {
+1267-        return Ok(FangTransport::Tcp(rest.to_string()));
+1268-    }
+1269-
+1270-    if let Some(rest) = address.strip_prefix("quic://") {
+1271-        return Ok(FangTransport::Quic(rest.to_string()));
+1272-    }
+1273-
+1274-    Err("peer address must start with tcp:// or quic://".to_string())
+1275-}
+1276-
+1277-fn expand_home(input: &str) -> PathBuf {
+1278-    if input == "~" {
+1279-        return PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()));
+1280-    }
+1281-
+1282-    if let Some(rest) = input.strip_prefix("~/") {
+1283-        return PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string())).join(rest);
+1284-    }
+1285-
+1286-    PathBuf::from(input)
+1287-}
+1288-
+1289-fn derive_shared_key(secret: &StaticSecret, peer_public_b64: &str) -> io::Result<[u8; 32]> {
+1290-    let peer_bytes = STANDARD
+1291-        .decode(peer_public_b64)
+1292-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+1293-
+1294-    let peer_arr: [u8; 32] = peer_bytes
+1295-        .try_into()
+1296-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "bad x25519 public key length"))?;
+1297-
+1298-    let peer_public = X25519PublicKey::from(peer_arr);
+1299-    let shared = secret.diffie_hellman(&peer_public);
+1300-
+1301-    let hash = blake3::hash(shared.as_bytes());
+1302-    Ok(*hash.as_bytes())
+1303-}
+1304-
+1305:fn make_nonce(direction: u8, counter: u64) -> [u8; 12] {
+1306:    let mut nonce = [0u8; 12];
+1307:    nonce[0] = direction;
+1308:    nonce[4..12].copy_from_slice(&counter.to_be_bytes());
+1309:    nonce
+1310-}
+1311-
+1312-async fn write_encrypted_frame<W: AsyncWriteExt + Unpin>(
+1313-    writer: &mut W,
+1314-    key: &[u8; 32],
+1315-    direction: u8,
+1316-    counter: &mut u64,
+1317-    plaintext: &[u8],
+1318-) -> io::Result<()> {
+1319-    const MIN_FRAME_SIZE: usize = 768;
+1320-    const MAX_FRAME_SIZE: usize = 2048;
+1321-    const STEP: usize = 128;
+1322-
+1323-    if plaintext.len() > MAX_FRAME_SIZE - 2 {
+1324-        return Err(io::Error::new(
+1325-            io::ErrorKind::InvalidData,
+1326-            "plaintext frame exceeds hide limit",
+1327-        ));
+1328-    }
+1329-
+1330-    let minimum_needed = plaintext.len() + 2;
+1331-    let min_bucket = minimum_needed.max(MIN_FRAME_SIZE);
+1332-    let buckets = ((MAX_FRAME_SIZE - min_bucket) / STEP) + 1;
+1333-
+1334-    let random_bucket = if buckets > 1 {
+1335-        (OsRng.next_u32() as usize) % buckets
+1336-    } else {
+1337-        0
+1338-    };
+1339-
+1340-    let frame_size = min_bucket + (random_bucket * STEP);
+1341-
+1342-    let mut padded_plaintext = Vec::with_capacity(frame_size);
+1343-    padded_plaintext.extend_from_slice(&(plaintext.len() as u16).to_be_bytes());
+1344-    padded_plaintext.extend_from_slice(plaintext);
+1345-    padded_plaintext.resize(frame_size, 0);
+1346-
+1347-    let cipher = ChaCha20Poly1305::new(Key::from_slice(key));
+1348:    let nonce_bytes = make_nonce(direction, *counter);
+1349-    *counter += 1;
+1350-
+1351-    let ciphertext = cipher
+1352:        .encrypt(Nonce::from_slice(&nonce_bytes), padded_plaintext.as_ref())
+1353-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "encrypt failed"))?;
+1354-
+1355-    let len = ciphertext.len() as u32;
+1356-    writer.write_all(&len.to_be_bytes()).await?;
+1357-    writer.write_all(&ciphertext).await?;
+1358-    writer.flush().await?;
+1359-
+1360-    Ok(())
+1361-}
+1362-
+1363-async fn read_encrypted_frame<R: AsyncReadExt + Unpin>(
+1364-    reader: &mut R,
+1365-    key: &[u8; 32],
+1366-    direction: u8,
+1367-    counter: &mut u64,
+1368-) -> io::Result<Vec<u8>> {
+1369-    let mut len_buf = [0u8; 4];
+1370-
+1371-    if reader.read_exact(&mut len_buf).await.is_err() {
+1372-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "closed"));
+1373-    }
+1374-
+1375-    let len = u32::from_be_bytes(len_buf) as usize;
+1376-
+1377-    if len > 4096 {
+1378-        return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large"));
+1379-    }
+1380-
+1381-    let mut ciphertext = vec![0u8; len];
+1382-    reader.read_exact(&mut ciphertext).await?;
+1383-
+1384-    let cipher = ChaCha20Poly1305::new(Key::from_slice(key));
+1385:    let nonce_bytes = make_nonce(direction, *counter);
+1386-    *counter += 1;
+1387-
+1388-    let padded_plaintext = cipher
+1389:        .decrypt(Nonce::from_slice(&nonce_bytes), ciphertext.as_ref())
+1390-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "decrypt failed"))?;
+1391-
+1392-    if padded_plaintext.len() < 2 {
+1393-        return Err(io::Error::new(io::ErrorKind::InvalidData, "bad frame"));
+1394-    }
+1395-
+1396-    let real_len = u16::from_be_bytes([padded_plaintext[0], padded_plaintext[1]]) as usize;
+1397-
+1398-    if real_len > padded_plaintext.len() - 2 {
+1399-        return Err(io::Error::new(io::ErrorKind::InvalidData, "bad plaintext length"));
+1400-    }
+1401-
+1402-    Ok(padded_plaintext[2..2 + real_len].to_vec())
+1403-}
+1404-
+1405-async fn secure_copy_client_side(
+1406-    inbound: &mut TcpStream,
+1407-    outbound: TcpStream,
+1408-    key: [u8; 32],
+1409-) -> io::Result<()> {
+1410-    let (mut in_r, mut in_w) = inbound.split();
+1411-    let (mut out_r, mut out_w) = outbound.into_split();
+1412-
+1413-    let key_send = key;
+1414-    let key_recv = key;
+1415-
+1416-    let send_task = async move {
+1417-        let mut buf = vec![0u8; 16 * 1024];
+1418-        let mut counter = 0u64;
+1419-
+1420-        loop {
+1421-            let n = in_r.read(&mut buf).await?;
+1422-            if n == 0 {
+1423-                break;
+1424-            }
+1425-
+1426-            write_encrypted_frame(&mut out_w, &key_send, 0, &mut counter, &buf[..n]).await?;
+1427-        }
+1428-
+1429-        Ok::<(), io::Error>(())
+1430-    };
+1431-
+1432-    let recv_task = async move {
+1433-        let mut counter = 0u64;
+1434-
+1435-        loop {
+1436-            let plaintext = read_encrypted_frame(&mut out_r, &key_recv, 1, &mut counter).await?;
+1437-
+1438-            in_w.write_all(&plaintext).await?;
+1439-            in_w.flush().await?;
+1440-        }
+1441-
+1442-        #[allow(unreachable_code)]
+1443-        Ok::<(), io::Error>(())
+1444-    };
+1445-
+1446-    let _ = tokio::try_join!(send_task, recv_task)?;
+1447-
+1448-    Ok(())
+1449-}
+1450-
+1451-async fn secure_copy_server_side(
+1452-    stream: TcpStream,
+1453:    remote_stream: TcpStream,
+1454-    key: [u8; 32],
+1455-) -> io::Result<()> {
+1456-    let (mut fang_r, mut fang_w) = stream.into_split();
+1457:    let (mut remote_r, mut remote_w) = remote_stream.into_split();
+1458-
+1459-    let key_recv = key;
+1460-    let key_send = key;
+1461-
+1462-    let recv_from_client = async move {
+1463-        let mut counter = 0u64;
+1464-
+1465-        loop {
+1466-            let plaintext = read_encrypted_frame(&mut fang_r, &key_recv, 0, &mut counter).await?;
+1467-
+1468:            remote_w.write_all(&plaintext).await?;
+1469:            remote_w.flush().await?;
+1470-        }
+1471-
+1472-        #[allow(unreachable_code)]
+1473-        Ok::<(), io::Error>(())
+1474-    };
+1475-
+1476-    let send_to_client = async move {
+1477-        let mut buf = vec![0u8; 16 * 1024];
+1478-        let mut counter = 0u64;
+1479-
+1480-        loop {
+1481:            let n = remote_r.read(&mut buf).await?;
+1482-            if n == 0 {
+1483-                break;
+1484-            }
+1485-
+1486-            write_encrypted_frame(&mut fang_w, &key_send, 1, &mut counter, &buf[..n]).await?;
+1487-        }
+1488-
+1489-        Ok::<(), io::Error>(())
+1490-    };
+1491-
+1492-    let _ = tokio::try_join!(recv_from_client, send_to_client)?;
+1493-
+1494-    Ok(())
+1495-}
+1496-
+1497-mod anyhow_free {
+1498-    pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+1499-}
