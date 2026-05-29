@@ -1847,7 +1847,7 @@ async fn secure_copy_client_side(
     let (mut out_r, mut out_w) = outbound.into_split();
 
     let client_to_server = async {
-        let mut buf = vec![0u8; 16 * 1024];
+        let mut buf = vec![0u8; 1400];
         let mut counter = 0u64;
 
         loop {
@@ -1916,7 +1916,7 @@ async fn secure_copy_server_side(
     };
 
     let remote_to_client = async {
-        let mut buf = vec![0u8; 16 * 1024];
+        let mut buf = vec![0u8; 1400];
         let mut counter = 0u64;
 
         loop {
