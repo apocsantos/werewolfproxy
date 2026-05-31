@@ -9,6 +9,7 @@ WOLFB="./scripts/wolf-b.sh"
 TARGET_URL="${WEREWOLF_TARGET_URL:-http://127.0.0.1:8080}"
 QUIC_URL="${WEREWOLF_QUIC_URL:-http://127.0.0.1:9020}"
 TCP_URL="${WEREWOLF_TCP_URL:-http://127.0.0.1:9021}"
+TCP_ENC_URL="${WEREWOLF_TCP_ENC_URL:-http://127.0.0.1:9022}"
 
 pass() { echo "✅ $1"; }
 fail() { echo "❌ $1"; exit 1; }
