@@ -1895,17 +1895,23 @@ async fn secure_copy_client_side(
 
         loop {
             eprintln!("TCPV2 client waiting server->client counter={}", counter);
-            match read_encrypted_frame(&mut out_r, &key, 1, &mut counter).await {
-                Ok(plaintext) => {
+            match tokio::time::timeout(
+                Duration::from_secs(60),
+                read_encrypted_frame(&mut out_r, &key, 1, &mut counter),
+            ).await {
+                Ok(Ok(plaintext)) => {
                     eprintln!("TCPV2 client recv server->client plaintext={} counter={}", plaintext.len(), counter);
                     in_w.write_all(&plaintext).await?;
                     in_w.flush().await?;
                 }
-                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                Ok(Err(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
                     let _ = in_w.shutdown().await;
                     return Ok::<(), io::Error>(());
                 }
-                Err(e) => return Err(e),
+                Ok(Err(e)) => return Err(e),
+                Err(_) => {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "tcp-v2 client read idle timeout"));
+                }
             }
         }
     };
@@ -1927,17 +1933,23 @@ async fn secure_copy_server_side(
 
         loop {
             eprintln!("TCPV2 server waiting client->remote counter={}", counter);
-            match read_encrypted_frame(&mut fang_r, &key, 0, &mut counter).await {
-                Ok(plaintext) => {
+            match tokio::time::timeout(
+                Duration::from_secs(60),
+                read_encrypted_frame(&mut fang_r, &key, 0, &mut counter),
+            ).await {
+                Ok(Ok(plaintext)) => {
                     eprintln!("TCPV2 server recv client->remote plaintext={} counter={}", plaintext.len(), counter);
                     remote_w.write_all(&plaintext).await?;
                     remote_w.flush().await?;
                 }
-                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                Ok(Err(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
                     let _ = remote_w.shutdown().await;
                     return Ok::<(), io::Error>(());
                 }
-                Err(e) => return Err(e),
+                Ok(Err(e)) => return Err(e),
+                Err(_) => {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "tcp-v2 server read idle timeout"));
+                }
             }
         }
     };
