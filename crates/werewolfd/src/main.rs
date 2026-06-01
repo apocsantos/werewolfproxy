@@ -489,8 +489,11 @@ async fn run_quic_fang_listener(
                         println!("🧠 QUIC nonce accepted");
                         println!("🦷 Native QUIC target request: {}", target);
 
-                        match tokio::net::TcpStream::connect(&target).await {
-                            Ok(mut target_stream) => {
+                        match tokio::time::timeout(
+                            Duration::from_secs(5),
+                            tokio::net::TcpStream::connect(&target),
+                        ).await {
+                            Ok(Ok(mut target_stream)) => {
                                 println!("✅ target connected: {}", target);
 
                                 let (mut target_read, mut target_write) = target_stream.split();
@@ -505,13 +508,21 @@ async fn run_quic_fang_listener(
 
                                 let _ = tokio::join!(up, down);
                             }
-                            Err(e) => {
+                            Ok(Err(e)) => {
                                 ww_error!(
                                     "QUIC",
                                     "TARGET_CONNECT_FAILED",
                                     "❌ target connect failed {}: {}",
                                     target,
                                     e
+                                );
+                            }
+                            Err(_) => {
+                                ww_error!(
+                                    "QUIC",
+                                    "TARGET_CONNECT_TIMEOUT",
+                                    "❌ target connect timed out {} after 5s",
+                                    target
                                 );
                             }
                         }
@@ -653,7 +664,12 @@ async fn handle_fang_pipe(stream: TcpStream, state: Arc<Mutex<DaemonState>>) -> 
     let ack_signature = sign_message(&receiver_identity, ack_text.as_bytes())
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-    let remote_stream = TcpStream::connect(remote).await?;
+    let remote_stream = tokio::time::timeout(
+        Duration::from_secs(5),
+        TcpStream::connect(remote),
+    )
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "remote connect timed out"))??;
 
     let ack = json!({
         "ok": true,
@@ -1539,14 +1555,20 @@ async fn run_plain_tcp_forwarder(
         let fang_id = fang_id.to_string();
 
         tokio::spawn(async move {
-            match TcpStream::connect(&remote).await {
-                Ok(mut outbound) => {
+            match tokio::time::timeout(
+                Duration::from_secs(5),
+                TcpStream::connect(&remote),
+            ).await {
+                Ok(Ok(mut outbound)) => {
                     if let Err(e) = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await {
                         eprintln!("🦷 {} plain client {} pipe error: {}", fang_id, client_addr, e);
                     }
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     eprintln!("🦷 {} plain target connect error {}: {}", fang_id, remote, e);
+                }
+                Err(_) => {
+                    eprintln!("🦷 {} plain target connect timed out after 5s: {}", fang_id, remote);
                 }
             }
         });
@@ -1587,7 +1609,12 @@ async fn pipe_one_fang_connection(
     remote: &str,
     identity: PeltIdentity,
 ) -> io::Result<()> {
-    let mut outbound = TcpStream::connect(peer_addr).await?;
+    let mut outbound = tokio::time::timeout(
+        Duration::from_secs(5),
+        TcpStream::connect(peer_addr),
+    )
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "peer connect timed out"))??;
 
     let nonce = format!(
         "{}",
