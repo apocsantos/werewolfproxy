@@ -15,6 +15,18 @@ pass() { echo "✅ $1"; }
 fail() { echo "❌ $1"; exit 1; }
 warn() { echo "⚠️ $1"; }
 
+restore_quic_on_exit() {
+  if ! curl --max-time 3 -fsS "${QUIC_URL:-http://127.0.0.1:9020}" >/dev/null 2>&1; then
+    echo
+    echo "🔁 Cleanup: restoring QUIC Fang..."
+    "$WOLFB" fang open-profile home-web-quic >/dev/null 2>&1 || true
+    sleep 1
+  fi
+}
+
+trap restore_quic_on_exit EXIT
+
+
 echo "🐺 WerewolfProxy RC Gate"
 echo "========================"
 echo
