@@ -6,6 +6,7 @@ SERVICE="werewolf-b"
 TARGET_URL="${WEREWOLF_TARGET_URL:-http://127.0.0.1:8080}"
 QUIC_URL="${WEREWOLF_QUIC_URL:-http://127.0.0.1:9020}"
 TCP_URL="${WEREWOLF_TCP_URL:-http://127.0.0.1:9021}"
+TCP_ENC_URL="${WEREWOLF_TCP_ENC_URL:-http://127.0.0.1:9022}"
 
 if [[ "${1:-}" == "restart" ]]; then
   echo "🐺 Restarting $SERVICE..."
@@ -77,6 +78,16 @@ if [[ "${1:-}" == "transport-check" ]]; then
   fi
 
   echo
+  echo "🔐 TCP Encrypted v2"
+  if curl --max-time 5 -fsS "$TCP_ENC_URL" >/dev/null; then
+    echo "  tcp-enc-v2:   healthy ✅"
+    tcp_enc_ok=1
+  else
+    echo "  tcp-enc-v2:   failed ❌"
+    tcp_enc_ok=0
+  fi
+
+  echo
   echo "📊 Recommendation"
   if [[ "$quic_ok" == "1" ]]; then
     echo "  transport:    QUIC primary 🟢"
@@ -122,12 +133,28 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   fi
 
   echo
+  echo "Encrypted fallback transport:"
+  echo "  type:        TCP encrypted v2"
+  echo "  url:         $TCP_ENC_URL"
+
+  if curl --max-time 5 -fsS "$TCP_ENC_URL" >/dev/null; then
+    echo "  tunnel:      healthy ✅"
+    tcp_enc_ok=1
+  else
+    echo "  tunnel:      failed ❌"
+    tcp_enc_ok=0
+  fi
+
+  echo
   echo "Decision:"
   if [[ "$quic_ok" == "1" ]]; then
     echo "  action:      stay on QUIC 🟢"
     echo "  url:         $QUIC_URL"
+  elif [[ "${tcp_enc_ok:-0}" == "1" ]]; then
+    echo "  action:      fallback to TCP encrypted v2 🟡"
+    echo "  url:         $TCP_ENC_URL"
   elif [[ "$tcp_ok" == "1" ]]; then
-    echo "  action:      fallback to TCP 🟡"
+    echo "  action:      fallback to TCP plain 🟠"
     echo "  url:         $TCP_URL"
   else
     echo "  action:      no viable transport 🔴"
@@ -147,16 +174,25 @@ if [[ "${1:-}" == "auto" ]]; then
     exit 0
   fi
 
-  echo "⚠️ QUIC failed, trying TCP fallback..."
+  echo "⚠️ QUIC failed, trying TCP encrypted v2..."
+
+  if curl --max-time 5 -fsS "$TCP_ENC_URL" >/dev/null; then
+    echo "transport: TCP encrypted v2 🟡"
+    echo "url:       $TCP_ENC_URL"
+    exit 0
+  fi
+
+  echo "⚠️ TCP encrypted v2 failed, trying TCP plain fallback..."
 
   if curl --max-time 5 -fsS "$TCP_URL" >/dev/null; then
-    echo "transport: TCP fallback 🟡"
+    echo "transport: TCP plain fallback 🟠"
     echo "url:       $TCP_URL"
     exit 0
   fi
 
   echo "transport: unavailable 🔴"
   echo "quic:      failed"
+  echo "tcp-enc:   failed"
   echo "tcp:       failed"
   exit 2
 fi
@@ -168,11 +204,13 @@ if [[ "${1:-}" == "benchmark" ]]; then
   echo "target: $TARGET_URL"
   echo "quic:   $QUIC_URL"
   echo "tcp:    $TCP_URL"
+  echo "tcp-v2: $TCP_ENC_URL"
   echo
 
   direct=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$TARGET_URL" || echo "fail")
   quic=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$QUIC_URL" || echo "fail")
   tcp=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$TCP_URL" || echo "fail")
+  tcp_enc=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$TCP_ENC_URL" || echo "fail")
 
   echo "🌐 Direct target latency"
   echo "  direct: $direct s"
@@ -182,6 +220,9 @@ if [[ "${1:-}" == "benchmark" ]]; then
   echo
   echo "🦷 TCP fallback latency"
   echo "  tcp:    $tcp s"
+  echo
+  echo "🔐 TCP encrypted v2 latency"
+  echo "  tcp-v2: $tcp_enc s"
   exit 0
 fi
 
