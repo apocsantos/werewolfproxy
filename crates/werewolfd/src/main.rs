@@ -1853,7 +1853,7 @@ async fn secure_copy_client_side(
         loop {
             let n = in_r.read(&mut buf).await?;
             if n == 0 {
-                // TCPV2: no aggressive shutdown; allow peer EOF
+                let _ = out_w.shutdown().await;
                 return Ok::<(), io::Error>(());
             }
 
@@ -1875,7 +1875,7 @@ async fn secure_copy_client_side(
                     in_w.flush().await?;
                 }
                 Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
-                    // TCPV2: no aggressive shutdown; allow client EOF
+                    let _ = in_w.shutdown().await;
                     return Ok::<(), io::Error>(());
                 }
                 Err(e) => return Err(e),
@@ -1907,7 +1907,7 @@ async fn secure_copy_server_side(
                     remote_w.flush().await?;
                 }
                 Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
-                    // TCPV2: no aggressive shutdown; allow remote EOF
+                    let _ = remote_w.shutdown().await;
                     return Ok::<(), io::Error>(());
                 }
                 Err(e) => return Err(e),
@@ -1922,7 +1922,7 @@ async fn secure_copy_server_side(
         loop {
             let n = remote_r.read(&mut buf).await?;
             if n == 0 {
-                // TCPV2: no aggressive shutdown; allow fang EOF
+                let _ = fang_w.shutdown().await;
                 return Ok::<(), io::Error>(());
             }
 
