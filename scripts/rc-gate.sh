@@ -88,7 +88,7 @@ sleep 1
 
 "$WOLFB" auto >/tmp/wolf-b-auto-fallback.txt
 cat /tmp/wolf-b-auto-fallback.txt
-grep -q "transport: TCP fallback" /tmp/wolf-b-auto-fallback.txt && pass "auto falls back to TCP" || fail "auto fallback failed"
+grep -q "transport: TCP encrypted v2" /tmp/wolf-b-auto-fallback.txt && pass "auto falls back to TCP encrypted v2" || fail "auto fallback failed"
 
 echo
 echo "🔁 Restore QUIC"
