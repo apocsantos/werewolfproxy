@@ -9,10 +9,23 @@ WOLFB="./scripts/wolf-b.sh"
 TARGET_URL="${WEREWOLF_TARGET_URL:-http://127.0.0.1:8080}"
 QUIC_URL="${WEREWOLF_QUIC_URL:-http://127.0.0.1:9020}"
 TCP_URL="${WEREWOLF_TCP_URL:-http://127.0.0.1:9021}"
+TCP_ENC_URL="${WEREWOLF_TCP_ENC_URL:-http://127.0.0.1:9022}"
 
 pass() { echo "✅ $1"; }
 fail() { echo "❌ $1"; exit 1; }
 warn() { echo "⚠️ $1"; }
+
+restore_quic_on_exit() {
+  if ! curl --max-time 3 -fsS "${QUIC_URL:-http://127.0.0.1:9020}" >/dev/null 2>&1; then
+    echo
+    echo "🔁 Cleanup: restoring QUIC Fang..."
+    "$WOLFB" fang open-profile home-web-quic >/dev/null 2>&1 || true
+    sleep 1
+  fi
+}
+
+trap restore_quic_on_exit EXIT
+
 
 echo "🐺 WerewolfProxy RC Gate"
 echo "========================"
@@ -87,7 +100,7 @@ sleep 1
 
 "$WOLFB" auto >/tmp/wolf-b-auto-fallback.txt
 cat /tmp/wolf-b-auto-fallback.txt
-grep -q "transport: TCP fallback" /tmp/wolf-b-auto-fallback.txt && pass "auto falls back to TCP" || fail "auto fallback failed"
+grep -q "transport: TCP encrypted v2" /tmp/wolf-b-auto-fallback.txt && pass "auto falls back to TCP encrypted v2" || fail "auto fallback failed"
 
 echo
 echo "🔁 Restore QUIC"

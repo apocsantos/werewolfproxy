@@ -1847,7 +1847,7 @@ async fn secure_copy_client_side(
     let (mut out_r, mut out_w) = outbound.into_split();
 
     let client_to_server = async {
-        let mut buf = vec![0u8; 16 * 1024];
+        let mut buf = vec![0u8; 1400];
         let mut counter = 0u64;
 
         loop {
@@ -1857,7 +1857,9 @@ async fn secure_copy_client_side(
                 return Ok::<(), io::Error>(());
             }
 
+            eprintln!("TCPV2 client->server plaintext={} counter={}", n, counter);
             write_encrypted_frame(&mut out_w, &key, 0, &mut counter, &buf[..n]).await?;
+            eprintln!("TCPV2 client->server sent counter={}", counter);
         }
     };
 
@@ -1865,8 +1867,10 @@ async fn secure_copy_client_side(
         let mut counter = 0u64;
 
         loop {
+            eprintln!("TCPV2 client waiting server->client counter={}", counter);
             match read_encrypted_frame(&mut out_r, &key, 1, &mut counter).await {
                 Ok(plaintext) => {
+                    eprintln!("TCPV2 client recv server->client plaintext={} counter={}", plaintext.len(), counter);
                     in_w.write_all(&plaintext).await?;
                     in_w.flush().await?;
                 }
@@ -1895,8 +1899,10 @@ async fn secure_copy_server_side(
         let mut counter = 0u64;
 
         loop {
+            eprintln!("TCPV2 server waiting client->remote counter={}", counter);
             match read_encrypted_frame(&mut fang_r, &key, 0, &mut counter).await {
                 Ok(plaintext) => {
+                    eprintln!("TCPV2 server recv client->remote plaintext={} counter={}", plaintext.len(), counter);
                     remote_w.write_all(&plaintext).await?;
                     remote_w.flush().await?;
                 }
@@ -1910,7 +1916,7 @@ async fn secure_copy_server_side(
     };
 
     let remote_to_client = async {
-        let mut buf = vec![0u8; 16 * 1024];
+        let mut buf = vec![0u8; 1400];
         let mut counter = 0u64;
 
         loop {
@@ -1920,7 +1926,9 @@ async fn secure_copy_server_side(
                 return Ok::<(), io::Error>(());
             }
 
+            eprintln!("TCPV2 server->client plaintext={} counter={}", n, counter);
             write_encrypted_frame(&mut fang_w, &key, 1, &mut counter, &buf[..n]).await?;
+            eprintln!("TCPV2 server->client sent counter={}", counter);
         }
     };
 
