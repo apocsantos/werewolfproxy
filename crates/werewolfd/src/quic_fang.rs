@@ -29,9 +29,7 @@ pub async fn open_quic_fang(
 
         println!(
             "[INFO][QUIC][FANG_OPEN] 🐺 QUIC Fang listening on {} → {} target {}",
-            local_addr,
-            quic_server,
-            remote_addr
+            local_addr, quic_server, remote_addr
         );
 
         loop {
@@ -63,9 +61,7 @@ pub async fn open_quic_fang(
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("endpoint failed: {}", e);
-                            tokio::time::sleep(
-                                std::time::Duration::from_secs(retry_delay)
-                            ).await;
+                            tokio::time::sleep(std::time::Duration::from_secs(retry_delay)).await;
 
                             retry_delay = (retry_delay * 2).min(15);
                             continue;
@@ -77,20 +73,14 @@ pub async fn open_quic_fang(
                         Err(e) => {
                             eprintln!("connect setup failed: {}", e);
 
-                            tokio::time::sleep(
-                                std::time::Duration::from_secs(retry_delay)
-                            ).await;
+                            tokio::time::sleep(std::time::Duration::from_secs(retry_delay)).await;
 
                             retry_delay = (retry_delay * 2).min(15);
                             continue;
                         }
                     };
 
-                    match tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
-                        connecting,
-                    )
-                    .await
+                    match tokio::time::timeout(std::time::Duration::from_secs(5), connecting).await
                     {
                         Ok(Ok(v)) => {
                             if retry_delay > 1 {
@@ -99,23 +89,14 @@ pub async fn open_quic_fang(
                             break v;
                         }
                         Ok(Err(e)) => {
-                            eprintln!(
-                                "⚠️ QUIC connect failed: {} (retry {}s)",
-                                e,
-                                retry_delay
-                            );
+                            eprintln!("⚠️ QUIC connect failed: {} (retry {}s)", e, retry_delay);
                         }
                         Err(_) => {
-                            eprintln!(
-                                "⚠️ QUIC timeout (retry {}s)",
-                                retry_delay
-                            );
+                            eprintln!("⚠️ QUIC timeout (retry {}s)", retry_delay);
                         }
                     }
 
-                    tokio::time::sleep(
-                        std::time::Duration::from_secs(retry_delay)
-                    ).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(retry_delay)).await;
 
                     retry_delay = (retry_delay * 2).min(15);
                 };
@@ -142,9 +123,7 @@ pub async fn open_quic_fang(
 
                 let signed_payload = format!(
                     "fang.quic.open|{}|{}|{}",
-                    sender_fingerprint,
-                    nonce,
-                    remote_addr
+                    sender_fingerprint, nonce, remote_addr
                 );
 
                 let signature = match sign_message(&identity, signed_payload.as_bytes()) {
@@ -164,10 +143,7 @@ pub async fn open_quic_fang(
                     "signature": signature,
                 });
 
-                if let Err(e) = send
-                    .write_all(format!("{}\n", request).as_bytes())
-                    .await
-                {
+                if let Err(e) = send.write_all(format!("{}\n", request).as_bytes()).await {
                     eprintln!("send target failed: {}", e);
                     return;
                 }

@@ -22,9 +22,8 @@ pub fn load_fang_profiles(path: &Path) -> io::Result<Vec<FangProfile>> {
     }
 
     let data = fs::read_to_string(path)?;
-    let profiles: Vec<FangProfile> =
-        serde_json::from_str(&data)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    let profiles: Vec<FangProfile> = serde_json::from_str(&data)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
     Ok(profiles)
 }
