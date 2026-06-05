@@ -1,12 +1,12 @@
 #![allow(dead_code)]
-use quinn::{Endpoint, ServerConfig, ClientConfig};
+use quinn::{ClientConfig, Endpoint, ServerConfig};
 use rcgen::generate_simple_self_signed;
 use rustls::crypto::CryptoProvider;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use rustls::{
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     DigitallySignedStruct, SignatureScheme,
 };
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use std::{error::Error, net::SocketAddr, sync::Arc};
 
 #[derive(Debug)]
@@ -61,9 +61,7 @@ pub fn make_server_endpoint(addr: SocketAddr) -> Result<Endpoint, Box<dyn Error 
     let cert = generate_simple_self_signed(vec!["localhost".into()])?;
     let cert_der = cert.cert.der().clone();
 
-    let key_der = PrivateKeyDer::Pkcs8(
-        PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der()),
-    );
+    let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der()));
 
     let server_config = ServerConfig::with_single_cert(vec![cert_der], key_der)?;
     let endpoint = Endpoint::server(server_config, addr)?;

@@ -1,10 +1,10 @@
 use quinn::{ClientConfig, Endpoint};
+use rustls::crypto::CryptoProvider;
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     DigitallySignedStruct, SignatureScheme,
 };
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use rustls::crypto::CryptoProvider;
 use std::{error::Error, net::SocketAddr, sync::Arc};
 
 #[derive(Debug)]
