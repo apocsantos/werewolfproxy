@@ -252,6 +252,20 @@ if [[ "${1:-}" == "auto" ]]; then
   exit 2
 fi
 
+if [[ "${1:-}" == "watchdog-status" ]]; then
+  echo "🐺 Werewolf B Watchdog Status"
+  echo "============================"
+  echo
+
+  systemctl --user status werewolf-b-watchdog.timer --no-pager || true
+  echo
+  systemctl --user status werewolf-b-watchdog.service --no-pager || true
+  echo
+  journalctl --user -u werewolf-b-watchdog.service -n 30 --no-pager || true
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "watch" ]]; then
   interval="${2:-10}"
 
