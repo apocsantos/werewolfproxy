@@ -38,6 +38,10 @@ use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
 const WEREWOLF_VERSION: &str = "v0.1.0-rc1";
 
+const TRANSPORT_QUIC: &str = "quic";
+const TRANSPORT_TCP_ENCRYPTED: &str = "tcp";
+const TRANSPORT_TCP_PLAIN: &str = "tcp-plain";
+
 macro_rules! ww_info {
     ($subsystem:expr, $event:expr, $($arg:tt)*) => {
         println!("[INFO][{}][{}] {}", $subsystem, $event, format!($($arg)*));
@@ -857,7 +861,7 @@ async fn open_fang_from_parts(
         Err(e) => return ControlResponse::err(req_id, "FANG_BAD_ADDRESS", e),
     };
 
-    if transport == "quic" {
+    if transport == TRANSPORT_QUIC {
         let fang_id = generate_fang_id(&peer, &local, &remote, st.fangs.len());
 
         let handle = match open_quic_fang(
@@ -894,7 +898,7 @@ async fn open_fang_from_parts(
                 "local": local,
                 "remote": remote,
                 "state": "active",
-                "transport": "quic",
+                "transport": TRANSPORT_QUIC,
                 "quic_server": peer_addr
             }),
         );
@@ -921,7 +925,7 @@ async fn open_fang_from_parts(
     let task_transport = transport.clone();
 
     let handle = tokio::spawn(async move {
-        let result = if task_transport == "tcp-plain" {
+        let result = if task_transport == TRANSPORT_TCP_PLAIN {
             run_plain_tcp_forwarder(&task_fang_id, &task_local, &task_remote).await
         } else {
             run_local_fang_forwarder(
@@ -1246,7 +1250,7 @@ async fn handle_request(
 
             let transport = req.args["transport"]
                 .as_str()
-                .unwrap_or("quic")
+                .unwrap_or(TRANSPORT_QUIC)
                 .trim()
                 .to_string();
 
@@ -1279,7 +1283,7 @@ async fn handle_request(
 
             let transport = req.args["transport"]
                 .as_str()
-                .unwrap_or("quic")
+                .unwrap_or(TRANSPORT_QUIC)
                 .trim()
                 .to_string();
 
@@ -1760,13 +1764,13 @@ fn resolve_peer_address_for_transport(
     transport: &str,
 ) -> Result<String, String> {
     match transport {
-        "tcp" | "tcp-plain" => match parse_fang_transport(peer_address) {
+        "tcp" | TRANSPORT_TCP_PLAIN => match parse_fang_transport(peer_address) {
             Ok(FangTransport::Tcp(addr)) => Ok(addr),
             Ok(FangTransport::Quic(addr)) => Ok(addr),
             Err(e) => Err(e),
         },
 
-        "quic" => match parse_fang_transport(peer_address) {
+        TRANSPORT_QUIC => match parse_fang_transport(peer_address) {
             Ok(FangTransport::Quic(addr)) => Ok(addr),
             _ => Err("Peer QUIC address invalid".into()),
         },
