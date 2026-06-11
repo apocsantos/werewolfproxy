@@ -252,6 +252,27 @@ if [[ "${1:-}" == "auto" ]]; then
   exit 2
 fi
 
+if [[ "${1:-}" == "health-summary" ]]; then
+  echo "🐺 Werewolf Transport Health"
+  echo "==========================="
+  echo
+
+  data="$("$0" transport-health-json)"
+
+  quic="$(echo "$data" | jq -r '.transports.quic.healthy')"
+  tcp_plain="$(echo "$data" | jq -r '.transports["tcp-plain"].healthy')"
+  tcp_enc="$(echo "$data" | jq -r '.transports["tcp-encrypted-v2"].healthy')"
+
+  [[ "$quic" == "true" ]] && echo "⚡ QUIC:             healthy ✅" || echo "⚡ QUIC:             failed ❌"
+  [[ "$tcp_enc" == "true" ]] && echo "🔐 TCP encrypted v2: healthy ✅" || echo "🔐 TCP encrypted v2: failed ❌"
+  [[ "$tcp_plain" == "true" ]] && echo "🦷 TCP plain:        healthy ✅" || echo "🦷 TCP plain:        failed ❌"
+
+  echo
+  "$0" auto --json | jq .
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "transport-health-json" ]]; then
   quic_ok=false
   tcp_ok=false
