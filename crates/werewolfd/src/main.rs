@@ -1747,6 +1747,15 @@ enum FangTransport {
     Quic(String),
 }
 
+fn normalized_transport(input: &str) -> Result<&'static str, String> {
+    match input.trim() {
+        TRANSPORT_QUIC => Ok(TRANSPORT_QUIC),
+        TRANSPORT_TCP_ENCRYPTED => Ok(TRANSPORT_TCP_ENCRYPTED),
+        TRANSPORT_TCP_PLAIN => Ok(TRANSPORT_TCP_PLAIN),
+        other => Err(format!("Unknown transport: {}", other)),
+    }
+}
+
 fn parse_fang_transport(address: &str) -> Result<FangTransport, String> {
     if let Some(rest) = address.strip_prefix("tcp://") {
         return Ok(FangTransport::Tcp(rest.to_string()));
