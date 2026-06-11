@@ -431,6 +431,53 @@ if [[ "${1:-}" == "transport-health-json" ]]; then
 fi
 
 if [[ "${1:-}" == "benchmark" ]]; then
+  json_mode=0
+  if [[ "${2:-}" == "--json" ]]; then
+    json_mode=1
+  fi
+
+  direct=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$TARGET_URL" || echo "fail")
+  quic=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$QUIC_URL" || echo "fail")
+  tcp=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$TCP_URL" || echo "fail")
+  tcp_enc=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$TCP_ENC_URL" || echo "fail")
+
+  if [[ "$json_mode" == "1" ]]; then
+    jq -n \
+      --arg target "$TARGET_URL" \
+      --arg quic_url "$QUIC_URL" \
+      --arg tcp_url "$TCP_URL" \
+      --arg tcp_enc_url "$TCP_ENC_URL" \
+      --arg direct "$direct" \
+      --arg quic "$quic" \
+      --arg tcp "$tcp" \
+      --arg tcp_enc "$tcp_enc" \
+      '{
+        target: {
+          url: $target,
+          latency_seconds: (if $direct == "fail" then null else ($direct | tonumber) end),
+          healthy: ($direct != "fail")
+        },
+        transports: {
+          quic: {
+            url: $quic_url,
+            latency_seconds: (if $quic == "fail" then null else ($quic | tonumber) end),
+            healthy: ($quic != "fail")
+          },
+          "tcp-plain": {
+            url: $tcp_url,
+            latency_seconds: (if $tcp == "fail" then null else ($tcp | tonumber) end),
+            healthy: ($tcp != "fail")
+          },
+          "tcp-encrypted-v2": {
+            url: $tcp_enc_url,
+            latency_seconds: (if $tcp_enc == "fail" then null else ($tcp_enc | tonumber) end),
+            healthy: ($tcp_enc != "fail")
+          }
+        }
+      }'
+    exit 0
+  fi
+
   echo "🐺 Werewolf Benchmark (wolf-b)"
   echo "================================"
   echo
@@ -439,11 +486,6 @@ if [[ "${1:-}" == "benchmark" ]]; then
   echo "tcp:    $TCP_URL"
   echo "tcp-v2: $TCP_ENC_URL"
   echo
-
-  direct=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$TARGET_URL" || echo "fail")
-  quic=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$QUIC_URL" || echo "fail")
-  tcp=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$TCP_URL" || echo "fail")
-  tcp_enc=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$TCP_ENC_URL" || echo "fail")
 
   echo "🌐 Direct target latency"
   echo "  direct: $direct s"
