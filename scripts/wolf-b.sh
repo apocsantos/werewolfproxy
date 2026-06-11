@@ -252,6 +252,12 @@ if [[ "${1:-}" == "auto" ]]; then
   exit 2
 fi
 
+if [[ "${1:-}" == "auto-heal-json" ]]; then
+  "$0" heal --quiet >/dev/null 2>&1 || true
+  "$0" auto --json
+  exit $?
+fi
+
 if [[ "${1:-}" == "heal" ]]; then
   quiet=0
   if [[ "${2:-}" == "--quiet" ]]; then
