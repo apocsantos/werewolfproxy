@@ -252,6 +252,24 @@ if [[ "${1:-}" == "auto" ]]; then
   exit 2
 fi
 
+if [[ "${1:-}" == "watch" ]]; then
+  interval="${2:-10}"
+
+  echo "🐺 Werewolf Transport Watch"
+  echo "=========================="
+  echo "interval: ${interval}s"
+  echo "Ctrl+C to stop"
+  echo
+
+  while true; do
+    date '+%Y-%m-%d %H:%M:%S'
+    "$0" heal --quiet >/dev/null 2>&1 || true
+    "$0" health-summary
+    echo
+    sleep "$interval"
+  done
+fi
+
 if [[ "${1:-}" == "auto-heal-json" ]]; then
   "$0" heal --quiet >/dev/null 2>&1 || true
   "$0" auto --json
