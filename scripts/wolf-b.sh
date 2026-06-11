@@ -1,12 +1,32 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 SOCKET="/tmp/wolf-b.sock"
 SERVICE="werewolf-b"
+
 TARGET_URL="${WEREWOLF_TARGET_URL:-http://127.0.0.1:8080}"
 QUIC_URL="${WEREWOLF_QUIC_URL:-http://127.0.0.1:9020}"
 TCP_URL="${WEREWOLF_TCP_URL:-http://127.0.0.1:9021}"
 TCP_ENC_URL="${WEREWOLF_TCP_ENC_URL:-http://127.0.0.1:9022}"
+
+is_healthy() {
+  curl --max-time 5 -fsS "$1" >/dev/null
+}
+
+measure_latency() {
+  local url="$1"
+  local out
+  if out="$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$url")"; then
+    echo "$out"
+  else
+    echo "fail"
+  fi
+}
+
+choose_json() {
+  printf '{"transport":"%s","label":"%s","url":%s,"healthy":%s,"policy":"%s"}\n' \
+    "$1" "$2" "$3" "$4" "${5:-secure}"
+}
 
 if [[ "${1:-}" == "restart" ]]; then
   echo "🐺 Restarting $SERVICE..."
@@ -17,88 +37,93 @@ if [[ "${1:-}" == "restart" ]]; then
 fi
 
 if [[ "${1:-}" == "tail" ]]; then
-  echo "🐺 Werewolf Live Logs: wolf-b"
-  echo "Ctrl+C to exit"
-  echo
   exec journalctl --user -u "$SERVICE" -f
 fi
 
 if [[ "${1:-}" == "logs" ]]; then
   shift || true
   case "${1:-recent}" in
-    --errors|errors)
-      echo "🐺 Werewolf Logs (errors)"
-      exec journalctl --user -u "$SERVICE" --no-pager | grep -Ei "error|failed|refused|timeout|panic|warn" || true
-      ;;
-    --quic|quic)
-      echo "🐺 Werewolf Logs (quic)"
-      exec journalctl --user -u "$SERVICE" --no-pager | grep -Ei "quic" || true
-      ;;
-    --tcp|tcp)
-      echo "🐺 Werewolf Logs (tcp/fang)"
-      exec journalctl --user -u "$SERVICE" --no-pager | grep -Ei "tcp|fang" || true
-      ;;
-    *)
-      echo "🐺 Werewolf Logs (recent)"
-      exec journalctl --user -u "$SERVICE" -n 80 --no-pager
-      ;;
+    errors|--errors) exec journalctl --user -u "$SERVICE" --no-pager | grep -Ei "error|failed|refused|timeout|panic|warn" || true ;;
+    quic|--quic) exec journalctl --user -u "$SERVICE" --no-pager | grep -Ei "quic" || true ;;
+    tcp|--tcp) exec journalctl --user -u "$SERVICE" --no-pager | grep -Ei "tcp|fang" || true ;;
+    *) exec journalctl --user -u "$SERVICE" -n 80 --no-pager ;;
   esac
+fi
+
+if [[ "${1:-}" == "transport-health-json" ]]; then
+  quic_ok=false; tcp_ok=false; tcp_enc_ok=false
+  is_healthy "$QUIC_URL" && quic_ok=true || true
+  is_healthy "$TCP_URL" && tcp_ok=true || true
+  is_healthy "$TCP_ENC_URL" && tcp_enc_ok=true || true
+
+  jq -n \
+    --arg quic_url "$QUIC_URL" \
+    --arg tcp_url "$TCP_URL" \
+    --arg tcp_enc_url "$TCP_ENC_URL" \
+    --argjson quic_ok "$quic_ok" \
+    --argjson tcp_ok "$tcp_ok" \
+    --argjson tcp_enc_ok "$tcp_enc_ok" \
+    '{transports:{quic:{url:$quic_url,healthy:$quic_ok},"tcp-plain":{url:$tcp_url,healthy:$tcp_ok},"tcp-encrypted-v2":{url:$tcp_enc_url,healthy:$tcp_enc_ok}}}'
+  exit 0
+fi
+
+if [[ "${1:-}" == "health-summary" ]]; then
+  echo "🐺 Werewolf Transport Health"
+  echo "==========================="
+  echo
+
+  data="$("$0" transport-health-json)"
+  quic="$(echo "$data" | jq -r '.transports.quic.healthy')"
+  tcp_plain="$(echo "$data" | jq -r '.transports["tcp-plain"].healthy')"
+  tcp_enc="$(echo "$data" | jq -r '.transports["tcp-encrypted-v2"].healthy')"
+
+  [[ "$quic" == "true" ]] && echo "⚡ QUIC:             healthy ✅" || echo "⚡ QUIC:             failed ❌"
+  [[ "$tcp_enc" == "true" ]] && echo "🔐 TCP encrypted v2: healthy ✅" || echo "🔐 TCP encrypted v2: failed ❌"
+  [[ "$tcp_plain" == "true" ]] && echo "🦷 TCP plain:        healthy ✅" || echo "🦷 TCP plain:        failed ❌"
+
+  echo
+  "$0" auto --json | jq .
+  exit 0
+fi
+
+if [[ "${1:-}" == "heal" ]]; then
+  quiet=0
+  [[ "${2:-}" == "--quiet" ]] && quiet=1
+
+  [[ "$quiet" == "0" ]] && echo "🐺 Werewolf Transport Heal" && echo "=========================" && echo
+
+  ensure_profile() {
+    local name="$1"
+    local port="$2"
+
+    if "$0" fang list | grep -q "local:  127.0.0.1:${port}"; then
+      [[ "$quiet" == "0" ]] && echo "✅ $name already active on $port"
+    else
+      [[ "$quiet" == "0" ]] && echo "🔁 opening $name..."
+      "$0" fang open-profile "$name" >/dev/null || true
+    fi
+  }
+
+  ensure_profile home-web-tcp 9021
+  ensure_profile home-web-tcp-encrypted-v2 9022
+  ensure_profile large-transfer-tcp-v2 9032
+  ensure_profile home-web-quic 9020
+
+  [[ "$quiet" == "0" ]] && echo && "$0" health-summary
+  exit 0
+fi
+
+if [[ "${1:-}" == "auto-heal-json" ]]; then
+  "$0" heal --quiet >/dev/null 2>&1 || true
+  "$0" auto --json
+  exit $?
 fi
 
 if [[ "${1:-}" == "transport-check" ]]; then
   echo "🐺 Werewolf Transport Check (wolf-b)"
   echo "===================================="
   echo
-
-  echo "🌐 Target HTTP"
-  if curl --max-time 3 -fsS "$TARGET_URL" >/dev/null; then
-    echo "  target:       reachable ✅"
-  else
-    echo "  target:       failed ❌"
-  fi
-
-  echo
-  echo "🦷 QUIC Fang"
-  if curl --max-time 5 -fsS "$QUIC_URL" >/dev/null; then
-    echo "  quic:         healthy ✅"
-    quic_ok=1
-  else
-    echo "  quic:         failed ❌"
-    quic_ok=0
-  fi
-
-  echo
-  echo "🦷 TCP Fallback"
-  if curl --max-time 5 -fsS "$TCP_URL" >/dev/null; then
-    echo "  tcp:          healthy ✅"
-    tcp_ok=1
-  else
-    echo "  tcp:          failed ❌"
-    tcp_ok=0
-  fi
-
-  echo
-  echo "🔐 TCP Encrypted v2"
-  if curl --max-time 5 -fsS "$TCP_ENC_URL" >/dev/null; then
-    echo "  tcp-enc-v2:   healthy ✅"
-    tcp_enc_ok=1
-  else
-    echo "  tcp-enc-v2:   failed ❌"
-    tcp_enc_ok=0
-  fi
-
-  echo
-  echo "📊 Recommendation"
-  if [[ "$quic_ok" == "1" ]]; then
-    echo "  transport:    QUIC primary 🟢"
-    echo "  url:          $QUIC_URL"
-  elif [[ "$tcp_ok" == "1" ]]; then
-    echo "  transport:    TCP fallback 🟡"
-    echo "  url:          $TCP_URL"
-  else
-    echo "  transport:    none available 🔴"
-  fi
-
+  "$0" health-summary
   exit 0
 fi
 
@@ -106,98 +131,110 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   echo "🐺 Werewolf Fallback Plan (wolf-b)"
   echo "=================================="
   echo
-
-  echo "Primary transport:"
-  echo "  type:        QUIC"
-  echo "  url:         $QUIC_URL"
-
-  if curl --max-time 5 -fsS "$QUIC_URL" >/dev/null; then
-    echo "  tunnel:      healthy ✅"
-    quic_ok=1
-  else
-    echo "  tunnel:      failed ❌"
-    quic_ok=0
-  fi
-
-  echo
-  echo "Fallback transport:"
-  echo "  type:        TCP plain"
-  echo "  url:         $TCP_URL"
-
-  if curl --max-time 5 -fsS "$TCP_URL" >/dev/null; then
-    echo "  tunnel:      healthy ✅"
-    tcp_ok=1
-  else
-    echo "  tunnel:      failed ❌"
-    tcp_ok=0
-  fi
-
-  echo
-  echo "Encrypted fallback transport:"
-  echo "  type:        TCP encrypted v2"
-  echo "  url:         $TCP_ENC_URL"
-
-  if curl --max-time 5 -fsS "$TCP_ENC_URL" >/dev/null; then
-    echo "  tunnel:      healthy ✅"
-    tcp_enc_ok=1
-  else
-    echo "  tunnel:      failed ❌"
-    tcp_enc_ok=0
-  fi
-
-  echo
-  echo "Decision:"
-  if [[ "$quic_ok" == "1" ]]; then
-    echo "  action:      stay on QUIC 🟢"
-    echo "  url:         $QUIC_URL"
-  elif [[ "${tcp_enc_ok:-0}" == "1" ]]; then
-    echo "  action:      fallback to TCP encrypted v2 🟡"
-    echo "  url:         $TCP_ENC_URL"
-  elif [[ "$tcp_ok" == "1" ]]; then
-    echo "  action:      fallback to TCP plain 🟠"
-    echo "  url:         $TCP_URL"
-  else
-    echo "  action:      no viable transport 🔴"
-  fi
-
+  "$0" health-summary
   exit 0
 fi
 
 if [[ "${1:-}" == "auto" ]]; then
-  echo "🐺 Werewolf Auto Transport"
-  echo "========================="
-  echo
+  json_mode=0
+  policy="${WEREWOLF_TRANSPORT_POLICY:-secure}"
 
-  if curl --max-time 5 -fsS "$QUIC_URL" >/dev/null; then
-    echo "transport: QUIC 🟢"
-    echo "url:       $QUIC_URL"
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json) json_mode=1 ;;
+      --policy) shift || true; policy="${1:-secure}" ;;
+      --policy=*) policy="${1#--policy=}" ;;
+    esac
+    shift || true
+  done
+
+  emit_choice() {
+    local transport="$1"
+    local label="$2"
+    local url="$3"
+    if [[ "$json_mode" == "1" ]]; then
+      printf '{"transport":"%s","label":"%s","url":"%s","healthy":true,"policy":"%s"}\n' "$transport" "$label" "$url" "$policy"
+    else
+      echo "transport: $label"
+      echo "url:       $url"
+    fi
     exit 0
+  }
+
+  [[ "$json_mode" == "0" ]] && echo "🐺 Werewolf Auto Transport" && echo "=========================" && echo && echo "policy:    $policy"
+
+  if [[ "$policy" == "performance" ]]; then
+    data="$("$0" benchmark --json)"
+    best_transport=""
+    best_latency="999999"
+
+    for t in quic tcp-encrypted-v2 tcp-plain; do
+      healthy="$(echo "$data" | jq -r ".transports[\"$t\"].healthy")"
+      latency="$(echo "$data" | jq -r ".transports[\"$t\"].latency_seconds")"
+      [[ "$healthy" != "true" || "$latency" == "null" ]] && continue
+
+      if awk "BEGIN {exit !($latency < $best_latency)}"; then
+        best_latency="$latency"
+        best_transport="$t"
+      fi
+    done
+
+    case "$best_transport" in
+      quic) emit_choice "quic" "QUIC 🟢" "$QUIC_URL" ;;
+      tcp-encrypted-v2) emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL" ;;
+      tcp-plain) emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL" ;;
+    esac
   fi
 
-  echo "⚠️ QUIC failed, trying TCP encrypted v2..."
-
-  if curl --max-time 5 -fsS "$TCP_ENC_URL" >/dev/null; then
-    echo "transport: TCP encrypted v2 🟡"
-    echo "url:       $TCP_ENC_URL"
-    exit 0
+  if [[ "$policy" == "stealth" ]]; then
+    is_healthy "$TCP_ENC_URL" && emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL"
+    is_healthy "$TCP_URL" && emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL"
+    is_healthy "$QUIC_URL" && emit_choice "quic" "QUIC 🟢" "$QUIC_URL"
   fi
 
-  echo "⚠️ TCP encrypted v2 failed, trying TCP plain fallback..."
+  is_healthy "$QUIC_URL" && emit_choice "quic" "QUIC 🟢" "$QUIC_URL"
+  is_healthy "$TCP_ENC_URL" && emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL"
+  is_healthy "$TCP_URL" && emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL"
 
-  if curl --max-time 5 -fsS "$TCP_URL" >/dev/null; then
-    echo "transport: TCP plain fallback 🟠"
-    echo "url:       $TCP_URL"
-    exit 0
+  if [[ "$json_mode" == "1" ]]; then
+    printf '{"transport":"unavailable","label":"unavailable","url":null,"healthy":false,"policy":"%s"}\n' "$policy"
+  else
+    echo "transport: unavailable 🔴"
   fi
-
-  echo "transport: unavailable 🔴"
-  echo "quic:      failed"
-  echo "tcp-enc:   failed"
-  echo "tcp:       failed"
   exit 2
 fi
 
 if [[ "${1:-}" == "benchmark" ]]; then
+  json_mode=0
+  [[ "${2:-}" == "--json" ]] && json_mode=1
+
+  direct="$(measure_latency "$TARGET_URL")"
+  quic="$(measure_latency "$QUIC_URL")"
+  tcp="$(measure_latency "$TCP_URL")"
+  tcp_enc="$(measure_latency "$TCP_ENC_URL")"
+
+  if [[ "$json_mode" == "1" ]]; then
+    jq -n \
+      --arg target "$TARGET_URL" \
+      --arg quic_url "$QUIC_URL" \
+      --arg tcp_url "$TCP_URL" \
+      --arg tcp_enc_url "$TCP_ENC_URL" \
+      --arg direct "$direct" \
+      --arg quic "$quic" \
+      --arg tcp "$tcp" \
+      --arg tcp_enc "$tcp_enc" \
+      '{
+        target:{url:$target,latency_seconds:(if $direct=="fail" then null else ($direct|tonumber) end),healthy:($direct!="fail")},
+        transports:{
+          quic:{url:$quic_url,latency_seconds:(if $quic=="fail" then null else ($quic|tonumber) end),healthy:($quic!="fail")},
+          "tcp-plain":{url:$tcp_url,latency_seconds:(if $tcp=="fail" then null else ($tcp|tonumber) end),healthy:($tcp!="fail")},
+          "tcp-encrypted-v2":{url:$tcp_enc_url,latency_seconds:(if $tcp_enc=="fail" then null else ($tcp_enc|tonumber) end),healthy:($tcp_enc!="fail")}
+        }
+      }'
+    exit 0
+  fi
+
   echo "🐺 Werewolf Benchmark (wolf-b)"
   echo "================================"
   echo
@@ -206,12 +243,6 @@ if [[ "${1:-}" == "benchmark" ]]; then
   echo "tcp:    $TCP_URL"
   echo "tcp-v2: $TCP_ENC_URL"
   echo
-
-  direct=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$TARGET_URL" || echo "fail")
-  quic=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$QUIC_URL" || echo "fail")
-  tcp=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$TCP_URL" || echo "fail")
-  tcp_enc=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$TCP_ENC_URL" || echo "fail")
-
   echo "🌐 Direct target latency"
   echo "  direct: $direct s"
   echo
@@ -223,6 +254,18 @@ if [[ "${1:-}" == "benchmark" ]]; then
   echo
   echo "🔐 TCP encrypted v2 latency"
   echo "  tcp-v2: $tcp_enc s"
+  exit 0
+fi
+
+if [[ "${1:-}" == "watchdog-status" ]]; then
+  echo "🐺 Werewolf B Watchdog Status"
+  echo "============================"
+  echo
+  systemctl --user status werewolf-b-watchdog.timer --no-pager || true
+  echo
+  systemctl --user status werewolf-b-watchdog.service --no-pager || true
+  echo
+  journalctl --user -u werewolf-b-watchdog.service -n 30 --no-pager || true
   exit 0
 fi
 
