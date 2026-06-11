@@ -164,36 +164,63 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
 fi
 
 if [[ "${1:-}" == "auto" ]]; then
-  echo "🐺 Werewolf Auto Transport"
-  echo "========================="
-  echo
+  json_mode=0
+  if [[ "${2:-}" == "--json" ]]; then
+    json_mode=1
+  fi
+
+  if [[ "$json_mode" == "0" ]]; then
+    echo "🐺 Werewolf Auto Transport"
+    echo "========================="
+    echo
+  fi
 
   if curl --max-time 5 -fsS "$QUIC_URL" >/dev/null; then
-    echo "transport: QUIC 🟢"
-    echo "url:       $QUIC_URL"
+    if [[ "$json_mode" == "1" ]]; then
+      printf '{"transport":"quic","label":"QUIC","url":"%s","healthy":true}\n' "$QUIC_URL"
+    else
+      echo "transport: QUIC 🟢"
+      echo "url:       $QUIC_URL"
+    fi
     exit 0
   fi
 
-  echo "⚠️ QUIC failed, trying TCP encrypted v2..."
+  if [[ "$json_mode" == "0" ]]; then
+    echo "⚠ QUIC failed, trying TCP encrypted v2..."
+  fi
 
   if curl --max-time 5 -fsS "$TCP_ENC_URL" >/dev/null; then
-    echo "transport: TCP encrypted v2 🟡"
-    echo "url:       $TCP_ENC_URL"
+    if [[ "$json_mode" == "1" ]]; then
+      printf '{"transport":"tcp-encrypted-v2","label":"TCP encrypted v2","url":"%s","healthy":true}\n' "$TCP_ENC_URL"
+    else
+      echo "transport: TCP encrypted v2 🟡"
+      echo "url:       $TCP_ENC_URL"
+    fi
     exit 0
   fi
 
-  echo "⚠️ TCP encrypted v2 failed, trying TCP plain fallback..."
+  if [[ "$json_mode" == "0" ]]; then
+    echo "⚠ TCP encrypted v2 failed, trying TCP plain fallback..."
+  fi
 
   if curl --max-time 5 -fsS "$TCP_URL" >/dev/null; then
-    echo "transport: TCP plain fallback 🟠"
-    echo "url:       $TCP_URL"
+    if [[ "$json_mode" == "1" ]]; then
+      printf '{"transport":"tcp-plain","label":"TCP plain fallback","url":"%s","healthy":true}\n' "$TCP_URL"
+    else
+      echo "transport: TCP plain fallback 🟠"
+      echo "url:       $TCP_URL"
+    fi
     exit 0
   fi
 
-  echo "transport: unavailable 🔴"
-  echo "quic:      failed"
-  echo "tcp-enc:   failed"
-  echo "tcp:       failed"
+  if [[ "$json_mode" == "1" ]]; then
+    printf '{"transport":"unavailable","label":"unavailable","url":null,"healthy":false}\n'
+  else
+    echo "transport: unavailable 🔴"
+    echo "quic:      failed"
+    echo "tcp-enc:   failed"
+    echo "tcp:       failed"
+  fi
   exit 2
 fi
 
