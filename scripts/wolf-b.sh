@@ -312,9 +312,16 @@ if [[ "${1:-}" == "heal" ]]; then
   if [[ "$quiet" == "0" ]]; then
     echo
     "$0" health-summary
+    exit 0
   fi
 
-  exit 0
+  "$0" auto-heal-json >/dev/null 2>&1 || true
+  "$0" transport-health-json | jq -e '
+    .transports.quic.healthy == true
+    or .transports["tcp-encrypted-v2"].healthy == true
+    or .transports["tcp-plain"].healthy == true
+  ' >/dev/null
+  exit $?
 fi
 
 if [[ "${1:-}" == "health-summary" ]]; then
