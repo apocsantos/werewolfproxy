@@ -252,6 +252,41 @@ if [[ "${1:-}" == "auto" ]]; then
   exit 2
 fi
 
+if [[ "${1:-}" == "breathe" ]]; then
+  echo "🐺 Werewolf Breath"
+  echo "================="
+  echo
+
+  echo "🩺 Health"
+  "$0" health-summary
+
+  echo
+  echo "🤖 Auto-heal JSON"
+  "$0" auto-heal-json | jq .
+
+  echo
+  echo "🧠 Policy views"
+  echo "secure:"
+  "$0" auto --policy secure --json | jq .
+  echo "performance:"
+  "$0" auto --policy performance --json | jq .
+  echo "stealth:"
+  "$0" auto --policy stealth --json | jq .
+
+  echo
+  echo "🦷 Active Fangs"
+  "$0" fang list
+
+  echo
+  echo "🐾 Pack"
+  "$0" pack list
+
+  echo
+  echo "✅ Wolf is breathing"
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "watchdog-status" ]]; then
   echo "🐺 Werewolf B Watchdog Status"
   echo "============================"
