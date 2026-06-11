@@ -252,6 +252,42 @@ if [[ "${1:-}" == "auto" ]]; then
   exit 2
 fi
 
+if [[ "${1:-}" == "transport-health-json" ]]; then
+  quic_ok=false
+  tcp_ok=false
+  tcp_enc_ok=false
+
+  curl --max-time 5 -fsS "$QUIC_URL" >/dev/null && quic_ok=true || true
+  curl --max-time 5 -fsS "$TCP_URL" >/dev/null && tcp_ok=true || true
+  curl --max-time 5 -fsS "$TCP_ENC_URL" >/dev/null && tcp_enc_ok=true || true
+
+  jq -n \
+    --arg quic_url "$QUIC_URL" \
+    --arg tcp_url "$TCP_URL" \
+    --arg tcp_enc_url "$TCP_ENC_URL" \
+    --argjson quic_ok "$quic_ok" \
+    --argjson tcp_ok "$tcp_ok" \
+    --argjson tcp_enc_ok "$tcp_enc_ok" \
+    '{
+      transports: {
+        quic: {
+          url: $quic_url,
+          healthy: $quic_ok
+        },
+        "tcp-plain": {
+          url: $tcp_url,
+          healthy: $tcp_ok
+        },
+        "tcp-encrypted-v2": {
+          url: $tcp_enc_url,
+          healthy: $tcp_enc_ok
+        }
+      }
+    }'
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "benchmark" ]]; then
   echo "🐺 Werewolf Benchmark (wolf-b)"
   echo "================================"
