@@ -252,6 +252,38 @@ if [[ "${1:-}" == "auto" ]]; then
   exit 2
 fi
 
+if [[ "${1:-}" == "heal" ]]; then
+  echo "🐺 Werewolf Transport Heal"
+  echo "========================="
+  echo
+
+  ensure_profile() {
+    local name="$1"
+    local port="$2"
+
+    if wolf-b fang list | grep -q "local:  127.0.0.1:${port}"; then
+      echo "✅ $name already active on $port"
+    else
+      echo "🔁 opening $name..."
+      wolf-b fang open-profile "$name" >/dev/null || {
+        echo "❌ failed to open $name"
+        return 1
+      }
+      echo "✅ $name opened"
+    fi
+  }
+
+  ensure_profile home-web-tcp 9021
+  ensure_profile home-web-tcp-encrypted-v2 9022
+  ensure_profile large-transfer-tcp-v2 9032
+  ensure_profile home-web-quic 9020
+
+  echo
+  "$0" health-summary
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "health-summary" ]]; then
   echo "🐺 Werewolf Transport Health"
   echo "==========================="
