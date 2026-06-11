@@ -165,62 +165,90 @@ fi
 
 if [[ "${1:-}" == "auto" ]]; then
   json_mode=0
-  if [[ "${2:-}" == "--json" ]]; then
-    json_mode=1
-  fi
+  policy="${WEREWOLF_TRANSPORT_POLICY:-secure}"
+  shift || true
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json)
+        json_mode=1
+        ;;
+      --policy)
+        shift || true
+        policy="${1:-secure}"
+        ;;
+      --policy=*)
+        policy="${1#--policy=}"
+        ;;
+      *)
+        ;;
+    esac
+    shift || true
+  done
+
+  case "$policy" in
+    performance)
+      order=("quic" "tcp-plain" "tcp-encrypted-v2")
+      ;;
+    secure)
+      order=("quic" "tcp-encrypted-v2" "tcp-plain")
+      ;;
+    stealth)
+      order=("tcp-encrypted-v2" "quic" "tcp-plain")
+      ;;
+    *)
+      echo "Unknown policy: $policy" >&2
+      exit 2
+      ;;
+  esac
 
   if [[ "$json_mode" == "0" ]]; then
     echo "🐺 Werewolf Auto Transport"
     echo "========================="
     echo
+    echo "policy:    $policy"
   fi
 
-  if curl --max-time 5 -fsS "$QUIC_URL" >/dev/null; then
-    if [[ "$json_mode" == "1" ]]; then
-      printf '{"transport":"quic","label":"QUIC","url":"%s","healthy":true}\n' "$QUIC_URL"
-    else
-      echo "transport: QUIC 🟢"
-      echo "url:       $QUIC_URL"
+  for transport in "${order[@]}"; do
+    case "$transport" in
+      quic)
+        label="QUIC"
+        url="$QUIC_URL"
+        human="QUIC 🟢"
+        ;;
+      tcp-encrypted-v2)
+        label="TCP encrypted v2"
+        url="$TCP_ENC_URL"
+        human="TCP encrypted v2 🟡"
+        ;;
+      tcp-plain)
+        label="TCP plain fallback"
+        url="$TCP_URL"
+        human="TCP plain fallback 🟠"
+        ;;
+    esac
+
+    if curl --max-time 5 -fsS "$url" >/dev/null; then
+      if [[ "$json_mode" == "1" ]]; then
+        printf '{"transport":"%s","label":"%s","url":"%s","healthy":true,"policy":"%s"}\n' "$transport" "$label" "$url" "$policy"
+      else
+        echo "transport: $human"
+        echo "url:       $url"
+      fi
+      exit 0
     fi
-    exit 0
-  fi
 
-  if [[ "$json_mode" == "0" ]]; then
-    echo "⚠ QUIC failed, trying TCP encrypted v2..."
-  fi
-
-  if curl --max-time 5 -fsS "$TCP_ENC_URL" >/dev/null; then
-    if [[ "$json_mode" == "1" ]]; then
-      printf '{"transport":"tcp-encrypted-v2","label":"TCP encrypted v2","url":"%s","healthy":true}\n' "$TCP_ENC_URL"
-    else
-      echo "transport: TCP encrypted v2 🟡"
-      echo "url:       $TCP_ENC_URL"
+    if [[ "$json_mode" == "0" ]]; then
+      echo "⚠ $label failed"
     fi
-    exit 0
-  fi
-
-  if [[ "$json_mode" == "0" ]]; then
-    echo "⚠ TCP encrypted v2 failed, trying TCP plain fallback..."
-  fi
-
-  if curl --max-time 5 -fsS "$TCP_URL" >/dev/null; then
-    if [[ "$json_mode" == "1" ]]; then
-      printf '{"transport":"tcp-plain","label":"TCP plain fallback","url":"%s","healthy":true}\n' "$TCP_URL"
-    else
-      echo "transport: TCP plain fallback 🟠"
-      echo "url:       $TCP_URL"
-    fi
-    exit 0
-  fi
+  done
 
   if [[ "$json_mode" == "1" ]]; then
-    printf '{"transport":"unavailable","label":"unavailable","url":null,"healthy":false}\n'
+    printf '{"transport":"unavailable","label":"unavailable","url":null,"healthy":false,"policy":"%s"}\n' "$policy"
   else
     echo "transport: unavailable 🔴"
-    echo "quic:      failed"
-    echo "tcp-enc:   failed"
-    echo "tcp:       failed"
   fi
+
   exit 2
 fi
 
