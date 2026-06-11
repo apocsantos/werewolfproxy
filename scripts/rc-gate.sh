@@ -89,6 +89,16 @@ echo "🤖 Auto selector"
 cat /tmp/wolf-b-auto.txt
 grep -q "transport: QUIC" /tmp/wolf-b-auto.txt && pass "auto selects QUIC" || fail "auto did not select QUIC"
 
+"$WOLFB" auto --json >/tmp/wolf-b-auto-json.txt
+cat /tmp/wolf-b-auto-json.txt | jq .
+jq -e '.transport == "quic" and .healthy == true' /tmp/wolf-b-auto-json.txt >/dev/null \
+  && pass "auto json selects QUIC" || fail "auto json failed"
+
+"$WOLFB" auto --policy stealth --json >/tmp/wolf-b-auto-stealth-json.txt
+cat /tmp/wolf-b-auto-stealth-json.txt | jq .
+jq -e '.transport == "tcp-encrypted-v2" and .healthy == true' /tmp/wolf-b-auto-stealth-json.txt >/dev/null \
+  && pass "stealth policy selects TCP encrypted v2" || fail "stealth policy failed"
+
 echo
 echo "🟡 Failover simulation"
 "$WOLFB" fang list >/tmp/wolf-b-fangs.txt
