@@ -135,6 +135,47 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "snapshot-alert" ]]; then
+  threshold_ms="${2:-20}"
+
+  diff_json="$("$0" snapshot-diff | sed -n '/^{/,$p')"
+
+  failures=0
+
+  check_delta() {
+    local name="$1"
+    local jq_path="$2"
+    local delta
+
+    delta="$(echo "$diff_json" | jq -r "$jq_path")"
+
+    if awk "BEGIN {exit !($delta > $threshold_ms)}"; then
+      echo "⚠ $name latency increased by ${delta}ms > ${threshold_ms}ms"
+      failures=$((failures + 1))
+    else
+      echo "✅ $name latency delta ${delta}ms"
+    fi
+  }
+
+  echo "🐺 Werewolf Snapshot Alert"
+  echo "========================="
+  echo "threshold: ${threshold_ms}ms"
+  echo
+
+  check_delta "QUIC" '.quic.latency_delta_ms'
+  check_delta "TCP encrypted v2" '.tcp_encrypted_v2.latency_delta_ms'
+  check_delta "TCP plain" '.tcp_plain.latency_delta_ms'
+
+  echo
+  if [[ "$failures" == "0" ]]; then
+    echo "🎉 no concerning drift"
+    exit 0
+  else
+    echo "⚠ drift alerts: $failures"
+    exit 1
+  fi
+fi
+
 if [[ "${1:-}" == "snapshot-diff" ]]; then
   snapshot_dir="${WEREWOLF_SNAPSHOT_DIR:-$HOME/.cache/werewolf/snapshots}"
 
