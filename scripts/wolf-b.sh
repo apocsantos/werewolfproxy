@@ -206,6 +206,31 @@ if [[ "${1:-}" == "auto" ]]; then
 
   [[ "$json_mode" == "0" ]] && echo "🐺 Werewolf Auto Transport" && echo "=========================" && echo && echo "policy:    $policy"
 
+  if [[ "$policy" == "resilience" ]]; then
+    data="$("$0" score-json)"
+
+    best_transport=""
+    best_score="-999999"
+
+    for t in quic tcp-encrypted-v2 tcp-plain; do
+      healthy="$(echo "$data" | jq -r ".transports[\"$t\"].healthy")"
+      score="$(echo "$data" | jq -r ".transports[\"$t\"].score")"
+
+      [[ "$healthy" != "true" ]] && continue
+
+      if awk "BEGIN {exit !($score > $best_score)}"; then
+        best_score="$score"
+        best_transport="$t"
+      fi
+    done
+
+    case "$best_transport" in
+      quic) emit_choice "quic" "QUIC 🟢" "$QUIC_URL" ;;
+      tcp-encrypted-v2) emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL" ;;
+      tcp-plain) emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL" ;;
+    esac
+  fi
+
   if [[ "$policy" == "performance" ]]; then
     data="$("$0" benchmark --json)"
     best_transport=""
