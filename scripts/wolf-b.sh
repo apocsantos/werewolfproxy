@@ -135,6 +135,23 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "policy-test" ]]; then
+  echo "🐺 Werewolf Policy Test"
+  echo "======================"
+  echo
+
+  for policy in secure performance stealth resilience learned recent; do
+    result="$("$0" auto --policy "$policy" --json || true)"
+    transport="$(echo "$result" | jq -r '.transport // "error"')"
+    healthy="$(echo "$result" | jq -r '.healthy // false')"
+    url="$(echo "$result" | jq -r '.url // "-"')"
+
+    printf "%-12s -> %-18s healthy=%-5s url=%s\n" "$policy" "$transport" "$healthy" "$url"
+  done
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "score-history" ]]; then
   score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
 
