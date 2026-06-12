@@ -290,6 +290,38 @@ if [[ "${1:-}" == "auto" ]]; then
 
   [[ "$json_mode" == "0" ]] && echo "🐺 Werewolf Auto Transport" && echo "=========================" && echo && echo "policy:    $policy"
 
+  if [[ "$policy" == "learned" ]]; then
+    score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+
+    if [[ -f "$score_file" ]]; then
+      best_transport="$(jq -s -r '
+        {
+          quic: (map(.transports.quic.score // empty) | if length == 0 then -999999 else add / length end),
+          "tcp-encrypted-v2": (map(.transports["tcp-encrypted-v2"].score // empty) | if length == 0 then -999999 else add / length end),
+          "tcp-plain": (map(.transports["tcp-plain"].score // empty) | if length == 0 then -999999 else add / length end)
+        }
+        | to_entries
+        | sort_by(.value)
+        | reverse
+        | .[0].key
+      ' "$score_file")"
+
+      case "$best_transport" in
+        quic)
+          is_healthy "$QUIC_URL" && emit_choice "quic" "QUIC 🟢" "$QUIC_URL"
+          ;;
+        tcp-encrypted-v2)
+          is_healthy "$TCP_ENC_URL" && emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL"
+          ;;
+        tcp-plain)
+          is_healthy "$TCP_URL" && emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL"
+          ;;
+      esac
+    fi
+
+    policy="resilience"
+  fi
+
   if [[ "$policy" == "resilience" ]]; then
     data="$("$0" score-json)"
 
