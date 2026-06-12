@@ -135,6 +135,21 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "doctor-fix" ]]; then
+  echo "🐺 Werewolf Doctor Fix"
+  echo "====================="
+  echo
+
+  echo "🔧 running heal..."
+  "$0" heal || true
+
+  echo
+  echo "🩺 re-running doctor..."
+  "$0" doctor
+
+  exit $?
+fi
+
 if [[ "${1:-}" == "doctor" ]]; then
   json_mode=0
   if [[ "${2:-}" == "--json" ]]; then
