@@ -135,6 +135,11 @@ echo
 echo "🩺 Doctor"
 "$WOLFB" doctor && pass "wolf-b doctor healthy" || fail "wolf-b doctor failed"
 
+"$WOLFB" doctor --json >/tmp/wolf-b-doctor-json.txt
+cat /tmp/wolf-b-doctor-json.txt | jq .
+jq -e '.healthy == true and .failures == 0 and (.checks | length) > 0' /tmp/wolf-b-doctor-json.txt >/dev/null \
+  && pass "wolf-b doctor json healthy" || fail "wolf-b doctor json failed"
+
 echo
 echo "📊 Benchmark"
 "$WOLFB" benchmark
