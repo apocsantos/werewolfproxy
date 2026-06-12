@@ -135,6 +135,48 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "score-json" ]]; then
+  health="$("$0" transport-health-json)"
+  bench="$("$0" benchmark --json)"
+
+  jq -n \
+    --argjson health "$health" \
+    --argjson bench "$bench" \
+    '{
+      transports: {
+        quic: {
+          healthy: $health.transports.quic.healthy,
+          latency_seconds: $bench.transports.quic.latency_seconds,
+          score: (
+            if $health.transports.quic.healthy == true then
+              100 - (($bench.transports.quic.latency_seconds // 1) * 1000)
+            else 0 end
+          )
+        },
+        "tcp-encrypted-v2": {
+          healthy: $health.transports["tcp-encrypted-v2"].healthy,
+          latency_seconds: $bench.transports["tcp-encrypted-v2"].latency_seconds,
+          score: (
+            if $health.transports["tcp-encrypted-v2"].healthy == true then
+              90 - (($bench.transports["tcp-encrypted-v2"].latency_seconds // 1) * 1000)
+            else 0 end
+          )
+        },
+        "tcp-plain": {
+          healthy: $health.transports["tcp-plain"].healthy,
+          latency_seconds: $bench.transports["tcp-plain"].latency_seconds,
+          score: (
+            if $health.transports["tcp-plain"].healthy == true then
+              70 - (($bench.transports["tcp-plain"].latency_seconds // 1) * 1000)
+            else 0 end
+          )
+        }
+      }
+    }'
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "auto" ]]; then
   json_mode=0
   policy="${WEREWOLF_TRANSPORT_POLICY:-secure}"
