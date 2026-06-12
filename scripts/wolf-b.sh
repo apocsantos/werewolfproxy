@@ -135,6 +135,18 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "score-save" ]]; then
+  mkdir -p ~/.cache/werewolf
+  score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+
+  "$0" score-json | jq -c --arg ts "$(date -Iseconds)" '. + {timestamp: $ts}' >> "$score_file"
+
+  echo "✅ score saved: $score_file"
+  tail -n 1 "$score_file" | jq .
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "score" ]]; then
   echo "🐺 Werewolf Transport Scores"
   echo "==========================="
