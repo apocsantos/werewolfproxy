@@ -135,6 +135,27 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "score" ]]; then
+  echo "🐺 Werewolf Transport Scores"
+  echo "==========================="
+  echo
+
+  data="$("$0" score-json)"
+
+  for t in quic tcp-encrypted-v2 tcp-plain; do
+    healthy="$(echo "$data" | jq -r ".transports[\"$t\"].healthy")"
+    latency="$(echo "$data" | jq -r ".transports[\"$t\"].latency_seconds")"
+    score="$(echo "$data" | jq -r ".transports[\"$t\"].score")"
+
+    printf "%-18s healthy=%-5s latency=%-10s score=%s\n" "$t" "$healthy" "$latency" "$score"
+  done
+
+  echo
+  "$0" auto --policy resilience --json | jq .
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "score-json" ]]; then
   health="$("$0" transport-health-json)"
   bench="$("$0" benchmark --json)"
