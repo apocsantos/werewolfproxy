@@ -231,7 +231,13 @@ if [[ "${1:-}" == "score-history" ]]; then
     ' "$score_file")"
 
     echo "$transport"
-    printf "  avg latency:   %.2f ms\n" "$(awk "BEGIN {print ($avg_latency // 0) * 1000}")"
+    if [[ "$avg_latency" == "null" || -z "$avg_latency" ]]; then
+      avg_latency_ms="0"
+    else
+      avg_latency_ms="$(awk "BEGIN {print $avg_latency * 1000}")"
+    fi
+
+    printf "  avg latency:   %.2f ms\n" "$avg_latency_ms"
     printf "  avg score:     %.2f\n" "$(echo "$avg_score" | awk '{print $1+0}')"
     printf "  healthy:       %.1f%%\n" "$(echo "$healthy_pct" | awk '{print $1+0}')"
     echo
