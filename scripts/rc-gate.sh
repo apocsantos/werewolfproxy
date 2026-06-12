@@ -140,6 +140,11 @@ cat /tmp/wolf-b-doctor-json.txt | jq .
 jq -e '.healthy == true and .failures == 0 and (.checks | length) > 0' /tmp/wolf-b-doctor-json.txt >/dev/null \
   && pass "wolf-b doctor json healthy" || fail "wolf-b doctor json failed"
 
+"$WOLFB" ready --json >/tmp/wolf-b-ready-json.txt
+cat /tmp/wolf-b-ready-json.txt | jq .
+jq -e '.ready == true and .doctor.healthy == true and .selected.healthy == true' /tmp/wolf-b-ready-json.txt >/dev/null \
+  && pass "wolf-b ready json healthy" || fail "wolf-b ready json failed"
+
 echo
 echo "📊 Benchmark"
 "$WOLFB" benchmark
