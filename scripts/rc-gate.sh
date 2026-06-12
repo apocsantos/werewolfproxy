@@ -94,6 +94,16 @@ cat /tmp/wolf-b-auto-json.txt | jq .
 jq -e '.transport == "quic" and .healthy == true' /tmp/wolf-b-auto-json.txt >/dev/null \
   && pass "auto json selects QUIC" || fail "auto json failed"
 
+"$WOLFB" score-json >/tmp/wolf-b-score-json.txt
+cat /tmp/wolf-b-score-json.txt | jq .
+jq -e '.transports.quic.score != null and .transports["tcp-encrypted-v2"].score != null and .transports["tcp-plain"].score != null' /tmp/wolf-b-score-json.txt >/dev/null \
+  && pass "transport scores available" || fail "transport scores missing"
+
+"$WOLFB" auto --policy resilience --json >/tmp/wolf-b-auto-resilience-json.txt
+cat /tmp/wolf-b-auto-resilience-json.txt | jq .
+jq -e '.healthy == true and (.transport == "quic" or .transport == "tcp-encrypted-v2" or .transport == "tcp-plain")' /tmp/wolf-b-auto-resilience-json.txt >/dev/null \
+  && pass "resilience policy selects healthy transport" || fail "resilience policy failed"
+
 "$WOLFB" auto --policy stealth --json >/tmp/wolf-b-auto-stealth-json.txt
 cat /tmp/wolf-b-auto-stealth-json.txt | jq .
 jq -e '.transport == "tcp-encrypted-v2" and .healthy == true' /tmp/wolf-b-auto-stealth-json.txt >/dev/null \
