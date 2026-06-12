@@ -132,6 +132,10 @@ cat /tmp/wolf-b-auto-restored.txt
 grep -q "transport: QUIC" /tmp/wolf-b-auto-restored.txt && pass "auto returns to QUIC" || fail "auto did not return to QUIC"
 
 echo
+echo "🩺 Doctor"
+"$WOLFB" doctor && pass "wolf-b doctor healthy" || fail "wolf-b doctor failed"
+
+echo
 echo "📊 Benchmark"
 "$WOLFB" benchmark
 
