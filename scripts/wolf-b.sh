@@ -136,21 +136,32 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
 fi
 
 if [[ "${1:-}" == "doctor" ]]; then
-  echo "🐺 Werewolf Doctor"
-  echo "================="
-  echo
+  json_mode=0
+  if [[ "${2:-}" == "--json" ]]; then
+    json_mode=1
+  fi
+
+  if [[ "$json_mode" == "0" ]]; then
+    echo "🐺 Werewolf Doctor"
+    echo "================="
+    echo
+  fi
 
   failures=0
+  results="[]"
 
   check_cmd() {
     local label="$1"
     shift
 
     if "$@" >/tmp/werewolf-doctor-check.out 2>/tmp/werewolf-doctor-check.err; then
-      echo "✅ $label"
+      [[ "$json_mode" == "0" ]] && echo "✅ $label"
+      results="$(echo "$results" | jq -c --arg label "$label" '. + [{label:$label, ok:true}]')"
     else
-      echo "❌ $label"
-      cat /tmp/werewolf-doctor-check.err || true
+      [[ "$json_mode" == "0" ]] && echo "❌ $label"
+      [[ "$json_mode" == "0" ]] && cat /tmp/werewolf-doctor-check.err || true
+      err="$(cat /tmp/werewolf-doctor-check.err 2>/dev/null || true)"
+      results="$(echo "$results" | jq -c --arg label "$label" --arg err "$err" '. + [{label:$label, ok:false, error:$err}]')"
       failures=$((failures + 1))
     fi
   }
@@ -166,17 +177,22 @@ if [[ "${1:-}" == "doctor" ]]; then
   check_cmd "auto secure valid" bash -lc "$0 auto --policy secure --json | jq -e '.healthy == true' >/dev/null"
   check_cmd "auto resilience valid" bash -lc "$0 auto --policy resilience --json | jq -e '.healthy == true' >/dev/null"
 
-  echo
-  "$0" policy-test
-
-  echo
-  if [[ "$failures" == "0" ]]; then
-    echo "🎉 Doctor result: healthy"
-    exit 0
+  if [[ "$json_mode" == "1" ]]; then
+    jq -n --argjson checks "$results" --argjson failures "$failures"       '{healthy:($failures == 0), failures:$failures, checks:$checks}'
   else
-    echo "⚠ Doctor result: $failures failure(s)"
-    exit 1
+    echo
+    "$0" policy-test
+
+    echo
+    if [[ "$failures" == "0" ]]; then
+      echo "🎉 Doctor result: healthy"
+    else
+      echo "⚠ Doctor result: $failures failure(s)"
+    fi
   fi
+
+  [[ "$failures" == "0" ]]
+  exit $?
 fi
 
 if [[ "${1:-}" == "policy-explain" ]]; then
