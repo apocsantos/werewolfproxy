@@ -135,6 +135,35 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "snapshot" ]]; then
+  mkdir -p ~/.cache/werewolf/snapshots
+  ts="$(date +%Y%m%d_%H%M%S)"
+  out="${WEREWOLF_SNAPSHOT_FILE:-$HOME/.cache/werewolf/snapshots/wolf-b-${ts}.json}"
+
+  "$0" heal --quiet || true
+
+  jq -n \
+    --arg timestamp "$(date -Iseconds)" \
+    --argjson ready "$("$0" ready --json)" \
+    --argjson health "$("$0" transport-health-json)" \
+    --argjson benchmark "$("$0" benchmark --json)" \
+    --argjson scores "$("$0" score-json)" \
+    --argjson doctor "$("$0" doctor --json)" \
+    '{
+      timestamp: $timestamp,
+      ready: $ready,
+      health: $health,
+      benchmark: $benchmark,
+      scores: $scores,
+      doctor: $doctor
+    }' > "$out"
+
+  echo "✅ snapshot saved: $out"
+  jq . "$out"
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "ready" ]]; then
   json_mode=0
   policy="secure"
