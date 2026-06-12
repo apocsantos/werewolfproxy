@@ -135,6 +135,50 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "doctor" ]]; then
+  echo "🐺 Werewolf Doctor"
+  echo "================="
+  echo
+
+  failures=0
+
+  check_cmd() {
+    local label="$1"
+    shift
+
+    if "$@" >/tmp/werewolf-doctor-check.out 2>/tmp/werewolf-doctor-check.err; then
+      echo "✅ $label"
+    else
+      echo "❌ $label"
+      cat /tmp/werewolf-doctor-check.err || true
+      failures=$((failures + 1))
+    fi
+  }
+
+  check_cmd "wolf-b service active" systemctl --user is-active --quiet werewolf-b.service
+  check_cmd "wolf-a service active" systemctl --user is-active --quiet werewolf-a.service
+  check_cmd "wolf-b socket exists" test -S /tmp/wolf-b.sock
+  check_cmd "wolf-a socket exists" test -S /tmp/wolf-a.sock
+
+  check_cmd "transport health json valid" bash -lc "$0 transport-health-json | jq -e '.transports' >/dev/null"
+  check_cmd "benchmark json valid" bash -lc "$0 benchmark --json | jq -e '.transports' >/dev/null"
+  check_cmd "score json valid" bash -lc "$0 score-json | jq -e '.transports' >/dev/null"
+  check_cmd "auto secure valid" bash -lc "$0 auto --policy secure --json | jq -e '.healthy == true' >/dev/null"
+  check_cmd "auto resilience valid" bash -lc "$0 auto --policy resilience --json | jq -e '.healthy == true' >/dev/null"
+
+  echo
+  "$0" policy-test
+
+  echo
+  if [[ "$failures" == "0" ]]; then
+    echo "🎉 Doctor result: healthy"
+    exit 0
+  else
+    echo "⚠ Doctor result: $failures failure(s)"
+    exit 1
+  fi
+fi
+
 if [[ "${1:-}" == "policy-explain" ]]; then
   policy="${2:-secure}"
 
