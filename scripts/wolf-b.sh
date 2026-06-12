@@ -135,6 +135,52 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "policy-explain" ]]; then
+  policy="${2:-secure}"
+
+  echo "🐺 Werewolf Policy Explain"
+  echo "========================="
+  echo
+  echo "policy: $policy"
+  echo
+
+  echo "📊 Current scores"
+  "$0" score
+
+  echo
+  echo "🧠 Decision"
+  "$0" auto --policy "$policy" --json | jq .
+
+  echo
+  echo "📜 Policy meaning"
+  case "$policy" in
+    secure)
+      echo "secure: prefer QUIC, then TCP encrypted v2, then TCP plain."
+      ;;
+    performance)
+      echo "performance: choose the currently lowest-latency healthy transport."
+      ;;
+    stealth)
+      echo "stealth: prefer TCP encrypted v2, then TCP plain, then QUIC."
+      ;;
+    resilience)
+      echo "resilience: choose the currently highest-scoring healthy transport."
+      ;;
+    learned)
+      echo "learned: choose the historically highest average score, if currently healthy."
+      ;;
+    recent)
+      echo "recent: choose the highest average score from recent score samples."
+      ;;
+    *)
+      echo "unknown policy."
+      exit 2
+      ;;
+  esac
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "policy-test" ]]; then
   echo "🐺 Werewolf Policy Test"
   echo "======================"
