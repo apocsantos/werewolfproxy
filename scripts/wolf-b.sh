@@ -145,7 +145,7 @@ if [[ "${1:-}" == "policy-explain" ]]; then
   echo
 
   echo "📊 Current scores"
-  "$0" score
+  "$0" score --no-decision
 
   echo
   echo "🧠 Decision"
@@ -262,6 +262,11 @@ if [[ "${1:-}" == "score-save" ]]; then
 fi
 
 if [[ "${1:-}" == "score" ]]; then
+  no_decision=0
+  if [[ "${2:-}" == "--no-decision" ]]; then
+    no_decision=1
+  fi
+
   echo "🐺 Werewolf Transport Scores"
   echo "==========================="
   echo
@@ -276,8 +281,10 @@ if [[ "${1:-}" == "score" ]]; then
     printf "%-18s healthy=%-5s latency=%-10s score=%s\n" "$t" "$healthy" "$latency" "$score"
   done
 
-  echo
-  "$0" auto --policy resilience --json | jq .
+  if [[ "$no_decision" == "0" ]]; then
+    echo
+    "$0" auto --policy resilience --json | jq .
+  fi
 
   exit 0
 fi
