@@ -136,14 +136,50 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
 fi
 
 if [[ "${1:-}" == "ready" ]]; then
-  policy="${2:-secure}"
+  json_mode=0
+  policy="secure"
+
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json)
+        json_mode=1
+        ;;
+      --policy)
+        shift || true
+        policy="${1:-secure}"
+        ;;
+      --policy=*)
+        policy="${1#--policy=}"
+        ;;
+      *)
+        policy="$1"
+        ;;
+    esac
+    shift || true
+  done
+
+  "$0" heal --quiet || true
+
+  if [[ "$json_mode" == "1" ]]; then
+    doctor="$("$0" doctor --json)"
+    selected="$("$0" auto --policy "$policy" --json)"
+    scores="$("$0" score-json)"
+
+    jq -n       --arg policy "$policy"       --argjson doctor "$doctor"       --argjson selected "$selected"       --argjson scores "$scores"       '{
+        ready: ($doctor.healthy == true and $selected.healthy == true),
+        policy: $policy,
+        doctor: $doctor,
+        selected: $selected,
+        scores: $scores
+      }'
+    exit 0
+  fi
 
   echo "🐺 Werewolf Ready Check"
   echo "======================"
   echo "policy: $policy"
   echo
-
-  "$0" heal --quiet || true
 
   "$0" doctor --json | jq .
   echo
