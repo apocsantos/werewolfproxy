@@ -135,6 +135,78 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "snapshot-diff" ]]; then
+  snapshot_dir="${WEREWOLF_SNAPSHOT_DIR:-$HOME/.cache/werewolf/snapshots}"
+
+  latest="$(ls -1t "$snapshot_dir"/wolf-b-*.json 2>/dev/null | sed -n '1p')"
+  previous="$(ls -1t "$snapshot_dir"/wolf-b-*.json 2>/dev/null | sed -n '2p')"
+
+  if [[ -z "$latest" || -z "$previous" ]]; then
+    echo "❌ need at least two snapshots"
+    exit 1
+  fi
+
+  echo "🐺 Werewolf Snapshot Diff"
+  echo "========================"
+  echo
+  echo "latest:   $(basename "$latest")"
+  echo "previous: $(basename "$previous")"
+  echo
+
+  jq -n \
+    --slurpfile old "$previous" \
+    --slurpfile new "$latest" \
+    '{
+      quic: {
+        latency_delta_ms:
+          (
+            (($new[0].benchmark.transports.quic.latency_seconds // 0)
+            -
+            ($old[0].benchmark.transports.quic.latency_seconds // 0))
+            * 1000
+          ),
+        score_delta:
+          (
+            ($new[0].scores.transports.quic.score // 0)
+            -
+            ($old[0].scores.transports.quic.score // 0)
+          )
+      },
+      tcp_encrypted_v2: {
+        latency_delta_ms:
+          (
+            (($new[0].benchmark.transports["tcp-encrypted-v2"].latency_seconds // 0)
+            -
+            ($old[0].benchmark.transports["tcp-encrypted-v2"].latency_seconds // 0))
+            * 1000
+          ),
+        score_delta:
+          (
+            ($new[0].scores.transports["tcp-encrypted-v2"].score // 0)
+            -
+            ($old[0].scores.transports["tcp-encrypted-v2"].score // 0)
+          )
+      },
+      tcp_plain: {
+        latency_delta_ms:
+          (
+            (($new[0].benchmark.transports["tcp-plain"].latency_seconds // 0)
+            -
+            ($old[0].benchmark.transports["tcp-plain"].latency_seconds // 0))
+            * 1000
+          ),
+        score_delta:
+          (
+            ($new[0].scores.transports["tcp-plain"].score // 0)
+            -
+            ($old[0].scores.transports["tcp-plain"].score // 0)
+          )
+      }
+    }' | jq .
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "snapshot" ]]; then
   mkdir -p ~/.cache/werewolf/snapshots
   ts="$(date +%Y%m%d_%H%M%S)"
