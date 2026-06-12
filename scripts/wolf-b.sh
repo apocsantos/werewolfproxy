@@ -135,6 +135,24 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "ready" ]]; then
+  policy="${2:-secure}"
+
+  echo "🐺 Werewolf Ready Check"
+  echo "======================"
+  echo "policy: $policy"
+  echo
+
+  "$0" heal --quiet || true
+
+  "$0" doctor --json | jq .
+  echo
+
+  "$0" policy-explain "$policy"
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "doctor-fix" ]]; then
   echo "🐺 Werewolf Doctor Fix"
   echo "====================="
