@@ -135,6 +135,57 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "score-history" ]]; then
+  score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+
+  if [[ ! -f "$score_file" ]]; then
+    echo "❌ no score history found"
+    exit 1
+  fi
+
+  echo "🐺 Werewolf Transport Trends"
+  echo "============================"
+  echo
+
+  analyze_transport() {
+    local transport="$1"
+
+    avg_latency="$(jq -s --arg t "$transport" '
+      map(.transports[$t].latency_seconds // empty)
+      | if length == 0 then null else (add / length) end
+    ' "$score_file")"
+
+    avg_score="$(jq -s --arg t "$transport" '
+      map(.transports[$t].score // empty)
+      | if length == 0 then null else (add / length) end
+    ' "$score_file")"
+
+    healthy_pct="$(jq -s --arg t "$transport" '
+      map(.transports[$t].healthy)
+      | if length == 0 then 0
+        else ((map(select(. == true)) | length) / length * 100)
+      end
+    ' "$score_file")"
+
+    echo "$transport"
+    printf "  avg latency:   %.2f ms\n" "$(awk "BEGIN {print ($avg_latency // 0) * 1000}")"
+    printf "  avg score:     %.2f\n" "$(echo "$avg_score" | awk '{print $1+0}')"
+    printf "  healthy:       %.1f%%\n" "$(echo "$healthy_pct" | awk '{print $1+0}')"
+    echo
+  }
+
+  analyze_transport quic
+  analyze_transport tcp-encrypted-v2
+  analyze_transport tcp-plain
+
+  echo "recommended:"
+  "$0" auto --policy resilience --json | jq -r '
+    "  " + .label
+  '
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "score-save" ]]; then
   mkdir -p ~/.cache/werewolf
   score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
