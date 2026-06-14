@@ -136,24 +136,66 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
 fi
 
 if [[ "${1:-}" == "status-full" ]]; then
+  json_mode=0
+  [[ "${2:-}" == "--json" ]] && json_mode=1
+
+  json_or_empty() {
+    local out
+    if out="$("$@" 2>/dev/null)" && echo "$out" | jq -e . >/dev/null 2>&1; then
+      echo "$out"
+    else
+      echo '{}'
+    fi
+  }
+
+  if [[ "$json_mode" == "1" ]]; then
+    watchdog_active=false
+    maintenance_active=false
+    systemctl --user is-active --quiet werewolf-b-watchdog.timer && watchdog_active=true || true
+    systemctl --user is-active --quiet werewolf-b-maintenance.timer && maintenance_active=true || true
+
+    jq -n \
+      --arg timestamp "$(date -Iseconds)" \
+      --argjson ready "$(json_or_empty "$0" ready --json)" \
+      --argjson doctor "$(json_or_empty "$0" doctor --json)" \
+      --argjson scores "$(json_or_empty "$0" score-json)" \
+      --argjson health "$(json_or_empty "$0" transport-health-json)" \
+      --argjson benchmark "$(json_or_empty "$0" benchmark --json)" \
+      --argjson watchdog_active "$watchdog_active" \
+      --argjson maintenance_active "$maintenance_active" \
+      '{
+        timestamp: $timestamp,
+        ready: $ready,
+        doctor: $doctor,
+        scores: $scores,
+        health: $health,
+        benchmark: $benchmark,
+        timers: {
+          watchdog_active: $watchdog_active,
+          maintenance_active: $maintenance_active
+        }
+      }'
+    exit 0
+  fi
+
   echo "🐺 Werewolf Full Status"
   echo "======================"
   echo
 
   echo "🧠 Ready"
-  "$0" ready --json | jq '.ready, .selected'
+  "$0" ready --json | jq '.ready, .selected' || true
 
   echo
   echo "📊 Scores"
-  "$0" score
+  "$0" score || true
 
   echo
   echo "📜 Policies"
-  "$0" policy-test
+  "$0" policy-test || true
 
   echo
   echo "🩺 Doctor"
-  "$0" doctor
+  "$0" doctor || true
 
   echo
   echo "🛡 Watchdog"
