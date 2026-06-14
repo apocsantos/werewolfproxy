@@ -135,6 +135,43 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "status-full" ]]; then
+  echo "🐺 Werewolf Full Status"
+  echo "======================"
+  echo
+
+  echo "🧠 Ready"
+  "$0" ready --json | jq '.ready, .selected'
+
+  echo
+  echo "📊 Scores"
+  "$0" score
+
+  echo
+  echo "📜 Policies"
+  "$0" policy-test
+
+  echo
+  echo "🩺 Doctor"
+  "$0" doctor
+
+  echo
+  echo "🛡 Watchdog"
+  systemctl --user is-active --quiet werewolf-b-watchdog.timer \
+    && echo "watchdog timer: active ✅" \
+    || echo "watchdog timer: inactive ❌"
+
+  echo
+  echo "🧹 Maintenance"
+  systemctl --user is-active --quiet werewolf-b-maintenance.timer \
+    && echo "maintenance timer: active ✅" \
+    || echo "maintenance timer: inactive ❌"
+
+  echo
+  echo "✅ status-full complete"
+  exit 0
+fi
+
 if [[ "${1:-}" == "maintenance-status" ]]; then
   echo "🐺 Werewolf B Maintenance Status"
   echo "==============================="
