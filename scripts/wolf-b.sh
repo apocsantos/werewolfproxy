@@ -135,6 +135,36 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "maintenance" ]]; then
+  echo "🐺 Werewolf Maintenance"
+  echo "======================"
+  echo
+
+  echo "1) cleanup"
+  "$0" cleanup
+
+  echo
+  echo "2) save score"
+  "$0" score-save
+
+  echo
+  echo "3) snapshot"
+  "$0" snapshot >/tmp/werewolf-maintenance-snapshot.txt
+  cat /tmp/werewolf-maintenance-snapshot.txt | head -n 1
+
+  echo
+  echo "4) drift alert"
+  "$0" snapshot-alert 20 || true
+
+  echo
+  echo "5) doctor"
+  "$0" doctor
+
+  echo
+  echo "✅ maintenance complete"
+  exit 0
+fi
+
 if [[ "${1:-}" == "cleanup" ]]; then
   keep_snapshots="${WEREWOLF_KEEP_SNAPSHOTS:-50}"
   keep_scores="${WEREWOLF_KEEP_SCORE_SAMPLES:-500}"
