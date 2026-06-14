@@ -428,6 +428,8 @@ if [[ "${1:-}" == "doctor" ]]; then
   check_cmd "score json valid" bash -lc "$0 score-json | jq -e '.transports' >/dev/null"
   check_cmd "auto secure valid" bash -lc "$0 auto --policy secure --json | jq -e '.healthy == true' >/dev/null"
   check_cmd "auto resilience valid" bash -lc "$0 auto --policy resilience --json | jq -e '.healthy == true' >/dev/null"
+  check_cmd "score history readable" bash -lc "test ! -f ~/.cache/werewolf/wolf-b-scores.jsonl || tail -n 5 ~/.cache/werewolf/wolf-b-scores.jsonl | jq -e . >/dev/null"
+  check_cmd "snapshot directory writable" bash -lc "mkdir -p ~/.cache/werewolf/snapshots && test -w ~/.cache/werewolf/snapshots"
 
   if [[ "$json_mode" == "1" ]]; then
     jq -n --argjson checks "$results" --argjson failures "$failures"       '{healthy:($failures == 0), failures:$failures, checks:$checks}'
