@@ -135,6 +135,20 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "maintenance-status" ]]; then
+  echo "🐺 Werewolf B Maintenance Status"
+  echo "==============================="
+  echo
+
+  systemctl --user status werewolf-b-maintenance.timer --no-pager || true
+  echo
+  systemctl --user status werewolf-b-maintenance.service --no-pager || true
+  echo
+  journalctl --user -u werewolf-b-maintenance.service -n 40 --no-pager || true
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "maintenance" ]]; then
   echo "🐺 Werewolf Maintenance"
   echo "======================"
