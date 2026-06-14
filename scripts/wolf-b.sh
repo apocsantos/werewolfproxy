@@ -135,6 +135,47 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "cleanup" ]]; then
+  keep_snapshots="${WEREWOLF_KEEP_SNAPSHOTS:-50}"
+  keep_scores="${WEREWOLF_KEEP_SCORE_SAMPLES:-500}"
+
+  snapshot_dir="${WEREWOLF_SNAPSHOT_DIR:-$HOME/.cache/werewolf/snapshots}"
+  score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+
+  echo "🐺 Werewolf Cleanup"
+  echo "=================="
+  echo
+  echo "keep snapshots: $keep_snapshots"
+  echo "keep scores:    $keep_scores"
+  echo
+
+  mkdir -p "$snapshot_dir"
+
+  if ls "$snapshot_dir"/wolf-b-*.json >/dev/null 2>&1; then
+    ls -1t "$snapshot_dir"/wolf-b-*.json | tail -n +"$((keep_snapshots + 1))" | while read -r old; do
+      echo "removing snapshot: $(basename "$old")"
+      rm -f "$old"
+    done
+  fi
+
+  if [[ -f "$score_file" ]]; then
+    tmp="${score_file}.tmp"
+    tail -n "$keep_scores" "$score_file" > "$tmp"
+    mv "$tmp" "$score_file"
+    echo "score samples kept: $(wc -l < "$score_file")"
+  else
+    echo "score file: missing"
+  fi
+
+  echo
+  echo "cache size:"
+  du -sh "${HOME}/.cache/werewolf" 2>/dev/null || true
+
+  echo
+  echo "✅ cleanup complete"
+  exit 0
+fi
+
 if [[ "${1:-}" == "snapshot-alert" ]]; then
   threshold_ms="${2:-20}"
 
