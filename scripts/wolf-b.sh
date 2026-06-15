@@ -228,6 +228,37 @@ if [[ "${1:-}" == "maintenance-status" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "maintenance-report" ]]; then
+  report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+  mkdir -p "$report_dir"
+
+  ts="$(date +%Y%m%d_%H%M%S)"
+  report="$report_dir/maintenance-${ts}.json"
+
+  echo "🐺 Generating maintenance report..."
+
+  jq -n \
+    --arg timestamp "$(date -Iseconds)" \
+    --argjson doctor "$("$0" doctor --json)" \
+    --argjson ready "$("$0" ready --json)" \
+    --argjson benchmark "$("$0" benchmark --json)" \
+    --argjson scores "$("$0" score-json)" \
+    --argjson history "$("$0" transport-health-json)" \
+    '{
+      timestamp: $timestamp,
+      doctor: $doctor,
+      ready: $ready,
+      benchmark: $benchmark,
+      scores: $scores,
+      transport_health: $history
+    }' > "$report"
+
+  echo "✅ report saved: $report"
+  jq . "$report"
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "maintenance" ]]; then
   echo "🐺 Werewolf Maintenance"
   echo "======================"
