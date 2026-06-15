@@ -229,9 +229,43 @@ if [[ "${1:-}" == "maintenance-status" ]]; then
 fi
 
 if [[ "${1:-}" == "cache-status" ]]; then
+  json_mode=0
+  if [[ "${2:-}" == "--json" ]]; then
+    json_mode=1
+  fi
+
   score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
   snapshot_dir="${WEREWOLF_SNAPSHOT_DIR:-$HOME/.cache/werewolf/snapshots}"
   report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+
+  score_entries=0
+  score_size="0"
+  [[ -f "$score_file" ]] && score_entries="$(wc -l < "$score_file")" && score_size="$(du -b "$score_file" | awk '{print $1}')"
+
+  snapshot_count="$(find "$snapshot_dir" -maxdepth 1 -name 'wolf-b-*.json' 2>/dev/null | wc -l)"
+  snapshot_size="$(du -sb "$snapshot_dir" 2>/dev/null | awk '{print $1}' || echo 0)"
+
+  report_count="$(find "$report_dir" -maxdepth 1 -name 'maintenance-*.json' 2>/dev/null | wc -l)"
+  report_size="$(du -sb "$report_dir" 2>/dev/null | awk '{print $1}' || echo 0)"
+
+  if [[ "$json_mode" == "1" ]]; then
+    jq -n \
+      --arg score_file "$score_file" \
+      --arg snapshot_dir "$snapshot_dir" \
+      --arg report_dir "$report_dir" \
+      --argjson score_entries "$score_entries" \
+      --argjson score_size "$score_size" \
+      --argjson snapshot_count "$snapshot_count" \
+      --argjson snapshot_size "$snapshot_size" \
+      --argjson report_count "$report_count" \
+      --argjson report_size "$report_size" \
+      '{
+        scores: { file: $score_file, entries: $score_entries, size_bytes: $score_size },
+        snapshots: { dir: $snapshot_dir, count: $snapshot_count, size_bytes: $snapshot_size },
+        reports: { dir: $report_dir, count: $report_count, size_bytes: $report_size }
+      }'
+    exit 0
+  fi
 
   echo "🐺 Werewolf Cache Status"
   echo "======================="
