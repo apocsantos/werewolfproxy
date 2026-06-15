@@ -806,19 +806,42 @@ if [[ "${1:-}" == "doctor-fix" ]]; then
 fi
 
 if [[ "${1:-}" == "selftest" ]]; then
+  json_mode=0
+  if [[ "${2:-}" == "--json" ]]; then
+    json_mode=1
+  fi
+
+  "$0" heal --quiet || true
+
+  doctor_json="$("$0" doctor --json)"
+  ready_json="$("$0" ready --json)"
+  policy_json="$("$0" status-json | jq '.policy_test')"
+
+  if [[ "$json_mode" == "1" ]]; then
+    jq -n \
+      --argjson doctor "$doctor_json" \
+      --argjson ready "$ready_json" \
+      --argjson policy_test "$policy_json" \
+      '{
+        ok: ($doctor.healthy == true and $ready.ready == true),
+        doctor: $doctor,
+        ready: $ready,
+        policy_test: $policy_test
+      }'
+    exit 0
+  fi
+
   echo "🐺 Werewolf Selftest"
   echo "==================="
   echo
 
-  "$0" heal --quiet || true
-
-  "$0" doctor
+  echo "$doctor_json" | jq .
   echo
   "$0" policy-test
   echo
   "$0" snapshot-alert 20 || true
   echo
-  "$0" ready --json | jq -e '.ready == true' >/dev/null \
+  echo "$ready_json" | jq -e '.ready == true' >/dev/null \
     && echo "✅ ready json true" \
     || { echo "❌ ready json failed"; exit 1; }
 
