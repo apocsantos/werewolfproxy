@@ -418,6 +418,7 @@ if [[ "${1:-}" == "snapshot" ]]; then
   out="${WEREWOLF_SNAPSHOT_FILE:-$HOME/.cache/werewolf/snapshots/wolf-b-${ts}.json}"
 
   "$0" heal --quiet || true
+  "$0" score-save >/dev/null 2>&1 || true
 
   jq -n \
     --arg timestamp "$(date -Iseconds)" \
