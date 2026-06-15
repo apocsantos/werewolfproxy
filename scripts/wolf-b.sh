@@ -228,6 +228,39 @@ if [[ "${1:-}" == "maintenance-status" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "cache-status" ]]; then
+  score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+  snapshot_dir="${WEREWOLF_SNAPSHOT_DIR:-$HOME/.cache/werewolf/snapshots}"
+  report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+
+  echo "🐺 Werewolf Cache Status"
+  echo "======================="
+  echo
+
+  if [[ -f "$score_file" ]]; then
+    echo "scores:"
+    echo "  file:    $score_file"
+    echo "  entries: $(wc -l < "$score_file")"
+    echo "  size:    $(du -h "$score_file" | awk '{print $1}')"
+  else
+    echo "scores: none"
+  fi
+
+  echo
+  echo "snapshots:"
+  echo "  dir:     $snapshot_dir"
+  echo "  count:   $(find "$snapshot_dir" -maxdepth 1 -name 'wolf-b-*.json' 2>/dev/null | wc -l)"
+  echo "  size:    $(du -sh "$snapshot_dir" 2>/dev/null | awk '{print $1}' || echo 0)"
+
+  echo
+  echo "reports:"
+  echo "  dir:     $report_dir"
+  echo "  count:   $(find "$report_dir" -maxdepth 1 -name 'maintenance-*.json' 2>/dev/null | wc -l)"
+  echo "  size:    $(du -sh "$report_dir" 2>/dev/null | awk '{print $1}' || echo 0)"
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "report-prune" ]]; then
   keep="${2:-30}"
   report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
