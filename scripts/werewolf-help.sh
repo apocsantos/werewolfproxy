@@ -64,9 +64,13 @@ Snapshots and cache:
 
 Gates:
   ./scripts/quick-gate.sh
-  ./scripts/dev-gate.sh
+  ./scripts/json-contract-gate.sh
   ./scripts/rc-gate.sh
+  ./scripts/dev-gate.sh
   ./scripts/chaos-gate.sh
+  ./scripts/chaos-gate-extended.sh
+  ./scripts/full-gate.sh
+  ./scripts/release-gate.sh
 
 Targets:
   ./scripts/test-targets.sh
