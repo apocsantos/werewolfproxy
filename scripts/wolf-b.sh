@@ -299,6 +299,34 @@ if [[ "${1:-}" == "cleanup" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "snapshot-prune" ]]; then
+  keep="${2:-20}"
+  snapshot_dir="${WEREWOLF_SNAPSHOT_DIR:-$HOME/.cache/werewolf/snapshots}"
+
+  mkdir -p "$snapshot_dir"
+
+  echo "🐺 Werewolf Snapshot Prune"
+  echo "========================="
+  echo "keeping newest: $keep"
+  echo
+
+  mapfile -t old_files < <(ls -1t "$snapshot_dir"/wolf-b-*.json 2>/dev/null | tail -n +$((keep + 1)))
+
+  if [[ "${#old_files[@]}" == "0" ]]; then
+    echo "✅ nothing to prune"
+    exit 0
+  fi
+
+  for f in "${old_files[@]}"; do
+    echo "🗑 removing $(basename "$f")"
+    rm -f "$f"
+  done
+
+  echo
+  echo "✅ pruned ${#old_files[@]} snapshot(s)"
+  exit 0
+fi
+
 if [[ "${1:-}" == "snapshot-alert" ]]; then
   threshold_ms="${2:-20}"
 
