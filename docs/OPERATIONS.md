@@ -60,3 +60,22 @@ release-gate   -> release checkpoint
 full-gate      -> full heavy validation
 chaos gates    -> destructive resilience validation
 
+
+## JSON schema contracts
+
+Werewolf keeps reference JSON contracts in:
+
+```bash
+contracts/
+./scripts/schema-gate.sh
+If the schema changed intentionally, regenerate contracts with:
+
+./scripts/update-contracts.sh
+Then review the diff:
+
+git diff -- contracts
+Rule:
+
+schema-gate failure = either a regression or an intentional API change
+
+Never update contracts blindly without checking the diff.
