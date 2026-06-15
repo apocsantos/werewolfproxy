@@ -228,6 +228,43 @@ if [[ "${1:-}" == "maintenance-status" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "status-plus" ]]; then
+  policy="${2:-secure}"
+
+  data="$("$0" status-json "$policy")"
+
+  echo "🐺 Werewolf Status+"
+  echo "=================="
+  echo
+  echo "policy:   $policy"
+  echo "ready:    $(echo "$data" | jq -r '.ready.ready')"
+  echo "selected: $(echo "$data" | jq -r '.ready.selected.transport')"
+  echo "url:      $(echo "$data" | jq -r '.ready.selected.url')"
+  echo
+
+  echo "🧠 Scores"
+  echo "$data" | jq -r '
+    .ready.scores.transports
+    | to_entries[]
+    | "\(.key): score=\(.value.score) healthy=\(.value.healthy) latency=\(.value.latency_seconds)"
+  '
+
+  echo
+  echo "💾 Cache"
+  echo "scores:    $(echo "$data" | jq -r '.cache.scores.entries') entries"
+  echo "snapshots: $(echo "$data" | jq -r '.cache.snapshots.count')"
+  echo "reports:   $(echo "$data" | jq -r '.cache.reports.count')"
+
+  echo
+  echo "🧪 Policies"
+  echo "$data" | jq -r '
+    .policy_test[]
+    | "\(.policy): \(.transport) healthy=\(.healthy)"
+  '
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "status-json" ]]; then
   policy="${2:-secure}"
 
