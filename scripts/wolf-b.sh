@@ -228,6 +228,41 @@ if [[ "${1:-}" == "maintenance-status" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "status-json" ]]; then
+  policy="${2:-secure}"
+
+  jq -n \
+    --arg timestamp "$(date -Iseconds)" \
+    --arg policy "$policy" \
+    --argjson ready "$("$0" ready --policy "$policy" --json)" \
+    --argjson cache "$("$0" cache-status --json)" \
+    --argjson policy_test "$("$0" policy-test | awk '
+      BEGIN { print "["; first=1 }
+      /^[a-z]/ {
+        gsub("->", "", $0)
+        policy=$1
+        transport=$2
+        healthy=$3
+        url=$4
+        gsub("healthy=", "", healthy)
+        gsub("url=", "", url)
+        if (!first) print ","
+        first=0
+        printf("{\"policy\":\"%s\",\"transport\":\"%s\",\"healthy\":%s,\"url\":\"%s\"}", policy, transport, healthy, url)
+      }
+      END { print "]" }
+    ')" \
+    '{
+      timestamp: $timestamp,
+      policy: $policy,
+      ready: $ready,
+      cache: $cache,
+      policy_test: $policy_test
+    }'
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "cache-status" ]]; then
   json_mode=0
   if [[ "${2:-}" == "--json" ]]; then
