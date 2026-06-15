@@ -5,22 +5,21 @@ mkdir -p ~/.config/systemd/user
 
 cat > ~/.config/systemd/user/werewolf-b-maintenance.service <<SERVICE
 [Unit]
-Description=WerewolfProxy Wolf B Maintenance
+Description=WerewolfProxy Wolf B Daily Maintenance
 
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/wolf-b maintenance
+ExecStart=/bin/bash -lc "%h/.local/bin/wolf-b maintenance"
 SERVICE
 
 cat > ~/.config/systemd/user/werewolf-b-maintenance.timer <<TIMER
 [Unit]
-Description=Run WerewolfProxy Wolf B Maintenance
+Description=Run WerewolfProxy Wolf B Daily Maintenance
 
 [Timer]
-OnBootSec=2min
 OnCalendar=daily
 Persistent=true
-AccuracySec=30min
+AccuracySec=10min
 
 [Install]
 WantedBy=timers.target
