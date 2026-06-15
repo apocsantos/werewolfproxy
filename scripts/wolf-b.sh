@@ -664,6 +664,30 @@ if [[ "${1:-}" == "policy-test" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "score-prune" ]]; then
+  keep="${2:-500}"
+  score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+
+  if [[ ! -f "$score_file" ]]; then
+    echo "✅ no score history to prune"
+    exit 0
+  fi
+
+  tmp="${score_file}.tmp"
+  total="$(wc -l < "$score_file")"
+
+  if [[ "$total" -le "$keep" ]]; then
+    echo "✅ score history has $total entries; nothing to prune"
+    exit 0
+  fi
+
+  tail -n "$keep" "$score_file" > "$tmp"
+  mv "$tmp" "$score_file"
+
+  echo "✅ pruned score history: kept $keep of $total entries"
+  exit 0
+fi
+
 if [[ "${1:-}" == "score-history" ]]; then
   score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
 
