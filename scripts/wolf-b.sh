@@ -805,6 +805,28 @@ if [[ "${1:-}" == "doctor-fix" ]]; then
   exit $?
 fi
 
+if [[ "${1:-}" == "selftest" ]]; then
+  echo "🐺 Werewolf Selftest"
+  echo "==================="
+  echo
+
+  "$0" heal --quiet || true
+
+  "$0" doctor
+  echo
+  "$0" policy-test
+  echo
+  "$0" snapshot-alert 20 || true
+  echo
+  "$0" ready --json | jq -e '.ready == true' >/dev/null \
+    && echo "✅ ready json true" \
+    || { echo "❌ ready json failed"; exit 1; }
+
+  echo
+  echo "🎉 selftest passed"
+  exit 0
+fi
+
 if [[ "${1:-}" == "doctor" ]]; then
   json_mode=0
   if [[ "${2:-}" == "--json" ]]; then
