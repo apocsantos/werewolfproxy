@@ -95,13 +95,35 @@ if [[ "${1:-}" == "heal" ]]; then
   ensure_profile() {
     local name="$1"
     local port="$2"
+    local url="http://127.0.0.1:${port}/"
 
-    if "$0" fang list | grep -q "local:  127.0.0.1:${port}"; then
-      [[ "$quiet" == "0" ]] && echo "✅ $name already active on $port"
-    else
-      [[ "$quiet" == "0" ]] && echo "🔁 opening $name..."
-      "$0" fang open-profile "$name" >/dev/null || true
+    if curl --max-time 3 -fsS "$url" >/dev/null 2>&1; then
+      [[ "$quiet" == "0" ]] && echo "✅ $name healthy on $port"
+      return 0
     fi
+
+    [[ "$quiet" == "0" ]] && echo "🔁 $name unhealthy/missing on $port; reopening..."
+
+    # Close any stale Fang on this local port first.
+    "$0" fang list \
+      | awk -v port="$port" '
+          /- fang_/ {id=$2}
+          $0 ~ ("local:  127.0.0.1:" port) {print id}
+        ' \
+      | while read -r stale_id; do
+          [[ -n "$stale_id" ]] && "$0" fang close "$stale_id" >/dev/null 2>&1 || true
+        done
+
+    "$0" fang open-profile "$name" >/dev/null 2>&1 || true
+    sleep 1
+
+    if curl --max-time 3 -fsS "$url" >/dev/null 2>&1; then
+      [[ "$quiet" == "0" ]] && echo "✅ $name recovered on $port"
+      return 0
+    fi
+
+    [[ "$quiet" == "0" ]] && echo "❌ $name still unhealthy on $port"
+    return 1
   }
 
   ensure_profile home-web-tcp 9021
