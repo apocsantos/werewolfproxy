@@ -17,6 +17,10 @@ echo "🧪 Wolf-B selftest"
 wolf-b selftest
 
 echo
+echo "🔥 Extended chaos gate"
+./scripts/chaos-gate-extended.sh
+
+echo
 echo "🚪 RC gate"
 ./scripts/rc-gate.sh
 
