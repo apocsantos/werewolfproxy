@@ -1,0 +1,17 @@
+{
+  "scores": {
+    "file": "/home/sleepdeprivedloon/.cache/werewolf/wolf-b-scores.jsonl",
+    "entries": 29,
+    "size_bytes": 7926
+  },
+  "snapshots": {
+    "dir": "/home/sleepdeprivedloon/.cache/werewolf/snapshots",
+    "count": 21,
+    "size_bytes": 77314
+  },
+  "reports": {
+    "dir": "/home/sleepdeprivedloon/.cache/werewolf/reports",
+    "count": 1,
+    "size_bytes": 3987
+  }
+}

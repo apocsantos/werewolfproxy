@@ -1,0 +1,139 @@
+{
+  "timestamp": "2026-06-15T14:58:36+01:00",
+  "policy": "secure",
+  "ready": {
+    "ready": true,
+    "policy": "secure",
+    "doctor": {
+      "healthy": true,
+      "failures": 0,
+      "checks": [
+        {
+          "label": "wolf-b service active",
+          "ok": true
+        },
+        {
+          "label": "wolf-a service active",
+          "ok": true
+        },
+        {
+          "label": "wolf-b socket exists",
+          "ok": true
+        },
+        {
+          "label": "wolf-a socket exists",
+          "ok": true
+        },
+        {
+          "label": "transport health json valid",
+          "ok": true
+        },
+        {
+          "label": "benchmark json valid",
+          "ok": true
+        },
+        {
+          "label": "score json valid",
+          "ok": true
+        },
+        {
+          "label": "auto secure valid",
+          "ok": true
+        },
+        {
+          "label": "auto resilience valid",
+          "ok": true
+        },
+        {
+          "label": "score history readable",
+          "ok": true
+        },
+        {
+          "label": "snapshot directory writable",
+          "ok": true
+        }
+      ]
+    },
+    "selected": {
+      "transport": "quic",
+      "label": "QUIC 🟢",
+      "url": "http://127.0.0.1:9020",
+      "healthy": true,
+      "policy": "secure"
+    },
+    "scores": {
+      "transports": {
+        "quic": {
+          "healthy": true,
+          "latency_seconds": 0.003879,
+          "score": 96.121
+        },
+        "tcp-encrypted-v2": {
+          "healthy": true,
+          "latency_seconds": 0.045551,
+          "score": 44.449
+        },
+        "tcp-plain": {
+          "healthy": true,
+          "latency_seconds": 0.001476,
+          "score": 68.524
+        }
+      }
+    }
+  },
+  "cache": {
+    "scores": {
+      "file": "/home/sleepdeprivedloon/.cache/werewolf/wolf-b-scores.jsonl",
+      "entries": 29,
+      "size_bytes": 7926
+    },
+    "snapshots": {
+      "dir": "/home/sleepdeprivedloon/.cache/werewolf/snapshots",
+      "count": 21,
+      "size_bytes": 77314
+    },
+    "reports": {
+      "dir": "/home/sleepdeprivedloon/.cache/werewolf/reports",
+      "count": 1,
+      "size_bytes": 3987
+    }
+  },
+  "policy_test": [
+    {
+      "policy": "secure",
+      "transport": "quic",
+      "healthy": true,
+      "url": "http://127.0.0.1:9020"
+    },
+    {
+      "policy": "performance",
+      "transport": "tcp-plain",
+      "healthy": true,
+      "url": "http://127.0.0.1:9021"
+    },
+    {
+      "policy": "stealth",
+      "transport": "tcp-encrypted-v2",
+      "healthy": true,
+      "url": "http://127.0.0.1:9022"
+    },
+    {
+      "policy": "resilience",
+      "transport": "quic",
+      "healthy": true,
+      "url": "http://127.0.0.1:9020"
+    },
+    {
+      "policy": "learned",
+      "transport": "quic",
+      "healthy": true,
+      "url": "http://127.0.0.1:9020"
+    },
+    {
+      "policy": "recent",
+      "transport": "quic",
+      "healthy": true,
+      "url": "http://127.0.0.1:9020"
+    }
+  ]
+}
