@@ -228,6 +228,23 @@ if [[ "${1:-}" == "maintenance-status" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "export-status" ]]; then
+  policy="${2:-secure}"
+  out="${3:-}"
+
+  if [[ -z "$out" ]]; then
+    mkdir -p ~/.cache/werewolf/exports
+    out="$HOME/.cache/werewolf/exports/wolf-b-status-$(date +%Y%m%d_%H%M%S).json"
+  fi
+
+  "$0" status-json "$policy" > "$out"
+
+  echo "✅ status exported: $out"
+  jq . "$out"
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "status-plus" ]]; then
   policy="${2:-secure}"
 
