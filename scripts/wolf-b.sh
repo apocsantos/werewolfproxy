@@ -345,6 +345,29 @@ if [[ "${1:-}" == "status-json" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "cache-prune" ]]; then
+  snapshot_keep="${WEREWOLF_SNAPSHOT_KEEP:-20}"
+  score_keep="${WEREWOLF_SCORE_KEEP:-500}"
+  report_keep="${WEREWOLF_REPORT_KEEP:-30}"
+  export_keep="${WEREWOLF_EXPORT_KEEP:-30}"
+
+  echo "🐺 Werewolf Cache Prune"
+  echo "======================"
+  echo
+
+  "$0" snapshot-prune "$snapshot_keep"
+  echo
+  "$0" score-prune "$score_keep"
+  echo
+  "$0" report-prune "$report_keep"
+  echo
+  "$0" export-prune "$export_keep"
+  echo
+  "$0" cache-status
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "cache-status" ]]; then
   json_mode=0
   if [[ "${2:-}" == "--json" ]]; then
