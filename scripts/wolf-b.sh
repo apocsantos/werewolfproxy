@@ -228,6 +228,34 @@ if [[ "${1:-}" == "maintenance-status" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "export-prune" ]]; then
+  keep="${2:-30}"
+  export_dir="${WEREWOLF_EXPORT_DIR:-$HOME/.cache/werewolf/exports}"
+
+  mkdir -p "$export_dir"
+
+  echo "🐺 Werewolf Export Prune"
+  echo "======================="
+  echo "keeping newest: $keep"
+  echo
+
+  mapfile -t old_files < <(ls -1t "$export_dir"/wolf-b-status-*.json 2>/dev/null | tail -n +$((keep + 1)))
+
+  if [[ "${#old_files[@]}" == "0" ]]; then
+    echo "✅ nothing to prune"
+    exit 0
+  fi
+
+  for f in "${old_files[@]}"; do
+    echo "🗑 removing $(basename "$f")"
+    rm -f "$f"
+  done
+
+  echo
+  echo "✅ pruned ${#old_files[@]} export(s)"
+  exit 0
+fi
+
 if [[ "${1:-}" == "export-status" ]]; then
   policy="${2:-secure}"
   out="${3:-}"
