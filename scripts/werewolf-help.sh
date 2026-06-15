@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cat <<'HELP'
+🐺 Werewolf Developer Help
+==========================
+
+Core service:
+  werewolf-start-a
+  werewolf-start-b
+  wolf-a status
+  wolf-b status
+
+Transport:
+  wolf-b health-summary
+  wolf-b transport-health-json
+  wolf-b benchmark
+  wolf-b benchmark --json
+  wolf-b auto
+  wolf-b auto --json
+  wolf-b auto --policy secure
+  wolf-b auto --policy performance
+  wolf-b auto --policy stealth
+  wolf-b auto --policy resilience
+  wolf-b auto --policy learned
+  wolf-b auto --policy recent
+
+Scoring and memory:
+  wolf-b score
+  wolf-b score-json
+  wolf-b score-save
+  wolf-b score-history
+  wolf-b score-prune
+
+Policies:
+  wolf-b policy-test
+  wolf-b policy-explain secure
+  wolf-b policy-explain recent
+
+Healing and diagnostics:
+  wolf-b heal
+  wolf-b heal --quiet
+  wolf-b doctor
+  wolf-b doctor --json
+  wolf-b doctor-fix
+  wolf-b ready
+  wolf-b ready --json
+  wolf-b selftest
+  wolf-b selftest --json
+
+Snapshots and cache:
+  wolf-b snapshot
+  wolf-b snapshot-diff
+  wolf-b snapshot-alert 20
+  wolf-b snapshot-prune
+  wolf-b maintenance
+  wolf-b maintenance-report
+  wolf-b cache-status
+  wolf-b cache-status --json
+  wolf-b cache-prune
+  wolf-b status-json
+  wolf-b status-plus
+  wolf-b export-status
+
+Gates:
+  ./scripts/quick-gate.sh
+  ./scripts/dev-gate.sh
+  ./scripts/rc-gate.sh
+  ./scripts/chaos-gate.sh
+
+Targets:
+  ./scripts/test-targets.sh
+
+Watchdog:
+  ./scripts/install-wolf-b-watchdog.sh
+  ./scripts/uninstall-wolf-b-watchdog.sh
+  wolf-b watchdog-status
+HELP
