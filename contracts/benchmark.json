@@ -1,23 +1,23 @@
 {
   "target": {
     "url": "http://127.0.0.1:8080",
-    "latency_seconds": 0.001376,
+    "latency_seconds": 0.001345,
     "healthy": true
   },
   "transports": {
     "quic": {
       "url": "http://127.0.0.1:9020",
-      "latency_seconds": 0.003408,
+      "latency_seconds": 0.003575,
       "healthy": true
     },
     "tcp-plain": {
       "url": "http://127.0.0.1:9021",
-      "latency_seconds": 0.001460,
+      "latency_seconds": 0.001413,
       "healthy": true
     },
     "tcp-encrypted-v2": {
       "url": "http://127.0.0.1:9022",
-      "latency_seconds": 0.045517,
+      "latency_seconds": 0.045837,
       "healthy": true
     }
   }

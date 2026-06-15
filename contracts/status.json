@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-15T14:58:36+01:00",
+  "timestamp": "2026-06-15T15:11:16+01:00",
   "policy": "secure",
   "ready": {
     "ready": true,
@@ -65,18 +65,18 @@
       "transports": {
         "quic": {
           "healthy": true,
-          "latency_seconds": 0.003879,
-          "score": 96.121
+          "latency_seconds": 0.004441,
+          "score": 95.559
         },
         "tcp-encrypted-v2": {
           "healthy": true,
-          "latency_seconds": 0.045551,
-          "score": 44.449
+          "latency_seconds": 0.043866,
+          "score": 46.134
         },
         "tcp-plain": {
           "healthy": true,
-          "latency_seconds": 0.001476,
-          "score": 68.524
+          "latency_seconds": 0.001499,
+          "score": 68.501
         }
       }
     }
@@ -84,13 +84,13 @@
   "cache": {
     "scores": {
       "file": "/home/sleepdeprivedloon/.cache/werewolf/wolf-b-scores.jsonl",
-      "entries": 29,
-      "size_bytes": 7926
+      "entries": 31,
+      "size_bytes": 8469
     },
     "snapshots": {
       "dir": "/home/sleepdeprivedloon/.cache/werewolf/snapshots",
-      "count": 21,
-      "size_bytes": 77314
+      "count": 23,
+      "size_bytes": 85243
     },
     "reports": {
       "dir": "/home/sleepdeprivedloon/.cache/werewolf/reports",

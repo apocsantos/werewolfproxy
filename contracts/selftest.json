@@ -114,18 +114,18 @@
       "transports": {
         "quic": {
           "healthy": true,
-          "latency_seconds": 0.003312,
-          "score": 96.688
+          "latency_seconds": 0.003292,
+          "score": 96.708
         },
         "tcp-encrypted-v2": {
           "healthy": true,
-          "latency_seconds": 0.049679,
-          "score": 40.321
+          "latency_seconds": 0.046517,
+          "score": 43.483
         },
         "tcp-plain": {
           "healthy": true,
-          "latency_seconds": 0.001522,
-          "score": 68.478
+          "latency_seconds": 0.001430,
+          "score": 68.57
         }
       }
     }
