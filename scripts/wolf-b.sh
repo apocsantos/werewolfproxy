@@ -228,6 +228,34 @@ if [[ "${1:-}" == "maintenance-status" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "report-prune" ]]; then
+  keep="${2:-30}"
+  report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+
+  mkdir -p "$report_dir"
+
+  echo "🐺 Werewolf Report Prune"
+  echo "======================="
+  echo "keeping newest: $keep"
+  echo
+
+  mapfile -t old_files < <(ls -1t "$report_dir"/maintenance-*.json 2>/dev/null | tail -n +$((keep + 1)))
+
+  if [[ "${#old_files[@]}" == "0" ]]; then
+    echo "✅ nothing to prune"
+    exit 0
+  fi
+
+  for f in "${old_files[@]}"; do
+    echo "🗑 removing $(basename "$f")"
+    rm -f "$f"
+  done
+
+  echo
+  echo "✅ pruned ${#old_files[@]} report(s)"
+  exit 0
+fi
+
 if [[ "${1:-}" == "maintenance-report" ]]; then
   report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
   mkdir -p "$report_dir"
