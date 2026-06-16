@@ -68,6 +68,7 @@ Snapshots and cache:
   wolf-b export-status
 
 Gates:
+  ./scripts/gate-index.sh
   ./scripts/quick-gate.sh
   ./scripts/json-contract-gate.sh
   ./scripts/rc-gate.sh
