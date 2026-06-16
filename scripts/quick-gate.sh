@@ -9,6 +9,9 @@ echo "🧱 Build"
 cargo build
 
 echo
+echo "📂 Repo gate"
+./scripts/repo-gate.sh
+echo
 echo "📜 Script gate"
 ./scripts/script-gate.sh
 
