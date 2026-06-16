@@ -56,6 +56,7 @@ Snapshots and cache:
   wolf-b maintenance
   ./scripts/maintenance-all.sh
   ./scripts/wolf-dashboard.sh
+  ./scripts/wolf-dashboard-json.sh
   ./scripts/wolf-dashboard-watch.sh 5
   wolf-b maintenance-report
   wolf-b report-list
