@@ -457,6 +457,30 @@ if [[ "${1:-}" == "cache-status" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "report-show" ]]; then
+  target="${2:-latest}"
+  report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+
+  if [[ "$target" == "latest" ]]; then
+    file="$(ls -1t "$report_dir"/*.json 2>/dev/null | head -n 1)"
+  else
+    file="$target"
+  fi
+
+  if [[ -z "${file:-}" || ! -f "$file" ]]; then
+    echo "❌ report not found"
+    exit 1
+  fi
+
+  echo "🐺 Werewolf Report"
+  echo "================="
+  echo "file: $file"
+  echo
+
+  jq . "$file"
+  exit 0
+fi
+
 if [[ "${1:-}" == "report-list" ]]; then
   limit="${2:-10}"
   report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
