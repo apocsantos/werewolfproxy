@@ -98,3 +98,31 @@ Alert if the latest report regressed:
 
 wolf-b report-alert
 
+## Runtime dumps
+
+Create a runtime diagnostic dump:
+
+```bash
+./scripts/runtime-dump.sh
+
+List dumps:
+
+./scripts/dump-list.sh
+
+Prune old dumps:
+
+./scripts/dump-prune.sh 20
+
+Full maintenance workflow:
+
+./scripts/maintenance-all.sh
+
+EOF
+
+
+Testa:
+
+```bash
+./scripts/werewolf-help.sh
+./scripts/maintenance-all.sh
+

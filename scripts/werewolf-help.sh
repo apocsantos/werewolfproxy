@@ -54,6 +54,7 @@ Snapshots and cache:
   wolf-b snapshot-alert 20
   wolf-b snapshot-prune
   wolf-b maintenance
+  ./scripts/maintenance-all.sh
   wolf-b maintenance-report
   wolf-b report-list
   wolf-b report-show
@@ -80,6 +81,11 @@ Gates:
 
 Targets:
   ./scripts/test-targets.sh
+
+Runtime dumps:
+  ./scripts/runtime-dump.sh
+  ./scripts/dump-list.sh
+  ./scripts/dump-prune.sh 20
 
 Watchdog:
   ./scripts/install-wolf-b-watchdog.sh
