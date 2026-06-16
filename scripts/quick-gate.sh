@@ -9,6 +9,10 @@ echo "🧱 Build"
 cargo build
 
 echo
+echo "📜 Script gate"
+./scripts/script-gate.sh
+
+echo
 echo "🔧 Heal"
 wolf-b heal --quiet || true
 
