@@ -69,6 +69,7 @@ Gates:
   ./scripts/dev-gate.sh
   ./scripts/chaos-gate.sh
   ./scripts/chaos-gate-extended.sh
+  ./scripts/soak-gate.sh 5 5
   ./scripts/full-gate.sh
   ./scripts/release-gate.sh
 

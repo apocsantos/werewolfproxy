@@ -31,6 +31,10 @@ echo "🔥 Chaos gate"
 echo
 echo "🔥 Extended chaos gate"
 ./scripts/chaos-gate-extended.sh
+echo
+echo "🌕 Soak gate"
+./scripts/soak-gate.sh 3 2
+
 
 echo
 echo "📸 Snapshot"
