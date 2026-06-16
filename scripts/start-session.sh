@@ -37,4 +37,9 @@ echo "📝 Latest report"
 wolf-b report-list 3 || true
 
 echo
+
+echo
+echo "📊 Dashboard"
+./scripts/wolf-dashboard.sh || true
+
 echo "🌕 Wolf ready for the night"
