@@ -457,6 +457,52 @@ if [[ "${1:-}" == "cache-status" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "report-alert" ]]; then
+  diff_json="$("$0" report-diff | sed -n '/^{/,$p')"
+
+  failures=0
+
+  old_status="$(echo "$diff_json" | jq -r '.status.old')"
+  new_status="$(echo "$diff_json" | jq -r '.status.new')"
+  old_failures="$(echo "$diff_json" | jq -r '.doctor_failures.old')"
+  new_failures="$(echo "$diff_json" | jq -r '.doctor_failures.new')"
+  old_transport="$(echo "$diff_json" | jq -r '.selected_transport.old')"
+  new_transport="$(echo "$diff_json" | jq -r '.selected_transport.new')"
+
+  echo "🐺 Werewolf Report Alert"
+  echo "======================="
+  echo
+
+  if [[ "$old_status" == "passed" && "$new_status" != "passed" ]]; then
+    echo "❌ gate status degraded: $old_status -> $new_status"
+    failures=$((failures + 1))
+  else
+    echo "✅ gate status: $old_status -> $new_status"
+  fi
+
+  if [[ "$new_failures" -gt "$old_failures" ]]; then
+    echo "❌ doctor failures increased: $old_failures -> $new_failures"
+    failures=$((failures + 1))
+  else
+    echo "✅ doctor failures: $old_failures -> $new_failures"
+  fi
+
+  if [[ "$old_transport" != "$new_transport" ]]; then
+    echo "⚠ selected transport changed: $old_transport -> $new_transport"
+  else
+    echo "✅ selected transport stable: $new_transport"
+  fi
+
+  echo
+  if [[ "$failures" == "0" ]]; then
+    echo "🎉 no report regression"
+    exit 0
+  else
+    echo "⚠ report regression detected"
+    exit 1
+  fi
+fi
+
 if [[ "${1:-}" == "report-diff" ]]; then
   report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
 
