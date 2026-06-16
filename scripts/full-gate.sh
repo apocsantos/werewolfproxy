@@ -19,6 +19,10 @@ echo "⚡ Quick gate"
 echo
 echo "📦 JSON contract gate"
 ./scripts/json-contract-gate.sh
+echo
+echo "📊 Dashboard gate"
+./scripts/dashboard-gate.sh
+
 
 echo
 echo "🚪 RC gate"
