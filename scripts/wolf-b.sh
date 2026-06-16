@@ -457,6 +457,24 @@ if [[ "${1:-}" == "cache-status" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "report-list" ]]; then
+  limit="${2:-10}"
+  report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+
+  echo "🐺 Werewolf Reports"
+  echo "=================="
+  echo
+
+  ls -1t "$report_dir"/*.json 2>/dev/null | head -n "$limit" | while read -r f; do
+    status="$(jq -r '.status // .doctor.healthy // "unknown"' "$f" 2>/dev/null || echo unknown)"
+    gate="$(jq -r '.gate // "maintenance"' "$f" 2>/dev/null || echo maintenance)"
+    ts="$(jq -r '.timestamp // "unknown"' "$f" 2>/dev/null || echo unknown)"
+    echo "$(basename "$f") | gate=$gate | status=$status | ts=$ts"
+  done
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "report-prune" ]]; then
   keep="${2:-30}"
   report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
