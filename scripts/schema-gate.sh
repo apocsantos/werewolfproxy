@@ -73,6 +73,12 @@ validate_shape \
   "wolf-b benchmark --json" \
   "contracts/benchmark.json"
 
+
+validate_shape \
+  "dashboard" \
+  "./scripts/wolf-dashboard-json.sh" \
+  "contracts/dashboard.json"
+
 echo
 if [[ "$failures" == "0" ]]; then
   echo "🎉 SCHEMA GATE PASSED"
