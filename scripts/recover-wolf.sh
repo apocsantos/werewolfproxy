@@ -5,6 +5,9 @@ echo "🐺 Werewolf Recovery"
 echo "===================="
 echo
 
+echo "📦 Runtime dump"
+./scripts/runtime-dump.sh || true
+
 echo "📂 Project"
 cd "$(dirname "$0")/.."
 
