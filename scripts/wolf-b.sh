@@ -457,6 +457,44 @@ if [[ "${1:-}" == "cache-status" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "report-diff" ]]; then
+  report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+
+  latest="$(ls -1t "$report_dir"/*.json 2>/dev/null | sed -n '1p')"
+  previous="$(ls -1t "$report_dir"/*.json 2>/dev/null | sed -n '2p')"
+
+  if [[ -z "${latest:-}" || -z "${previous:-}" ]]; then
+    echo "❌ need at least two reports"
+    exit 1
+  fi
+
+  echo "🐺 Werewolf Report Diff"
+  echo "======================"
+  echo "latest:   $(basename "$latest")"
+  echo "previous: $(basename "$previous")"
+  echo
+
+  jq -n \
+    --slurpfile old "$previous" \
+    --slurpfile new "$latest" \
+    '{
+      status: {
+        old: ($old[0].status // "unknown"),
+        new: ($new[0].status // "unknown")
+      },
+      selected_transport: {
+        old: ($old[0].ready.selected.transport // $old[0].wolf_status.ready.selected.transport // "unknown"),
+        new: ($new[0].ready.selected.transport // $new[0].wolf_status.ready.selected.transport // "unknown")
+      },
+      doctor_failures: {
+        old: ($old[0].doctor.failures // 0),
+        new: ($new[0].doctor.failures // 0)
+      }
+    }' | jq .
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "report-show" ]]; then
   target="${2:-latest}"
   report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
