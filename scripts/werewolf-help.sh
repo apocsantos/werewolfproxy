@@ -55,6 +55,10 @@ Snapshots and cache:
   wolf-b snapshot-prune
   wolf-b maintenance
   wolf-b maintenance-report
+  wolf-b report-list
+  wolf-b report-show
+  wolf-b report-diff
+  wolf-b report-alert
   wolf-b cache-status
   wolf-b cache-status --json
   wolf-b cache-prune

@@ -79,3 +79,22 @@ Rule:
 schema-gate failure = either a regression or an intentional API change
 
 Never update contracts blindly without checking the diff.
+
+## Reports and regression alerts
+
+List reports:
+
+```bash
+wolf-b report-list
+Show the latest report:
+
+wolf-b report-show
+
+Compare latest report with the previous one:
+
+wolf-b report-diff
+
+Alert if the latest report regressed:
+
+wolf-b report-alert
+
