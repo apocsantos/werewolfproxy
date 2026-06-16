@@ -3,11 +3,13 @@ set -euo pipefail
 
 iterations="${1:-5}"
 delay="${2:-5}"
+chaos_mode="${3:-}"
 
 echo "🐺 Werewolf Soak Gate"
 echo "===================="
 echo "iterations: $iterations"
 echo "delay:      ${delay}s"
+echo "chaos:      ${chaos_mode:-off}"
 echo
 
 failures=0
@@ -21,13 +23,39 @@ fail() {
   failures=$((failures + 1))
 }
 
+close_quic_once() {
+  quic_id="$(
+    wolf-b fang list \
+      | awk '
+        /- fang_/ {id=$2}
+        /transport: quic/ {print id; exit}
+      '
+  )"
+
+  if [[ -n "${quic_id:-}" ]]; then
+    echo "🔥 chaos: closing QUIC Fang $quic_id"
+    wolf-b fang close "$quic_id" >/dev/null || true
+    sleep 2
+  else
+    echo "⚠ chaos: no QUIC Fang found"
+  fi
+}
+
 ./scripts/test-targets.sh
 wolf-b heal --quiet || true
+
+chaos_iteration=$(( (iterations / 2) + 1 ))
 
 for i in $(seq 1 "$iterations"); do
   echo
   echo "🌕 Soak iteration $i/$iterations"
   echo "------------------------------"
+
+  if [[ "$chaos_mode" == "--chaos" && "$i" == "$chaos_iteration" ]]; then
+    close_quic_once
+  fi
+
+  wolf-b heal --quiet || true
 
   if wolf-b selftest --json | jq -e '.ok == true' >/dev/null; then
     pass "selftest ok"
