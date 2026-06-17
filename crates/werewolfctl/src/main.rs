@@ -180,13 +180,9 @@ async fn main() -> std::io::Result<()> {
                     "address": address
                 }),
             ),
-            PackCommands::Remove { name } => {
-                ("pack.remove".to_string(), json!({ "name": name }))
-            }
+            PackCommands::Remove { name } => ("pack.remove".to_string(), json!({ "name": name })),
 
-            PackCommands::Revoke { name } => {
-                ("pack.revoke".to_string(), json!({ "name": name }))
-            }
+            PackCommands::Revoke { name } => ("pack.revoke".to_string(), json!({ "name": name })),
             PackCommands::SetAddress { name, address } => (
                 "pack.set_address".to_string(),
                 json!({
@@ -230,28 +226,28 @@ async fn main() -> std::io::Result<()> {
                         "remote": remote
                     }),
                 ),
-                FangProfileCommands::List => {
-                    ("fang.profile.list".to_string(), json!({}))
+                FangProfileCommands::List => ("fang.profile.list".to_string(), json!({})),
+                FangProfileCommands::Remove { name } => {
+                    ("fang.profile.remove".to_string(), json!({ "name": name }))
                 }
-                FangProfileCommands::Remove { name } => (
-                    "fang.profile.remove".to_string(),
-                    json!({ "name": name }),
-                ),
             },
 
             FangCommands::Cleanup => ("fang.cleanup".to_string(), json!({})),
             FangCommands::List => ("fang.list".to_string(), json!({})),
-            FangCommands::Close { fang_id } => (
-                "fang.close".to_string(),
-                json!({ "fang_id": fang_id }),
-            ),
+            FangCommands::Close { fang_id } => {
+                ("fang.close".to_string(), json!({ "fang_id": fang_id }))
+            }
         },
     };
 
     let response = send_request(&cli.socket, &cmd, args).await?;
     print_response(
-        if original_cmd.is_empty() { &cmd } else { original_cmd },
-        response
+        if original_cmd.is_empty() {
+            &cmd
+        } else {
+            original_cmd
+        },
+        response,
     );
 
     Ok(())
@@ -282,14 +278,15 @@ async fn send_request(
     Ok(response)
 }
 
-
 fn print_banner() {
-    println!(r#"██╗    ██╗███████╗██████╗ ███████╗██╗    ██╗ ██████╗ ██╗     ███████╗
+    println!(
+        r#"██╗    ██╗███████╗██████╗ ███████╗██╗    ██╗ ██████╗ ██╗     ███████╗
 ██║    ██║██╔════╝██╔══██╗██╔════╝██║    ██║██╔═══██╗██║     ██╔════╝
 ██║ █╗ ██║█████╗  ██████╔╝█████╗  ██║ █╗ ██║██║   ██║██║     █████╗
 ██║███╗██║██╔══╝  ██╔══██╗██╔══╝  ██║███╗██║██║   ██║██║     ██╔══╝
 ╚███╔███╔╝███████╗██║  ██║███████╗╚███╔███╔╝╚██████╔╝███████╗██║
- ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝╚══════╝ ╚══╝╚══╝  ╚═════╝ ╚══════╝╚═╝"#);
+ ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝╚══════╝ ╚══╝╚══╝  ╚═════╝ ╚══════╝╚═╝"#
+    );
     println!();
     println!("🐺 WerewolfProxy");
     println!();
@@ -397,11 +394,7 @@ fn print_response(cmd: &str, resp: ControlResponse) {
                 if profiles > 0 { "✅" } else { "⚠️" }
             );
 
-            println!(
-                "  active fangs:        {}           {}",
-                fangs,
-                "✅"
-            );
+            println!("  active fangs:        {}           {}", fangs, "✅");
 
             if let Some(listen) = value["listen"].as_str() {
                 println!("  tcp listener:        {}  ✅", listen);
@@ -417,38 +410,89 @@ fn print_response(cmd: &str, resp: ControlResponse) {
 
         "status" => {
             println!("🐺 Werewolf Status");
-            println!("  mode:         {}", value["mode"].as_str().unwrap_or("unknown"));
-            println!("  pelt ready:   {}", value["pelt_ready"].as_bool().unwrap_or(false));
-            println!("  packmates:    {}", value["packmates"].as_u64().unwrap_or(0));
-            println!("  profiles:     {}", value["fang_profiles"].as_u64().unwrap_or(0));
-            println!("  active fangs: {}", value["active_fangs"].as_u64().unwrap_or(0));
+            println!(
+                "  mode:         {}",
+                value["mode"].as_str().unwrap_or("unknown")
+            );
+            println!(
+                "  pelt ready:   {}",
+                value["pelt_ready"].as_bool().unwrap_or(false)
+            );
+            println!(
+                "  packmates:    {}",
+                value["packmates"].as_u64().unwrap_or(0)
+            );
+            println!(
+                "  profiles:     {}",
+                value["fang_profiles"].as_u64().unwrap_or(0)
+            );
+            println!(
+                "  active fangs: {}",
+                value["active_fangs"].as_u64().unwrap_or(0)
+            );
             if let Some(listen) = value["listen"].as_str() {
                 println!("  tcp listen:   {}", listen);
             }
             if let Some(quic) = value["quic_listen"].as_str() {
                 println!("  quic listen:  {}", quic);
             }
-            println!("  silver:       {}", value["silver"].as_str().unwrap_or("unknown"));
-            println!("  hide:         {}", value["hide"].as_str().unwrap_or("unknown"));
+            println!(
+                "  silver:       {}",
+                value["silver"].as_str().unwrap_or("unknown")
+            );
+            println!(
+                "  hide:         {}",
+                value["hide"].as_str().unwrap_or("unknown")
+            );
         }
 
         "den.info" => {
             println!("🏠 Den Info");
-            println!("  socket:        {}", value["socket"].as_str().unwrap_or(""));
+            println!(
+                "  socket:        {}",
+                value["socket"].as_str().unwrap_or("")
+            );
             println!("  home:          {}", value["home"].as_str().unwrap_or(""));
-            println!("  listen:        {}", value["listen"].as_str().unwrap_or(""));
-            println!("  mode:          {}", value["mode"].as_str().unwrap_or("unknown"));
-            println!("  pelt ready:    {}", value["pelt_ready"].as_bool().unwrap_or(false));
-            println!("  packmates:     {}", value["packmates"].as_u64().unwrap_or(0));
-            println!("  fang profiles: {}", value["fang_profiles"].as_u64().unwrap_or(0));
-            println!("  active fangs:  {}", value["active_fangs"].as_u64().unwrap_or(0));
-            println!("  silver:        {}", value["silver"].as_str().unwrap_or("unknown"));
-            println!("  hide:          {}", value["hide"].as_str().unwrap_or("unknown"));
+            println!(
+                "  listen:        {}",
+                value["listen"].as_str().unwrap_or("")
+            );
+            println!(
+                "  mode:          {}",
+                value["mode"].as_str().unwrap_or("unknown")
+            );
+            println!(
+                "  pelt ready:    {}",
+                value["pelt_ready"].as_bool().unwrap_or(false)
+            );
+            println!(
+                "  packmates:     {}",
+                value["packmates"].as_u64().unwrap_or(0)
+            );
+            println!(
+                "  fang profiles: {}",
+                value["fang_profiles"].as_u64().unwrap_or(0)
+            );
+            println!(
+                "  active fangs:  {}",
+                value["active_fangs"].as_u64().unwrap_or(0)
+            );
+            println!(
+                "  silver:        {}",
+                value["silver"].as_str().unwrap_or("unknown")
+            );
+            println!(
+                "  hide:          {}",
+                value["hide"].as_str().unwrap_or("unknown")
+            );
         }
 
         "pelt.init" | "pelt.fingerprint" => {
             println!("🐾 Pelt");
-            println!("  fingerprint: {}", value["fingerprint"].as_str().unwrap_or(""));
+            println!(
+                "  fingerprint: {}",
+                value["fingerprint"].as_str().unwrap_or("")
+            );
             if let Some(saved_to) = value["saved_to"].as_str() {
                 println!("  saved to:     {}", saved_to);
             }
@@ -464,9 +508,18 @@ fn print_response(cmd: &str, resp: ControlResponse) {
 
                 for peer in peers {
                     println!("  - {}", peer["name"].as_str().unwrap_or("unnamed"));
-                    println!("      fingerprint: {}", peer["fingerprint"].as_str().unwrap_or(""));
-                    println!("      address:     {}", peer["address"].as_str().unwrap_or(""));
-                    println!("      trust:       {}", peer["trust"].as_str().unwrap_or(""));
+                    println!(
+                        "      fingerprint: {}",
+                        peer["fingerprint"].as_str().unwrap_or("")
+                    );
+                    println!(
+                        "      address:     {}",
+                        peer["address"].as_str().unwrap_or("")
+                    );
+                    println!(
+                        "      trust:       {}",
+                        peer["trust"].as_str().unwrap_or("")
+                    );
                 }
             }
         }
@@ -528,7 +581,10 @@ fn print_response(cmd: &str, resp: ControlResponse) {
         "fang.close" => {
             println!("🦷 Fang Closed");
             println!("  status:       {}", value["status"].as_str().unwrap_or(""));
-            println!("  active fangs: {}", value["active_fangs"].as_u64().unwrap_or(0));
+            println!(
+                "  active fangs: {}",
+                value["active_fangs"].as_u64().unwrap_or(0)
+            );
         }
 
         "fang.profile.list" => {
