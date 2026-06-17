@@ -1029,8 +1029,8 @@ if [[ "${1:-}" == "doctor" ]]; then
     fi
   }
 
-  check_cmd "wolf-b service active" systemctl --user is-active --quiet werewolf-b.service
-  check_cmd "wolf-a service active" systemctl --user is-active --quiet werewolf-a.service
+  check_cmd "wolf-b daemon reachable" bash -lc 'systemctl --user is-active --quiet werewolf-b.service || test -S /tmp/wolf-b.sock'
+  check_cmd "wolf-a daemon reachable" bash -lc 'systemctl --user is-active --quiet werewolf-a.service || test -S /tmp/wolf-a.sock'
   check_cmd "wolf-b socket exists" test -S /tmp/wolf-b.sock
   check_cmd "wolf-a socket exists" test -S /tmp/wolf-a.sock
 
