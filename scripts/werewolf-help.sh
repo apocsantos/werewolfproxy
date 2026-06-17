@@ -80,6 +80,7 @@ Gates:
   ./scripts/chaos-gate-extended.sh
   ./scripts/soak-gate.sh 5 5
   ./scripts/soak-gate.sh 5 5 --chaos
+  ./scripts/multiwolf-gate.sh
   ./scripts/full-gate.sh
   ./scripts/release-gate.sh
 
