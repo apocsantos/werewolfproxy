@@ -101,7 +101,7 @@ case "${1:-}" in
 
     jq --arg name "$name" '.[$name]' "$PEER_DB"
     ;;
-best)
+  best)
     init_db
 
     jq '
