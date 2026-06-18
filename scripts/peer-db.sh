@@ -136,6 +136,25 @@ case "${1:-}" in
     done <<< "$peers"
     ;;
 
+  status)
+    init_db
+
+    echo "🐺 Werewolf Peer Status"
+    echo "======================"
+    echo
+
+    "$0" ping-all >/dev/null || true
+
+    jq -r '
+      to_entries
+      | sort_by(.value.reputation // 0)
+      | reverse
+      | .[]
+      | "\(.key) | healthy=\(.value.healthy) | reputation=\((.value.reputation // 0) | tostring) | availability=\((.value.availability_pct // 0) | tostring)% | avg_latency=\((.value.avg_latency_ms // "null") | tostring)ms"
+    ' "$PEER_DB"
+    ;;
+
+
   *)
     cat <<HELP
 🐺 Werewolf Peer DB
@@ -145,6 +164,7 @@ Usage:
   scripts/peer-db.sh list
   scripts/peer-db.sh ping <name>
   scripts/peer-db.sh ping-all
+  scripts/peer-db.sh status
   scripts/peer-db.sh best
   scripts/peer-db.sh remove <name>
 
