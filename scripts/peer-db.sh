@@ -117,6 +117,25 @@ case "${1:-}" in
         }
     ' "$PEER_DB"
     ;;
+
+  ping-all)
+    init_db
+
+    peers="$(jq -r 'keys[]' "$PEER_DB")"
+
+    if [[ -z "$peers" ]]; then
+      echo "⚠ no peers in database"
+      exit 0
+    fi
+
+    while read -r peer; do
+      [[ -z "$peer" ]] && continue
+      echo "🐾 pinging $peer"
+      "$0" ping "$peer"
+      echo
+    done <<< "$peers"
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Peer DB
@@ -125,6 +144,7 @@ Usage:
   scripts/peer-db.sh add <name> <host:port>
   scripts/peer-db.sh list
   scripts/peer-db.sh ping <name>
+  scripts/peer-db.sh ping-all
   scripts/peer-db.sh best
   scripts/peer-db.sh remove <name>
 
