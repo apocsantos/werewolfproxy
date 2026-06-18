@@ -101,7 +101,22 @@ case "${1:-}" in
 
     jq --arg name "$name" '.[$name]' "$PEER_DB"
     ;;
+best)
+    init_db
 
+    jq '
+      to_entries
+      | sort_by(.value.reputation // 0)
+      | reverse
+      | .[]
+      | {
+          peer: .key,
+          reputation: (.value.reputation // 0),
+          availability: (.value.availability_pct // 0),
+          latency_ms: (.value.avg_latency_ms // null)
+        }
+    ' "$PEER_DB"
+    ;;
   *)
     cat <<HELP
 🐺 Werewolf Peer DB
@@ -110,6 +125,7 @@ Usage:
   scripts/peer-db.sh add <name> <host:port>
   scripts/peer-db.sh list
   scripts/peer-db.sh ping <name>
+  scripts/peer-db.sh best
   scripts/peer-db.sh remove <name>
 
 DB:
