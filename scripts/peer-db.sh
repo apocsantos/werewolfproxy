@@ -23,7 +23,13 @@ case "${1:-}" in
         last_seen: null,
         healthy: null,
         latency_ms: null,
-        score: 0
+        score: 0,
+        successful_pings: 0,
+        failed_pings: 0,
+        total_pings: 0,
+        availability_pct: 0,
+        avg_latency_ms: null,
+        reputation: 0
       }' "$PEER_DB" > "$PEER_DB.tmp"
     mv "$PEER_DB.tmp" "$PEER_DB"
     echo "✅ peer added: $name -> $address"
@@ -77,7 +83,20 @@ case "${1:-}" in
       '.[$name].last_seen = $ts
        | .[$name].healthy = $healthy
        | .[$name].latency_ms = $latency
-       | .[$name].score = $score' "$PEER_DB" > "$PEER_DB.tmp"
+       | .[$name].score = $score
+       | .[$name].total_pings = ((.[$name].total_pings // 0) + 1)
+       | .[$name].successful_pings = ((.[$name].successful_pings // 0) + (if $healthy then 1 else 0 end))
+       | .[$name].failed_pings = ((.[$name].failed_pings // 0) + (if $healthy then 0 else 1 end))
+       | .[$name].availability_pct = ((.[$name].successful_pings / .[$name].total_pings) * 100)
+       | .[$name].avg_latency_ms =
+          (if $healthy and $latency != null then
+             (((.[$name].avg_latency_ms // $latency) + $latency) / 2)
+           else
+             .[$name].avg_latency_ms
+           end)
+       | .[$name].reputation =
+          (((.[$name].availability_pct // 0) * 0.7)
+           + ((.[$name].score // 0) * 0.3))' "$PEER_DB" > "$PEER_DB.tmp"
     mv "$PEER_DB.tmp" "$PEER_DB"
 
     jq --arg name "$name" '.[$name]' "$PEER_DB"
