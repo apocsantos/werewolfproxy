@@ -19,6 +19,7 @@ wolf-b status-json > contracts/status.json
 wolf-b cache-status --json > contracts/cache-status.json
 wolf-b benchmark --json > contracts/benchmark.json
 ./scripts/wolf-dashboard-json.sh > contracts/dashboard.json
+./scripts/peer-contract.sh > contracts/peer.json
 
 echo
 echo "🧬 Validating schemas"

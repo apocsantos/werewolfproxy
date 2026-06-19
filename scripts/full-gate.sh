@@ -22,6 +22,10 @@ echo "📦 JSON contract gate"
 echo
 echo "📊 Dashboard gate"
 ./scripts/dashboard-gate.sh
+echo
+echo "🐾 Peer gate"
+./scripts/peer-gate.sh
+
 
 
 echo

@@ -1,0 +1,31 @@
+{
+  "generated_at": "2026-06-19T07:30:12Z",
+  "peer_count": 2,
+  "best_peer": "wolf-d",
+  "peers": [
+    {
+      "name": "wolf-d",
+      "address": "127.0.0.1:9563",
+      "healthy": false,
+      "reputation": 0,
+      "availability_pct": 0,
+      "avg_latency_ms": null,
+      "total_pings": 51,
+      "successful_pings": 0,
+      "failed_pings": 51,
+      "last_seen": "2026-06-19T08:20:04+01:00"
+    },
+    {
+      "name": "wolf-c",
+      "address": "127.0.0.1:9562",
+      "healthy": false,
+      "reputation": 0,
+      "availability_pct": 0,
+      "avg_latency_ms": null,
+      "total_pings": 51,
+      "successful_pings": 0,
+      "failed_pings": 51,
+      "last_seen": "2026-06-19T08:20:04+01:00"
+    }
+  ]
+}

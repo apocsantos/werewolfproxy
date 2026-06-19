@@ -97,3 +97,13 @@ Watchdog:
   ./scripts/uninstall-wolf-b-watchdog.sh
   wolf-b watchdog-status
 HELP
+
+
+Peer:
+  ./scripts/peer-db.sh list
+  ./scripts/peer-db.sh ping-all
+  ./scripts/peer-db.sh status
+  ./scripts/peer-db.sh best
+  ./scripts/peer-db.sh export
+  ./scripts/peer-contract.sh
+  ./scripts/peer-gate.sh

@@ -79,6 +79,12 @@ validate_shape \
   "./scripts/wolf-dashboard-json.sh" \
   "contracts/dashboard.json"
 
+
+validate_shape \
+  "peer" \
+  "./scripts/peer-contract.sh" \
+  "contracts/peer.json"
+
 echo
 if [[ "$failures" == "0" ]]; then
   echo "🎉 SCHEMA GATE PASSED"
