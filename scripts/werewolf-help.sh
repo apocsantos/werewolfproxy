@@ -107,6 +107,7 @@ Peer:
   ./scripts/peer-db.sh export
   ./scripts/peer-contract.sh
   ./scripts/peer-gate.sh
+  ./scripts/peer-rust-gate.sh
   ./scripts/peer-monitor.sh 30
   ./scripts/install-peer-monitor.sh 30
   ./scripts/peer-monitor-status.sh

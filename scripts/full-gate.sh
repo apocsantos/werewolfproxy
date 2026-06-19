@@ -25,6 +25,10 @@ echo "📊 Dashboard gate"
 echo
 echo "🐾 Peer gate"
 ./scripts/peer-gate.sh
+echo
+echo "🦀 Peer Rust gate"
+./scripts/peer-rust-gate.sh
+
 
 
 
