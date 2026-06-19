@@ -362,6 +362,33 @@ case "${1:-}" in
     fi
     ;;
 
+
+  export)
+    init_db
+
+    jq '
+      {
+        generated_at: (now | todateiso8601),
+        peers:
+          (to_entries
+           | sort_by(.value.reputation // 0)
+           | reverse
+           | map({
+              name: .key,
+              address: .value.address,
+              healthy: (.value.healthy // false),
+              reputation: (.value.reputation // 0),
+              availability_pct: (.value.availability_pct // 0),
+              avg_latency_ms: (.value.avg_latency_ms // null),
+              total_pings: (.value.total_pings // 0),
+              successful_pings: (.value.successful_pings // 0),
+              failed_pings: (.value.failed_pings // 0),
+              last_seen: .value.last_seen
+            }))
+      }
+    ' "$PEER_DB"
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Peer DB
@@ -373,6 +400,7 @@ Usage:
   scripts/peer-db.sh ping-all
   scripts/peer-db.sh seed-local
   scripts/peer-db.sh status
+  scripts/peer-db.sh export
   scripts/peer-db.sh best
   scripts/peer-db.sh route-candidate
   scripts/peer-db.sh route-explain
