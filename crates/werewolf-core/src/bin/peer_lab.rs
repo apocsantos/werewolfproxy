@@ -29,7 +29,9 @@ fn print_usage() {
         "Usage:
   peer_lab store
   peer_lab nearest <name> <address> [limit]
-  peer_lab save <path>"
+  peer_lab save <path>
+  peer_lab load <path>
+  peer_lab nearest-from <path> <name> <address> [limit]"
     );
 }
 
@@ -92,6 +94,52 @@ fn main() {
                 "{{\"saved\":true,\"path\":\"{}\",\"peer_count\":{}}}",
                 path.display(),
                 store.peers.len()
+            );
+        }
+
+        "load" => {
+            let Some(path) = args.next() else {
+                print_usage();
+                std::process::exit(2);
+            };
+
+            let store = PeerStore::load(PathBuf::from(path)).expect("load peer store");
+
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&store).expect("serialize loaded store")
+            );
+        }
+
+        "nearest-from" => {
+            let Some(path) = args.next() else {
+                print_usage();
+                std::process::exit(2);
+            };
+
+            let Some(name) = args.next() else {
+                print_usage();
+                std::process::exit(2);
+            };
+
+            let Some(address) = args.next() else {
+                print_usage();
+                std::process::exit(2);
+            };
+
+            let limit = args
+                .next()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(3);
+
+            let store = PeerStore::load(PathBuf::from(path)).expect("load peer store");
+            let table = store.into_routing_table();
+            let target = NodeId::from_name_address(&name, &address);
+            let nearest = table.nearest(&target, limit);
+
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&nearest).expect("serialize nearest")
             );
         }
 
