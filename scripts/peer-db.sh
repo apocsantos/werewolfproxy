@@ -169,6 +169,18 @@ case "${1:-}" in
     ;;
 
 
+
+  seed-local)
+    init_db
+
+    "$0" add wolf-a 127.0.0.1:9560 "wolf-a health"
+    "$0" add wolf-b 127.0.0.1:9561 "wolf-b health"
+    "$0" add wolf-c 127.0.0.1:9562 "wolf-c health"
+    "$0" add wolf-d 127.0.0.1:9563 "wolf-d health"
+
+    "$0" ping-all
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Peer DB
@@ -178,6 +190,7 @@ Usage:
   scripts/peer-db.sh list
   scripts/peer-db.sh ping <name>
   scripts/peer-db.sh ping-all
+  scripts/peer-db.sh seed-local
   scripts/peer-db.sh status
   scripts/peer-db.sh best
   scripts/peer-db.sh remove <name>
