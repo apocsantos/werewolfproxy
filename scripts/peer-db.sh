@@ -15,12 +15,15 @@ case "${1:-}" in
     address="${3:?peer address required}"
     shift 3 || true
     probe_cmd="${*:-}"
+    peer_id="$(printf "%s|%s" "$name" "$address" | sha256sum | awk '{print $1}')"
     jq \
       --arg name "$name" \
       --arg address "$address" \
       --arg probe_cmd "$probe_cmd" \
+      --arg peer_id "$peer_id" \
       --arg ts "$(date -Iseconds)" \
       '.[$name] = {
+        id: $peer_id,
         address: $address,
         probe_cmd: (if $probe_cmd == "" then null else $probe_cmd end),
         added_at: $ts,
@@ -231,6 +234,58 @@ case "${1:-}" in
     fi
     ;;
 
+
+  id)
+    init_db
+    name="${2:?peer name required}"
+    jq --arg name "$name" '.[$name] | {name:$name, id:.id, address:.address}' "$PEER_DB"
+    ;;
+
+  distance)
+    init_db
+    a="${2:?first peer required}"
+    b="${3:?second peer required}"
+
+    id_a="$(jq -r --arg name "$a" '.[$name].id // empty' "$PEER_DB")"
+    id_b="$(jq -r --arg name "$b" '.[$name].id // empty' "$PEER_DB")"
+
+    if [[ -z "$id_a" || -z "$id_b" ]]; then
+      echo "❌ unknown peer id"
+      exit 1
+    fi
+
+    # Simple KAD-style approximate distance:
+    # count equal leading hex chars, then distance bucket = 64 - common_prefix.
+    prefix=0
+    for i in $(seq 0 63); do
+      ca="${id_a:$i:1}"
+      cb="${id_b:$i:1}"
+      if [[ "$ca" == "$cb" ]]; then
+        prefix=$((prefix + 1))
+      else
+        break
+      fi
+    done
+
+    bucket=$((64 - prefix))
+
+    jq -n \
+      --arg a "$a" \
+      --arg b "$b" \
+      --arg id_a "$id_a" \
+      --arg id_b "$id_b" \
+      --argjson common_prefix "$prefix" \
+      --argjson bucket "$bucket" \
+      '{
+        a:$a,
+        b:$b,
+        id_a:$id_a,
+        id_b:$id_b,
+        common_prefix_hex:$common_prefix,
+        distance_bucket:$bucket
+      }'
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Peer DB
@@ -245,6 +300,8 @@ Usage:
   scripts/peer-db.sh best
   scripts/peer-db.sh route-candidate
   scripts/peer-db.sh route-explain
+  scripts/peer-db.sh id <name>
+  scripts/peer-db.sh distance <peer-a> <peer-b>
   scripts/peer-db.sh remove <name>
 
 DB:
