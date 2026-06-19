@@ -286,6 +286,47 @@ case "${1:-}" in
       }'
     ;;
 
+
+  nearest)
+    init_db
+    target="${2:?target peer required}"
+
+    target_id="$(jq -r --arg name "$target" '.[$name].id // empty' "$PEER_DB")"
+
+    if [[ -z "$target_id" ]]; then
+      echo "❌ unknown target peer: $target"
+      exit 1
+    fi
+
+    jq -r --arg target "$target" 'keys[] | select(. != $target)' "$PEER_DB" | while read -r peer; do
+      peer_id="$(jq -r --arg name "$peer" '.[$name].id // empty' "$PEER_DB")"
+
+      prefix=0
+      for i in $(seq 0 63); do
+        ca="${target_id:$i:1}"
+        cb="${peer_id:$i:1}"
+        if [[ "$ca" == "$cb" ]]; then
+          prefix=$((prefix + 1))
+        else
+          break
+        fi
+      done
+
+      bucket=$((64 - prefix))
+      reputation="$(jq -r --arg name "$peer" '.[$name].reputation // 0' "$PEER_DB")"
+      healthy="$(jq -r --arg name "$peer" '.[$name].healthy // false' "$PEER_DB")"
+      address="$(jq -r --arg name "$peer" '.[$name].address // ""' "$PEER_DB")"
+
+      jq -n \
+        --arg peer "$peer" \
+        --arg address "$address" \
+        --argjson bucket "$bucket" \
+        --argjson reputation "$reputation" \
+        --argjson healthy "$healthy" \
+        '{peer:$peer,address:$address,distance_bucket:$bucket,reputation:$reputation,healthy:$healthy}'
+    done | jq -s 'sort_by(.distance_bucket, -(.reputation // 0))'
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Peer DB
@@ -302,6 +343,7 @@ Usage:
   scripts/peer-db.sh route-explain
   scripts/peer-db.sh id <name>
   scripts/peer-db.sh distance <peer-a> <peer-b>
+  scripts/peer-db.sh nearest <peer>
   scripts/peer-db.sh remove <name>
 
 DB:
