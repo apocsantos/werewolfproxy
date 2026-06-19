@@ -206,6 +206,31 @@ case "${1:-}" in
     ' "$PEER_DB"
     ;;
 
+
+  route-explain)
+    init_db
+
+    candidate="$("$0" route-candidate)"
+
+    echo "🐺 Werewolf Peer Route Explain"
+    echo "============================="
+    echo
+
+    if echo "$candidate" | jq -e '.available == true' >/dev/null; then
+      echo "selected:      $(echo "$candidate" | jq -r '.peer')"
+      echo "address:       $(echo "$candidate" | jq -r '.address')"
+      echo "reputation:    $(echo "$candidate" | jq -r '.reputation')"
+      echo "availability:  $(echo "$candidate" | jq -r '.availability_pct')%"
+      echo "avg latency:   $(echo "$candidate" | jq -r '.avg_latency_ms')ms"
+      echo
+      echo "reason: highest healthy peer reputation"
+    else
+      echo "no route candidate available"
+      echo "$candidate" | jq .
+      exit 1
+    fi
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Peer DB
@@ -219,6 +244,7 @@ Usage:
   scripts/peer-db.sh status
   scripts/peer-db.sh best
   scripts/peer-db.sh route-candidate
+  scripts/peer-db.sh route-explain
   scripts/peer-db.sh remove <name>
 
 DB:
