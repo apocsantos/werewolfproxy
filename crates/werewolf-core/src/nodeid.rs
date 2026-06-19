@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha256};
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct NodeId(pub [u8; 32]);
 
 impl NodeId {
@@ -31,6 +31,22 @@ impl NodeId {
 
     pub fn to_hex(&self) -> String {
         self.0.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
+    pub fn from_hex(hex: &str) -> Result<Self, String> {
+        if hex.len() != 64 {
+            return Err(format!("invalid NodeId hex length: {}", hex.len()));
+        }
+
+        let mut out = [0u8; 32];
+
+        for i in 0..32 {
+            let chunk = &hex[i * 2..i * 2 + 2];
+            out[i] = u8::from_str_radix(chunk, 16)
+                .map_err(|e| format!("invalid NodeId hex byte '{}': {}", chunk, e))?;
+        }
+
+        Ok(Self(out))
     }
 }
 

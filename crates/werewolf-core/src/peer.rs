@@ -1,6 +1,6 @@
 use crate::nodeid::NodeId;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Peer {
     pub id: NodeId,
     pub name: String,

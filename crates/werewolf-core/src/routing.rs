@@ -2,7 +2,7 @@ use crate::kbucket::KBucket;
 use crate::nodeid::{bucket_index, NodeId};
 use crate::peer::Peer;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RoutingTable {
     local_id: NodeId,
     buckets: Vec<KBucket>,
@@ -66,6 +66,20 @@ impl RoutingTable {
     pub fn peer_count(&self) -> usize {
         self.buckets.iter().map(KBucket::len).sum()
     }
+
+    pub fn all_peers(&self) -> Vec<Peer> {
+        self.buckets
+            .iter()
+            .flat_map(|bucket| bucket.peers().iter().cloned())
+            .collect()
+    }
+
+    pub fn healthy_peers(&self) -> Vec<Peer> {
+        self.all_peers()
+            .into_iter()
+            .filter(|peer| peer.healthy)
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -88,8 +102,10 @@ mod tests {
         let local = NodeId::from_name_address("wolf-local", "127.0.0.1:9000");
         let target = NodeId::from_name_address("target", "key");
 
-        let peer_a = Peer::new("wolf-a", "127.0.0.1:9560").with_health(true, 80.0, 100.0, Some(5.0));
-        let peer_b = Peer::new("wolf-b", "127.0.0.1:9561").with_health(true, 90.0, 100.0, Some(3.0));
+        let peer_a =
+            Peer::new("wolf-a", "127.0.0.1:9560").with_health(true, 80.0, 100.0, Some(5.0));
+        let peer_b =
+            Peer::new("wolf-b", "127.0.0.1:9561").with_health(true, 90.0, 100.0, Some(3.0));
 
         let mut table = RoutingTable::new(local);
         table.add_peer(peer_a);

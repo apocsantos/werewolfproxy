@@ -1,7 +1,7 @@
 use crate::nodeid::NodeId;
 use crate::peer::Peer;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct KBucket {
     peers: Vec<Peer>,
 }
