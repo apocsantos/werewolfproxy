@@ -327,6 +327,22 @@ case "${1:-}" in
     done | jq -s 'sort_by(.distance_bucket, -(.reputation // 0))'
     ;;
 
+
+  bucket)
+    init_db
+    target="${2:?target peer required}"
+
+    "$0" nearest "$target" \
+      | jq '
+          group_by(.distance_bucket)
+          | map({
+              bucket: .[0].distance_bucket,
+              peers: sort_by(-(.reputation // 0))
+            })
+          | sort_by(.bucket)
+        '
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Peer DB
@@ -344,6 +360,7 @@ Usage:
   scripts/peer-db.sh id <name>
   scripts/peer-db.sh distance <peer-a> <peer-b>
   scripts/peer-db.sh nearest <peer>
+  scripts/peer-db.sh bucket <peer>
   scripts/peer-db.sh remove <name>
 
 DB:
