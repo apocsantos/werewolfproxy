@@ -1,6 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
+use werewolf_core::lookup::lookup;
 use werewolf_core::nodeid::NodeId;
 use werewolf_core::peer::Peer;
 use werewolf_core::peer_store::PeerStore;
@@ -46,7 +47,9 @@ fn print_usage() {
   peer_lab nearest <name> <address> [limit]
   peer_lab save <path>
   peer_lab load <path>
+  peer_lab summary <path>
   peer_lab nearest-from <path> <name> <address> [limit]
+  peer_lab lookup <path> <name> <address> [k]
   peer_lab import-export <peer-export-json> <out-store-json>"
     );
 }
@@ -127,6 +130,21 @@ fn main() {
             );
         }
 
+        "summary" => {
+            let Some(path) = args.next() else {
+                print_usage();
+                std::process::exit(2);
+            };
+
+            let store = PeerStore::load(PathBuf::from(path)).expect("load peer store");
+            let summary = store.summary();
+
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&summary).expect("serialize summary")
+            );
+        }
+
         "nearest-from" => {
             let Some(path) = args.next() else {
                 print_usage();
@@ -156,6 +174,38 @@ fn main() {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&nearest).expect("serialize nearest")
+            );
+        }
+
+        "lookup" => {
+            let Some(path) = args.next() else {
+                print_usage();
+                std::process::exit(2);
+            };
+
+            let Some(name) = args.next() else {
+                print_usage();
+                std::process::exit(2);
+            };
+
+            let Some(address) = args.next() else {
+                print_usage();
+                std::process::exit(2);
+            };
+
+            let k = args
+                .next()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(3);
+
+            let store = PeerStore::load(PathBuf::from(path)).expect("load peer store");
+            let table = store.into_routing_table();
+            let target = NodeId::from_name_address(&name, &address);
+            let result = lookup(&table, &target, k);
+
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&result).expect("serialize lookup")
             );
         }
 
