@@ -8,7 +8,9 @@ pub mod fang;
 
 pub mod fang_profile;
 
+pub mod kbucket;
 pub mod nodeid;
 pub mod peer;
-pub mod kbucket;
 pub mod routing;
+
+pub mod peer_store;
