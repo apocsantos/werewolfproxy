@@ -6,6 +6,21 @@ use werewolf_core::peer::Peer;
 use werewolf_core::peer_store::PeerStore;
 use werewolf_core::routing::RoutingTable;
 
+#[derive(Debug, serde::Deserialize)]
+struct PeerExport {
+    peers: Vec<PeerExportEntry>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PeerExportEntry {
+    name: String,
+    address: String,
+    healthy: Option<bool>,
+    reputation: Option<f64>,
+    availability_pct: Option<f64>,
+    avg_latency_ms: Option<f64>,
+}
+
 fn sample_table() -> RoutingTable {
     let local = NodeId::from_name_address("wolf-b", "127.0.0.1:9561");
 
@@ -31,7 +46,8 @@ fn print_usage() {
   peer_lab nearest <name> <address> [limit]
   peer_lab save <path>
   peer_lab load <path>
-  peer_lab nearest-from <path> <name> <address> [limit]"
+  peer_lab nearest-from <path> <name> <address> [limit]
+  peer_lab import-export <peer-export-json> <out-store-json>"
     );
 }
 
@@ -140,6 +156,44 @@ fn main() {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&nearest).expect("serialize nearest")
+            );
+        }
+
+        "import-export" => {
+            let Some(input) = args.next() else {
+                print_usage();
+                std::process::exit(2);
+            };
+
+            let Some(output) = args.next() else {
+                print_usage();
+                std::process::exit(2);
+            };
+
+            let data = std::fs::read_to_string(&input).expect("read peer export");
+            let export: PeerExport = serde_json::from_str(&data).expect("parse peer export");
+
+            let local = NodeId::from_name_address("wolf-b", "127.0.0.1:9561");
+            let mut table = RoutingTable::new(local);
+
+            for entry in export.peers {
+                let peer = Peer::new(entry.name, entry.address).with_health(
+                    entry.healthy.unwrap_or(false),
+                    entry.reputation.unwrap_or(0.0),
+                    entry.availability_pct.unwrap_or(0.0),
+                    entry.avg_latency_ms,
+                );
+
+                table.add_peer(peer);
+            }
+
+            let store = PeerStore::from_routing_table(&table);
+            store.save(&output).expect("save imported peer store");
+
+            println!(
+                "{{\"imported\":true,\"path\":\"{}\",\"peer_count\":{}}}",
+                output,
+                store.peers.len()
             );
         }
 
