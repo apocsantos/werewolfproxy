@@ -176,12 +176,13 @@ case "${1:-}" in
   seed-local)
     init_db
 
-    "$0" add wolf-a 127.0.0.1:9560 "wolf-a health"
-    "$0" add wolf-b 127.0.0.1:9561 "wolf-b health"
-    "$0" add wolf-c 127.0.0.1:9562 "wolf-c health"
-    "$0" add wolf-d 127.0.0.1:9563 "wolf-d health"
+    "$0" add wolf-a 127.0.0.1:9560 "wolf-a health" >/dev/null
+    "$0" add wolf-b 127.0.0.1:9561 "wolf-b health" >/dev/null
+    "$0" add wolf-c 127.0.0.1:9562 "wolf-c health" >/dev/null
+    "$0" add wolf-d 127.0.0.1:9563 "wolf-d health" >/dev/null
 
-    "$0" ping-all
+    "$0" ping-all >/dev/null
+    echo "✅ local peers seeded"
     ;;
 
 
@@ -343,6 +344,24 @@ case "${1:-}" in
         '
     ;;
 
+
+  routing-table)
+    init_db
+    self_peer="${2:-wolf-b}"
+
+    if [[ "${3:-}" == "--json" || "${2:-}" == "--json" ]]; then
+      [[ "${2:-}" == "--json" ]] && self_peer="wolf-b"
+      "$0" bucket "$self_peer"
+    else
+      echo "🐺 Werewolf Peer Routing Table"
+      echo "============================="
+      echo "self: $self_peer"
+      echo
+
+      "$0" bucket "$self_peer"
+    fi
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Peer DB
@@ -361,6 +380,7 @@ Usage:
   scripts/peer-db.sh distance <peer-a> <peer-b>
   scripts/peer-db.sh nearest <peer>
   scripts/peer-db.sh bucket <peer>
+  scripts/peer-db.sh routing-table [self-peer]
   scripts/peer-db.sh remove <name>
 
 DB:
