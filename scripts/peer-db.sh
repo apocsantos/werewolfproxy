@@ -13,12 +13,16 @@ case "${1:-}" in
     init_db
     name="${2:?peer name required}"
     address="${3:?peer address required}"
+    shift 3 || true
+    probe_cmd="${*:-}"
     jq \
       --arg name "$name" \
       --arg address "$address" \
+      --arg probe_cmd "$probe_cmd" \
       --arg ts "$(date -Iseconds)" \
       '.[$name] = {
         address: $address,
+        probe_cmd: (if $probe_cmd == "" then null else $probe_cmd end),
         added_at: $ts,
         last_seen: null,
         healthy: null,
@@ -58,11 +62,21 @@ case "${1:-}" in
       exit 1
     fi
 
+    probe_cmd="$(jq -r --arg name "$name" '.[$name].probe_cmd // empty' "$PEER_DB")"
+
     host="${address%:*}"
     port="${address##*:}"
 
     start_ns="$(date +%s%N)"
-    if timeout 3 bash -lc "cat < /dev/null > /dev/tcp/$host/$port" 2>/dev/null; then
+    if [[ -n "$probe_cmd" ]]; then
+      timeout 5 bash -lc "$probe_cmd" >/dev/null 2>&1
+      ok=$?
+    else
+      timeout 3 bash -lc "cat < /dev/null > /dev/tcp/$host/$port" >/dev/null 2>&1
+      ok=$?
+    fi
+
+    if [[ "$ok" == "0" ]]; then
       end_ns="$(date +%s%N)"
       latency_ms="$(( (end_ns - start_ns) / 1000000 ))"
       healthy=true
@@ -160,7 +174,7 @@ case "${1:-}" in
 🐺 Werewolf Peer DB
 
 Usage:
-  scripts/peer-db.sh add <name> <host:port>
+  scripts/peer-db.sh add <name> <host:port> [probe_cmd...]
   scripts/peer-db.sh list
   scripts/peer-db.sh ping <name>
   scripts/peer-db.sh ping-all
