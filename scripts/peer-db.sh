@@ -181,6 +181,31 @@ case "${1:-}" in
     "$0" ping-all
     ;;
 
+
+  route-candidate)
+    init_db
+
+    jq '
+      to_entries
+      | map(select((.value.healthy == true) and ((.value.reputation // 0) > 0)))
+      | sort_by(.value.reputation // 0)
+      | reverse
+      | .[0] // null
+      | if . == null then
+          {available:false, reason:"no healthy peer"}
+        else
+          {
+            available:true,
+            peer:.key,
+            address:.value.address,
+            reputation:(.value.reputation // 0),
+            availability_pct:(.value.availability_pct // 0),
+            avg_latency_ms:(.value.avg_latency_ms // null)
+          }
+        end
+    ' "$PEER_DB"
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Peer DB
@@ -193,6 +218,7 @@ Usage:
   scripts/peer-db.sh seed-local
   scripts/peer-db.sh status
   scripts/peer-db.sh best
+  scripts/peer-db.sh route-candidate
   scripts/peer-db.sh remove <name>
 
 DB:
