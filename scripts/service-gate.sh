@@ -35,6 +35,16 @@ else
   fail "service route unavailable"
 fi
 
+if ./scripts/service-contract.sh >/tmp/wolf-service-contract.json; then
+  if jq -e '.service_count >= 1 and (.services | length >= 1)' /tmp/wolf-service-contract.json >/dev/null; then
+    pass "service contract valid"
+  else
+    fail "service contract invalid"
+  fi
+else
+  fail "service contract failed"
+fi
+
 echo
 cat /tmp/wolf-service-route.json | jq .
 
