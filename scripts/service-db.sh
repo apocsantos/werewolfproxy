@@ -190,6 +190,44 @@ case "${1:-}" in
       }'
     ;;
 
+
+  connect)
+    init_db
+    name="${2:?service name required}"
+    local_port="${3:-}"
+
+    plan="$("$0" plan-connect "$name" "$local_port")"
+
+    peer="$(echo "$plan" | jq -r '.peer')"
+    target="$(echo "$plan" | jq -r '.target')"
+    local_bind="$(echo "$plan" | jq -r '.local_bind')"
+    kind="$(echo "$plan" | jq -r '.kind')"
+
+    local_host="${local_bind%:*}"
+    local_port_resolved="${local_bind##*:}"
+
+    echo "🐺 Werewolf Service Connect"
+    echo "=========================="
+    echo "service:     $name"
+    echo "kind:        $kind"
+    echo "peer:        $peer"
+    echo "local bind:  $local_bind"
+    echo "target:      $target"
+    echo
+
+    wolf-b fang open "$peer" "$local_host:$local_port_resolved" "$target"
+
+    jq \
+      --arg name "$name" \
+      --arg ts "$(date -Iseconds)" \
+      '.[$name].last_connected = $ts' "$SERVICE_DB" > "$SERVICE_DB.tmp"
+    mv "$SERVICE_DB.tmp" "$SERVICE_DB"
+
+    echo
+    echo "✅ service connected"
+    echo "$plan" | jq .
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Service DB
@@ -201,6 +239,7 @@ Usage:
   scripts/service-db.sh route <name>
   scripts/service-db.sh plan-connect <name> [local-port]
   scripts/service-db.sh connect-dry-run <name> [local-port]
+  scripts/service-db.sh connect <name> [local-port]
   scripts/service-db.sh seed-local
   scripts/service-db.sh remove <name>
 
