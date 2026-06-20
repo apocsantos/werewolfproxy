@@ -109,6 +109,57 @@ case "${1:-}" in
     "$0" add wolf-d-ssh wolf-d 127.0.0.1:22 ssh
     ;;
 
+
+  plan-connect)
+    init_db
+    name="${2:?service name required}"
+    local_port="${3:-}"
+
+    route="$("$0" route "$name")"
+
+    if ! echo "$route" | jq -e '.available == true' >/dev/null; then
+      echo "$route" | jq .
+      exit 1
+    fi
+
+    kind="$(echo "$route" | jq -r '.kind')"
+    target="$(echo "$route" | jq -r '.target')"
+    peer="$(echo "$route" | jq -r '.peer')"
+
+    if [[ -z "$local_port" ]]; then
+      case "$kind" in
+        ssh) local_port="2222" ;;
+        http) local_port="8088" ;;
+        https) local_port="8448" ;;
+        *) local_port="9000" ;;
+      esac
+    fi
+
+    jq -n \
+      --arg service "$name" \
+      --arg peer "$peer" \
+      --arg target "$target" \
+      --arg kind "$kind" \
+      --argjson local_port "$local_port" \
+      '{
+        service: $service,
+        peer: $peer,
+        target: $target,
+        kind: $kind,
+        local_bind: ("127.0.0.1:" + ($local_port|tostring)),
+        suggested_client:
+          (if $kind == "ssh" then
+            ("ssh -p " + ($local_port|tostring) + " user@127.0.0.1")
+           elif $kind == "http" then
+            ("http://127.0.0.1:" + ($local_port|tostring))
+           elif $kind == "https" then
+            ("https://127.0.0.1:" + ($local_port|tostring))
+           else
+            ("127.0.0.1:" + ($local_port|tostring))
+           end)
+      }'
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Service DB
@@ -118,6 +169,7 @@ Usage:
   scripts/service-db.sh list
   scripts/service-db.sh show <name>
   scripts/service-db.sh route <name>
+  scripts/service-db.sh plan-connect <name> [local-port]
   scripts/service-db.sh seed-local
   scripts/service-db.sh remove <name>
 
