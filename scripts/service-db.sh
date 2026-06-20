@@ -160,6 +160,36 @@ case "${1:-}" in
       }'
     ;;
 
+
+  connect-dry-run)
+    init_db
+    name="${2:?service name required}"
+    local_port="${3:-}"
+
+    plan="$("$0" plan-connect "$name" "$local_port")"
+
+    peer="$(echo "$plan" | jq -r '.peer')"
+    target="$(echo "$plan" | jq -r '.target')"
+    local_bind="$(echo "$plan" | jq -r '.local_bind')"
+    kind="$(echo "$plan" | jq -r '.kind')"
+
+    jq -n \
+      --arg service "$name" \
+      --arg peer "$peer" \
+      --arg target "$target" \
+      --arg local_bind "$local_bind" \
+      --arg kind "$kind" \
+      '{
+        dry_run: true,
+        service: $service,
+        peer: $peer,
+        target: $target,
+        local_bind: $local_bind,
+        kind: $kind,
+        next_step: "create Werewolf Fang/tunnel for this local_bind -> peer -> target"
+      }'
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Service DB
@@ -170,6 +200,7 @@ Usage:
   scripts/service-db.sh show <name>
   scripts/service-db.sh route <name>
   scripts/service-db.sh plan-connect <name> [local-port]
+  scripts/service-db.sh connect-dry-run <name> [local-port]
   scripts/service-db.sh seed-local
   scripts/service-db.sh remove <name>
 
