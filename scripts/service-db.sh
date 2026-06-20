@@ -215,7 +215,10 @@ case "${1:-}" in
     echo "target:      $target"
     echo
 
-    if ! wolf-b fang open "$peer" "$local_host:$local_port_resolved" "$target"; then
+    fang_output="$(wolf-b fang open "$peer" "$local_host:$local_port_resolved" "$target" 2>&1 || true)"
+    echo "$fang_output"
+
+    if echo "$fang_output" | jq -e '.code? // empty' >/dev/null 2>&1; then
       echo
       echo "❌ service connect failed"
       exit 1
