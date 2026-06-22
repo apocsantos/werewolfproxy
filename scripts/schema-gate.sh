@@ -25,8 +25,8 @@ validate_shape() {
 
   eval "$cmd" >/tmp/schema-current.json
 
-  if jq -S '[[paths | map(if type == "number" then "[]" else tostring end) | join(".")] | unique[]] | unique[]' "$contract" >/tmp/schema-ref.txt \
-    && jq -S '[[paths | map(if type == "number" then "[]" else tostring end) | join(".")] | unique[]] | unique[]' /tmp/schema-current.json >/tmp/schema-current.txt; then
+  if jq -S '[[[paths | map(if type == "number" then "[]" else tostring end) | join(".")] | unique[]] | unique[]] | unique[]' "$contract" >/tmp/schema-ref.txt \
+    && jq -S '[[[paths | map(if type == "number" then "[]" else tostring end) | join(".")] | unique[]] | unique[]] | unique[]' /tmp/schema-current.json >/tmp/schema-current.txt; then
 
     if diff -u /tmp/schema-ref.txt /tmp/schema-current.txt >/dev/null; then
       pass "$name schema stable"
