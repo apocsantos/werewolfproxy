@@ -20,9 +20,14 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((HOST, PORT))
     s.listen(50)
+
     while True:
         conn, addr = s.accept()
         with conn:
+            try:
+                conn.recv(1024)
+            except Exception:
+                pass
             conn.sendall(b"werewolf-tcp-ok\\n")
 PY
 
@@ -44,7 +49,7 @@ sleep 1
 
 sleep 2
 
-response="$(timeout 5 bash -lc "exec 3<>/dev/tcp/127.0.0.1/$local_port; printf 'ping\\n' >&3; head -n 1 <&3" || true)"
+response="$(timeout 5 bash -lc "exec 3<>/dev/tcp/127.0.0.1/$local_port; printf 'ping\n' >&3; head -n 1 <&3" || true)"
 
 if [[ "$response" == *"werewolf-tcp-ok"* ]]; then
   echo "✅ Generic TCP service over Werewolf works"
