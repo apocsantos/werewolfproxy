@@ -235,6 +235,27 @@ case "${1:-}" in
     echo "$plan" | jq .
     ;;
 
+
+  status)
+    init_db
+    name="${2:-}"
+
+    if [[ -n "$name" ]]; then
+      "$0" show "$name"
+      echo
+      "$0" route "$name"
+      echo
+      "$0" plan-connect "$name"
+      exit 0
+    fi
+
+    echo "🐺 Werewolf Service Status"
+    echo "========================="
+    echo
+
+    "$0" list
+    ;;
+
   *)
     cat <<HELP
 🐺 Werewolf Service DB
@@ -243,6 +264,7 @@ Usage:
   scripts/service-db.sh add <name> <peer> <target-host:port> [kind]
   scripts/service-db.sh list
   scripts/service-db.sh show <name>
+  scripts/service-db.sh status [name]
   scripts/service-db.sh route <name>
   scripts/service-db.sh plan-connect <name> [local-port]
   scripts/service-db.sh connect-dry-run <name> [local-port]
