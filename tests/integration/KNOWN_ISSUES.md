@@ -43,3 +43,20 @@ against the receiver's Pack. It does not return a signed receiver identity
 to the initiator, so selected-peer-to-receiver binding cannot be added
 without changing the application wire format. Stage 7 leaves this separate
 from the encrypted TCP receiver identity fix.
+
+## Stage 8 QUIC mutual authentication
+
+QUIC now uses the versioned `fang-quic-v2` request and a signed receiver ACK.
+The initiating side authenticates the complete ACK before forwarding any
+application bytes, and requires the receiver fingerprint to equal the selected
+Pack peer. Legacy QUIC peers therefore fail closed when speaking to a v2 peer;
+there is no implicit downgrade.
+
+`SkipServerVerification` remains enabled in the QUIC client endpoint. The QUIC
+lab creates self-signed endpoint certificates at startup, so certificates are
+ephemeral rather than stable Pack identities. Application-level Pelt/Pack
+authentication now supplies the intended Werewolf peer binding, while TLS
+certificate verification would additionally authenticate the endpoint and
+protect against transport-level impersonation. Replacing the current setting
+would require deployment-compatible certificate provisioning and is deferred
+for separate review.
