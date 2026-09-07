@@ -1,0 +1,18 @@
+{
+  "encrypted_tcp_v2": {
+    "expected_peer_carried_to_client": false,
+    "ack_receiver_signature_verified": true,
+    "ack_receiver_fingerprint_matches_key": true,
+    "ack_receiver_matches_selected_pack_peer": false,
+    "valid_wrong_pack_peer_can_pass": true,
+    "unknown_sender_rejected": true,
+    "invalid_signature_rejected": true,
+    "nonce_mismatch_rejected": true
+  },
+  "quic": {
+    "authenticated_side": "sender",
+    "receiver_identity_proof": "none",
+    "selected_peer_receiver_binding": false,
+    "wire_format_change_required_for_equivalent_receiver_binding": true
+  }
+}
