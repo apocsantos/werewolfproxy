@@ -39,7 +39,7 @@ class TargetAuthorizationMatrix(unittest.TestCase):
             self.assertNotIn('lookup_host', source)
             self.assertNotIn('TcpStream::connect(remote)', source)
             self.assertNotIn('TcpStream::connect(&target)', source)
-            ack = 'hs::TcpAck::new(' if name == 'tcp_encrypted.rs' else '\"ok\": true'
+            ack = 'hs::TcpAck::new(' if name == 'tcp_encrypted.rs' else 'hs::QuicAck::new('
             self.assertGreater(source.index(ack, connect), connect)
 
     def test_resolution_has_one_dns_call_and_never_connects(self):

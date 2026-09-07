@@ -1,5 +1,4 @@
 //! Bounded, nonpersistent v3 admission. No eviction of active replay records.
-#![allow(dead_code)] // Introduced before transport migration.
 use crate::handshake::{self, rejected};
 use std::{
     collections::{HashMap, HashSet},

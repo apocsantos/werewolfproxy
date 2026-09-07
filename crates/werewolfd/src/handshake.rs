@@ -1,5 +1,4 @@
 //! Versioned, bounded handshake messages. This module does not connect targets.
-#![allow(dead_code)] // Primitives land before their transport callers.
 use base64::{engine::general_purpose::STANDARD, Engine};
 use rand_core::{CryptoRng, OsRng, RngCore};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

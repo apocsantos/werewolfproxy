@@ -1,6 +1,5 @@
 use crate::fang_registry::FangRegistry;
 use crate::target_policy::TargetPolicy;
-use std::collections::HashMap;
 use werewolf_core::{
     fang_profile::FangProfile, pack::PeerRecord, pelt::PeltIdentity, state::Status,
 };
@@ -11,7 +10,6 @@ pub(super) struct DaemonState {
     pub(super) fang_registry: FangRegistry,
     pub(super) fang_profiles: Vec<FangProfile>,
     pub(super) admission: std::sync::Arc<crate::admission::Admission>,
-    pub(super) seen_nonces: HashMap<String, std::time::Instant>,
     pub(super) status: Status,
     pub(super) pelt: Option<PeltIdentity>,
     pub(super) den_socket: String,

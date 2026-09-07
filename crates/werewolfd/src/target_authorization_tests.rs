@@ -3,7 +3,6 @@ use crate::{
     state::DaemonState,
     target_policy::{self, TargetPolicy},
 };
-use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 use tokio::{
@@ -13,7 +12,7 @@ use tokio::{
 };
 use werewolf_core::{
     pack::{PeerRecord, TrustLevel},
-    pelt::{generate_identity, sign_message, verify_message, PeltIdentity},
+    pelt::{generate_identity, PeltIdentity},
 };
 
 struct AbortOnDrop(tokio::task::JoinHandle<tokio::io::Result<()>>);
@@ -75,28 +74,32 @@ async fn tcp_request(
 async fn quic_request(
     connection: &quinn::Connection,
     sender: &PeltIdentity,
+    receiver: &str,
     remote: &str,
     nonce: &str,
 ) -> Vec<u8> {
+    let _ = nonce;
+    let binding = crate::handshake::quic_binding(connection).unwrap();
+    let open = crate::handshake::QuicOpen::new(sender, receiver, remote, &binding).unwrap();
+    let retained = open.transcript(&binding).unwrap();
     let (mut send, mut recv) = connection.open_bi().await.unwrap();
-    let signed = format!(
-        "fang.quic.open|fang-quic-v2|{}|{}|{}",
-        sender.fingerprint, nonce, remote
-    );
-    let request = json!({"cmd":"fang.quic.open", "protocol":"fang-quic-v2", "remote":remote, "sender_fingerprint":sender.fingerprint, "nonce":nonce, "signature":sign_message(sender, signed.as_bytes()).unwrap()});
-    send.write_all(format!("{request}\n").as_bytes())
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    crate::handshake::write(&mut send, &open, 4096, deadline)
         .await
         .unwrap();
     send.finish().unwrap();
-    let mut line = Vec::new();
-    while let Ok(Some(chunk)) = recv.read_chunk(1, true).await {
-        line.extend_from_slice(&chunk.bytes);
-        assert!(line.len() < 4096);
-        if line.ends_with(b"\n") {
-            break;
+    match crate::handshake::read::<crate::handshake::QuicAck, _>(&mut recv, 4096, deadline).await {
+        Ok(ack) => {
+            crate::handshake::verify(
+                &ack.receiver_pubkey,
+                &ack.transcript(&open, &retained).unwrap(),
+                &ack.signature,
+            )
+            .unwrap();
+            serde_json::to_vec(&ack).unwrap()
         }
+        Err(_) => Vec::new(),
     }
-    line
 }
 
 async fn receiver_matrix(quic: bool) {
@@ -244,32 +247,19 @@ async fn receiver_matrix(quic: bool) {
             state.lock().await.target_policy = loaded_policy(policy, &nonce);
             let line = timeout(Duration::from_secs(5), async {
                 match &connection {
-                    Some(connection) => quic_request(connection, identity, &remote, &nonce).await,
+                    Some(connection) => {
+                        quic_request(connection, identity, &receiver.fingerprint, &remote, &nonce)
+                            .await
+                    }
                     None => tcp_request(address, identity, &remote, &nonce).await,
                 }
             })
             .await
             .expect("request outcome deadline");
-            if quic {
-                let replay_key = format!("quic|{}|{}", identity.fingerprint, nonce);
-                assert!(state.lock().await.seen_nonces.contains_key(&replay_key));
-            }
             if allowed {
                 let ack: serde_json::Value =
                     serde_json::from_slice(&line).expect("successful ACK JSON");
                 assert_eq!(ack["ok"], true, "{nonce}");
-                if quic {
-                    let signed = format!(
-                        "fang.quic.ack|fang-quic-v2|{}|{}|{}|{}",
-                        receiver.fingerprint, identity.fingerprint, nonce, remote
-                    );
-                    verify_message(
-                        &receiver.public_key_b64,
-                        signed.as_bytes(),
-                        ack["signature"].as_str().unwrap(),
-                    )
-                    .unwrap();
-                }
                 timeout(Duration::from_secs(1), target.accept())
                     .await
                     .expect("authorized target connection")
