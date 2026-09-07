@@ -58,16 +58,25 @@ impl FangRegistry {
     {
         self.fangs.retain(predicate);
     }
-    pub(super) fn remove_peer_records(&mut self, peer: &str) -> usize {
-        let count = self.fangs.iter().filter(|f| f.peer == peer).count();
-        self.fangs.retain(|f| f.peer != peer);
-        count
-    }
-    pub(super) fn retain_tasks<F>(&mut self, predicate: F)
-    where
-        F: FnMut(&String, &mut JoinHandle<()>) -> bool,
-    {
-        self.tasks.retain(predicate);
+    pub(super) fn terminate_peer(&mut self, peer: &str) -> usize {
+        let ids: Vec<String> = self
+            .fangs
+            .iter()
+            .filter(|fang| fang.peer == peer)
+            .map(|fang| fang.id.clone())
+            .collect();
+
+        for id in &ids {
+            if let Some(handle) = self.tasks.remove(id) {
+                handle.abort();
+            }
+            if let Some(cancellation) = self.cancellations.remove(id) {
+                cancellation.abort_children();
+            }
+            self.started.remove(id);
+        }
+        self.fangs.retain(|fang| fang.peer != peer);
+        ids.len()
     }
     pub(super) fn insert_task(&mut self, id: String, handle: JoinHandle<()>) {
         self.tasks.insert(id, handle);
