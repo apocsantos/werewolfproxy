@@ -1,0 +1,9 @@
+{
+  "silver": {
+    "listeners_terminate": true,
+    "owned_sessions_terminate": true,
+    "registry_is_empty": true,
+    "reset_resurrects_stale_tasks": false,
+    "new_fangs_after_reset_allowed": true
+  }
+}
