@@ -19,9 +19,6 @@ impl FangRegistry {
     pub(super) fn records(&self) -> &[FangRecord] {
         &self.fangs
     }
-    pub(super) fn tasks_mut(&mut self) -> &mut HashMap<String, JoinHandle<()>> {
-        &mut self.tasks
-    }
     pub(super) fn has_active_local(&self, local: &str) -> bool {
         self.fangs
             .iter()
@@ -39,6 +36,17 @@ impl FangRegistry {
     {
         self.fangs.retain(predicate);
     }
+    pub(super) fn remove_peer_records(&mut self, peer: &str) -> usize {
+        let count = self.fangs.iter().filter(|f| f.peer == peer).count();
+        self.fangs.retain(|f| f.peer != peer);
+        count
+    }
+    pub(super) fn retain_tasks<F>(&mut self, predicate: F)
+    where
+        F: FnMut(&String, &mut JoinHandle<()>) -> bool,
+    {
+        self.tasks.retain(predicate);
+    }
     pub(super) fn insert_task(&mut self, id: String, handle: JoinHandle<()>) {
         self.tasks.insert(id, handle);
     }
@@ -54,7 +62,8 @@ impl FangRegistry {
     pub(super) fn finished_ids(&self) -> Vec<String> {
         self.tasks
             .iter()
-            .filter_map(|(id, handle)| handle.is_finished().then(|| id.clone()))
+            .filter(|(_, handle)| handle.is_finished())
+            .map(|(id, _)| id.clone())
             .collect()
     }
     pub(super) fn remove_finished(&mut self, dead_ids: &[String]) {

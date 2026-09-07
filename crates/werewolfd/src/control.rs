@@ -283,15 +283,8 @@ async fn handle_request(
 
             let before = st.peers.len();
 
-            let closed_fangs = st
-                .fang_registry
-                .records()
-                .iter()
-                .filter(|f| f.peer == name)
-                .count();
-
-            st.fang_registry.retain_records(|f| f.peer != name);
-            st.fang_registry.tasks_mut().retain(|_, _| true);
+            let closed_fangs = st.fang_registry.remove_peer_records(&name);
+            st.fang_registry.retain_tasks(|_, _| true);
 
             st.peers.retain(|p| p.name != name);
 
