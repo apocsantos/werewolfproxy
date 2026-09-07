@@ -39,3 +39,18 @@ pub(super) async fn run_plain_tcp_forwarder(
 ) -> tokio::io::Result<()> {
     tcp_plain::run_plain_tcp_forwarder(fang_id, local, remote).await
 }
+
+pub(super) async fn run_selected_forwarder(
+    fang_id: &str,
+    local: &str,
+    peer_addr: &str,
+    remote: &str,
+    identity: werewolf_core::pelt::PeltIdentity,
+    plain_tcp: bool,
+) -> tokio::io::Result<()> {
+    if plain_tcp {
+        run_plain_tcp_forwarder(fang_id, local, remote).await
+    } else {
+        run_local_fang_forwarder(fang_id, local, peer_addr, remote, identity).await
+    }
+}

@@ -307,18 +307,15 @@ async fn open_fang_from_parts(
     let task_transport = transport.clone();
 
     let handle = tokio::spawn(async move {
-        let result = if is_plain_tcp(&task_transport) {
-            transport::run_plain_tcp_forwarder(&task_fang_id, &task_local, &task_remote).await
-        } else {
-            transport::run_local_fang_forwarder(
-                &task_fang_id,
-                &task_local,
-                &task_peer_addr,
-                &task_remote,
-                task_identity,
-            )
-            .await
-        };
+        let result = transport::run_selected_forwarder(
+            &task_fang_id,
+            &task_local,
+            &task_peer_addr,
+            &task_remote,
+            task_identity,
+            is_plain_tcp(&task_transport),
+        )
+        .await;
 
         if let Err(e) = result {
             eprintln!("fang {} failed: {}", task_fang_id, e);
