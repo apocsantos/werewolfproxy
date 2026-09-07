@@ -234,12 +234,14 @@ async fn open_fang_from_parts(
             let fang_id = generate_fang_id(&peer, &local, &remote, st.fang_registry.len());
 
             let cancellation = FangCancellation::default();
+            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
             let handle = match open_quic_fang(
                 local.clone(),
                 a.clone(),
                 remote.clone(),
                 identity.clone(),
                 cancellation.clone(),
+                ready_tx,
             )
             .await
             {
@@ -248,6 +250,22 @@ async fn open_fang_from_parts(
                     return ControlResponse::err(req_id, "QUIC_FANG_FAILED", e.to_string());
                 }
             };
+
+            match ready_rx.await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    handle.abort();
+                    return ControlResponse::err(req_id, "FANG_LISTENER_FAILED", error.to_string());
+                }
+                Err(_) => {
+                    handle.abort();
+                    return ControlResponse::err(
+                        req_id,
+                        "FANG_LISTENER_FAILED",
+                        "Fang listener stopped before becoming ready",
+                    );
+                }
+            }
 
             let fang = FangRecord {
                 id: fang_id.clone(),
@@ -316,6 +334,7 @@ async fn open_fang_from_parts(
     let task_transport = transport.clone();
     let cancellation = FangCancellation::default();
     let task_cancellation = cancellation.clone();
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
 
     let handle = tokio::spawn(async move {
         let result = transport::run_selected_forwarder(
@@ -326,6 +345,7 @@ async fn open_fang_from_parts(
             task_identity,
             is_plain_tcp(&task_transport),
             task_cancellation,
+            ready_tx,
         )
         .await;
 
@@ -333,6 +353,26 @@ async fn open_fang_from_parts(
             eprintln!("fang {} failed: {}", task_fang_id, e);
         }
     });
+
+    match ready_rx.await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            handle.abort();
+            st.fang_registry.retain_records(|f| f.id != fang_id);
+            st.status.active_fangs = st.fang_registry.len();
+            return ControlResponse::err(req_id, "FANG_LISTENER_FAILED", error.to_string());
+        }
+        Err(_) => {
+            handle.abort();
+            st.fang_registry.retain_records(|f| f.id != fang_id);
+            st.status.active_fangs = st.fang_registry.len();
+            return ControlResponse::err(
+                req_id,
+                "FANG_LISTENER_FAILED",
+                "Fang listener stopped before becoming ready",
+            );
+        }
+    }
 
     st.fang_registry.insert_task(fang_id.clone(), handle);
     st.fang_registry

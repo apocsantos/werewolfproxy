@@ -18,15 +18,18 @@ pub async fn open_quic_fang(
     remote_addr: String,
     identity: PeltIdentity,
     cancellation: crate::fang_registry::FangCancellation,
+    ready: tokio::sync::oneshot::Sender<std::io::Result<()>>,
 ) -> Result<JoinHandle<()>, Box<dyn Error + Send + Sync>> {
     let handle = tokio::spawn(async move {
         let listener = match TcpListener::bind(&local_addr).await {
             Ok(v) => v,
             Err(e) => {
+                let _ = ready.send(Err(std::io::Error::new(e.kind(), e.to_string())));
                 eprintln!("quic fang bind failed: {}", e);
                 return;
             }
         };
+        let _ = ready.send(Ok(()));
 
         println!(
             "[INFO][QUIC][FANG_OPEN] 🐺 QUIC Fang listening on {} → {} target {}",

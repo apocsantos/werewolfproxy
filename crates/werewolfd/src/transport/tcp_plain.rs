@@ -9,8 +9,18 @@ pub(super) async fn run_plain_tcp_forwarder(
     local: &str,
     remote: &str,
     cancellation: crate::fang_registry::FangCancellation,
+    ready: tokio::sync::oneshot::Sender<io::Result<()>>,
 ) -> io::Result<()> {
-    let listener = TcpListener::bind(local).await?;
+    let listener = match TcpListener::bind(local).await {
+        Ok(listener) => {
+            let _ = ready.send(Ok(()));
+            listener
+        }
+        Err(error) => {
+            let _ = ready.send(Err(io::Error::new(error.kind(), error.to_string())));
+            return Err(error);
+        }
+    };
     println!("🦷 {} plain TCP listening locally on {}", fang_id, local);
 
     loop {
