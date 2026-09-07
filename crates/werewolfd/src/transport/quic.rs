@@ -174,9 +174,21 @@ pub(super) async fn run_quic_fang_listener(
                         println!("🧠 QUIC nonce accepted");
                         println!("🦷 Native QUIC target request: {}", target);
 
+                        let authorized_targets = {
+                            let policy = state.lock().await.target_policy.clone();
+                            match crate::target_policy::authorize(&policy, sender_fp, &target).await
+                            {
+                                Ok(v) => v,
+                                Err(_) => {
+                                    eprintln!("❌ QUIC target authorization denied");
+                                    continue;
+                                }
+                            }
+                        };
+
                         match tokio::time::timeout(
                             Duration::from_secs(5),
-                            tokio::net::TcpStream::connect(&target),
+                            tokio::net::TcpStream::connect(authorized_targets.as_slice()),
                         )
                         .await
                         {
