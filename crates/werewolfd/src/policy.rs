@@ -29,6 +29,10 @@ pub(super) fn is_plain_tcp(requested: &str) -> bool {
     requested == "tcp-plain"
 }
 
+pub(super) fn requested_transport(value: Option<&str>) -> String {
+    value.unwrap_or("quic").trim().to_string()
+}
+
 fn parse_fang_transport(address: &str) -> Result<FangTransport, String> {
     if let Some(rest) = address.strip_prefix("tcp://") {
         return Ok(FangTransport::Tcp(rest.to_string()));

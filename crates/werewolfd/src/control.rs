@@ -1,6 +1,7 @@
 use crate::{
     open_fang_from_parts,
     persistence::{forget_active_fang_profile, remember_active_fang_profile},
+    policy::requested_transport,
     state::DaemonState,
 };
 use serde_json::json;
@@ -350,11 +351,7 @@ async fn handle_request(
             let local = req.args["local"].as_str().unwrap_or("").trim().to_string();
             let remote = req.args["remote"].as_str().unwrap_or("").trim().to_string();
 
-            let transport = req.args["transport"]
-                .as_str()
-                .unwrap_or("quic")
-                .trim()
-                .to_string();
+            let transport = requested_transport(req.args["transport"].as_str());
 
             open_fang_from_parts(req.id, state.clone(), peer, local, remote, transport).await
         }
@@ -383,11 +380,7 @@ async fn handle_request(
                 );
             }
 
-            let transport = req.args["transport"]
-                .as_str()
-                .unwrap_or("quic")
-                .trim()
-                .to_string();
+            let transport = requested_transport(req.args["transport"].as_str());
 
             st.fang_profiles.push(FangProfile {
                 name: name.clone(),
