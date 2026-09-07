@@ -35,3 +35,11 @@ No new production defects were observed in the complete acceptance run on
 execution sandbox (`EPERM`). Rerunning with explicit local socket permission
 passed. This was an environment restriction, not a transport regression; the
 failed invocation returned nonzero and removed its temporary state.
+
+## Stage 7 QUIC identity boundary
+
+The current QUIC application exchange authenticates the initiating sender
+against the receiver's Pack. It does not return a signed receiver identity
+to the initiator, so selected-peer-to-receiver binding cannot be added
+without changing the application wire format. Stage 7 leaves this separate
+from the encrypted TCP receiver identity fix.
