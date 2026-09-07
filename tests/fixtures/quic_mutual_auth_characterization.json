@@ -1,0 +1,8 @@
+{
+  "request_protocol": "fang-quic-v2",
+  "request_signed_template": "fang.quic.open|fang-quic-v2|{sender_fingerprint}|{nonce}|{remote}",
+  "ack_protocol": "fang-quic-v2",
+  "ack_signed_template": "fang.quic.ack|fang-quic-v2|{receiver_fingerprint}|{sender_fingerprint}|{nonce}|{remote}",
+  "ack_required_fields": ["ok", "protocol", "receiver_pubkey", "receiver_fingerprint", "sender_fingerprint", "nonce", "remote", "signature"],
+  "negative_cases": ["wrong receiver", "tampered fingerprint", "tampered public key", "tampered nonce", "tampered sender", "tampered remote", "invalid signature", "replayed ack", "truncated ack", "malformed json", "legacy plausible application bytes", "target connection failure"]
+}
