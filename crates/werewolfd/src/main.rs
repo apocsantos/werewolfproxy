@@ -231,8 +231,9 @@ async fn open_fang_from_parts(
 
     let peer_addr = match transport.as_str() {
         "tcp" | "tcp-plain" => {
-            match parse_fang_transport(&peer_record.address.replace("quic://", "tcp://")) {
-                Ok(FangTransport::Tcp(a)) => a,
+            match transport::parse_fang_transport(&peer_record.address.replace("quic://", "tcp://"))
+            {
+                Ok(transport::FangTransport::Tcp(a)) => a,
                 _ => {
                     return ControlResponse::err(
                         req_id,
@@ -243,8 +244,8 @@ async fn open_fang_from_parts(
             }
         }
 
-        _ => match parse_fang_transport(&peer_record.address) {
-            Ok(FangTransport::Quic(a)) => {
+        _ => match transport::parse_fang_transport(&peer_record.address) {
+            Ok(transport::FangTransport::Quic(a)) => {
                 let fang_id = generate_fang_id(&peer, &local, &remote, st.fangs.len());
 
                 let handle = match open_quic_fang(
@@ -358,24 +359,6 @@ async fn open_fang_from_parts(
             "peer_addr": peer_addr
         }),
     )
-}
-
-#[derive(Debug, Clone)]
-enum FangTransport {
-    Tcp(String),
-    Quic(String),
-}
-
-fn parse_fang_transport(address: &str) -> Result<FangTransport, String> {
-    if let Some(rest) = address.strip_prefix("tcp://") {
-        return Ok(FangTransport::Tcp(rest.to_string()));
-    }
-
-    if let Some(rest) = address.strip_prefix("quic://") {
-        return Ok(FangTransport::Quic(rest.to_string()));
-    }
-
-    Err("peer address must start with tcp:// or quic://".to_string())
 }
 
 mod anyhow_free {
