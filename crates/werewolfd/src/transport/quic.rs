@@ -1,7 +1,7 @@
 use crate::{quic_lab::make_server_endpoint, state::DaemonState};
 use std::{sync::Arc, time::Duration};
 use tokio::{io, sync::Mutex};
-use werewolf_core::pelt::verify_message;
+use werewolf_core::pelt::{sign_message, verify_message};
 
 pub(super) async fn run_quic_fang_listener(
     listen_addr: &str,
@@ -82,6 +82,11 @@ pub(super) async fn run_quic_fang_listener(
                             continue;
                         }
 
+                        if request_value["protocol"].as_str() != Some("fang-quic-v2") {
+                            eprintln!("bad QUIC Fang request protocol");
+                            continue;
+                        }
+
                         let sender_fp = match request_value["sender_fingerprint"].as_str() {
                             Some(v) => v,
                             None => {
@@ -137,8 +142,10 @@ pub(super) async fn run_quic_fang_listener(
                             }
                         };
 
-                        let signed_payload =
-                            format!("fang.quic.open|{}|{}|{}", sender_fp, nonce, target);
+                        let signed_payload = format!(
+                            "fang.quic.open|fang-quic-v2|{}|{}|{}",
+                            sender_fp, nonce, target
+                        );
 
                         if let Err(e) = verify_message(
                             &sender_public_key,
@@ -175,6 +182,47 @@ pub(super) async fn run_quic_fang_listener(
                         {
                             Ok(Ok(mut target_stream)) => {
                                 println!("✅ target connected: {}", target);
+
+                                let receiver = {
+                                    let st = state.lock().await;
+                                    match st.pelt.clone() {
+                                        Some(identity) => identity,
+                                        None => {
+                                            eprintln!(
+                                                "❌ QUIC receiver has no local Pelt identity"
+                                            );
+                                            continue;
+                                        }
+                                    }
+                                };
+                                let ack_payload = format!(
+                                    "fang.quic.ack|fang-quic-v2|{}|{}|{}|{}",
+                                    receiver.fingerprint, sender_fp, nonce, target
+                                );
+                                let ack_signature =
+                                    match sign_message(&receiver, ack_payload.as_bytes()) {
+                                        Ok(v) => v,
+                                        Err(e) => {
+                                            eprintln!("❌ QUIC ACK signing failed: {}", e);
+                                            continue;
+                                        }
+                                    };
+                                let ack = serde_json::json!({
+                                    "ok": true,
+                                    "protocol": "fang-quic-v2",
+                                    "receiver_pubkey": receiver.public_key_b64,
+                                    "receiver_fingerprint": receiver.fingerprint,
+                                    "sender_fingerprint": sender_fp,
+                                    "nonce": nonce,
+                                    "remote": target,
+                                    "signature": ack_signature,
+                                });
+                                if let Err(e) =
+                                    send.write_all(format!("{}\n", ack).as_bytes()).await
+                                {
+                                    eprintln!("❌ QUIC ACK send failed: {}", e);
+                                    continue;
+                                }
 
                                 let (mut target_read, mut target_write) = target_stream.split();
 

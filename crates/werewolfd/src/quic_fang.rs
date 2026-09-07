@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 
 use crate::quic_lab::make_client_endpoint;
-use werewolf_core::pelt::{sign_message, PeltIdentity};
+use werewolf_core::pelt::{
+    fingerprint_from_public_key_b64, sign_message, verify_message, PeltIdentity,
+};
 
 use quinn::{RecvStream, SendStream};
 use rand_core::{OsRng, RngCore};
@@ -106,7 +108,7 @@ pub async fn open_quic_fang(
                     retry_delay = (retry_delay * 2).min(15);
                 };
 
-                let (mut send, recv) = match connection.open_bi().await {
+                let (mut send, mut recv) = match connection.open_bi().await {
                     Ok(v) => v,
                     Err(e) => {
                         eprintln!("open_bi failed: {}", e);
@@ -127,7 +129,7 @@ pub async fn open_quic_fang(
                 let sender_fingerprint = identity.fingerprint.clone();
 
                 let signed_payload = format!(
-                    "fang.quic.open|{}|{}|{}",
+                    "fang.quic.open|fang-quic-v2|{}|{}|{}",
                     sender_fingerprint, nonce, remote_addr
                 );
 
@@ -141,6 +143,7 @@ pub async fn open_quic_fang(
 
                 let request = serde_json::json!({
                     "cmd": "fang.quic.open",
+                    "protocol": "fang-quic-v2",
                     "sender_fingerprint":
                         sender_fingerprint,
                     "nonce": nonce,
@@ -153,6 +156,65 @@ pub async fn open_quic_fang(
                     return;
                 }
 
+                let ack = match read_quic_ack(&mut recv).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("QUIC receiver authentication failed: {}", e);
+                        return;
+                    }
+                };
+
+                let receiver_pubkey = match ack["receiver_pubkey"].as_str() {
+                    Some(v) => v,
+                    None => {
+                        eprintln!("QUIC ACK missing receiver public key");
+                        return;
+                    }
+                };
+                let receiver_fingerprint = match ack["receiver_fingerprint"].as_str() {
+                    Some(v) => v,
+                    None => {
+                        eprintln!("QUIC ACK missing receiver fingerprint");
+                        return;
+                    }
+                };
+                if fingerprint_from_public_key_b64(receiver_pubkey)
+                    .ok()
+                    .as_deref()
+                    != Some(receiver_fingerprint)
+                {
+                    eprintln!("QUIC ACK receiver fingerprint mismatch");
+                    return;
+                }
+                let ack_sender = ack["sender_fingerprint"].as_str();
+                let ack_nonce = ack["nonce"].as_str();
+                let ack_remote = ack["remote"].as_str();
+                let ack_signature = match ack["signature"].as_str() {
+                    Some(v) => v,
+                    None => {
+                        eprintln!("QUIC ACK missing signature");
+                        return;
+                    }
+                };
+                if ack["ok"].as_bool() != Some(true)
+                    || ack["protocol"].as_str() != Some("fang-quic-v2")
+                    || ack_sender != Some(sender_fingerprint.as_str())
+                    || ack_nonce != Some(nonce.as_str())
+                    || ack_remote != Some(remote_addr.as_str())
+                {
+                    eprintln!("QUIC ACK context mismatch");
+                    return;
+                }
+                let ack_payload = format!(
+                    "fang.quic.ack|fang-quic-v2|{}|{}|{}|{}",
+                    receiver_fingerprint, sender_fingerprint, nonce, remote_addr
+                );
+                if let Err(e) =
+                    verify_message(receiver_pubkey, ack_payload.as_bytes(), ack_signature)
+                {
+                    eprintln!("QUIC ACK signature verification failed: {}", e);
+                    return;
+                }
                 let _ = proxy_streams(tcp, send, recv).await;
             });
             cancellation.track(&handle);
@@ -160,6 +222,28 @@ pub async fn open_quic_fang(
     });
 
     Ok(handle)
+}
+
+async fn read_quic_ack(
+    recv: &mut RecvStream,
+) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
+    let mut buf = Vec::new();
+    loop {
+        match recv.read_chunk(1, true).await? {
+            Some(chunk) => {
+                buf.extend_from_slice(&chunk.bytes);
+                if buf.ends_with(b"\n") {
+                    break;
+                }
+                if buf.len() > 4096 {
+                    return Err("QUIC ACK too long".into());
+                }
+            }
+            None => return Err("QUIC ACK truncated".into()),
+        }
+    }
+    let line = std::str::from_utf8(&buf)?.trim();
+    Ok(serde_json::from_str(line)?)
 }
 
 async fn proxy_streams(
