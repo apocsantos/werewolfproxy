@@ -28,16 +28,26 @@ pub(super) async fn run_local_fang_forwarder(
     peer_addr: &str,
     remote: &str,
     identity: werewolf_core::pelt::PeltIdentity,
+    cancellation: crate::fang_registry::FangCancellation,
 ) -> tokio::io::Result<()> {
-    tcp_encrypted::run_local_fang_forwarder(fang_id, local, peer_addr, remote, identity).await
+    tcp_encrypted::run_local_fang_forwarder(
+        fang_id,
+        local,
+        peer_addr,
+        remote,
+        identity,
+        cancellation,
+    )
+    .await
 }
 
 pub(super) async fn run_plain_tcp_forwarder(
     fang_id: &str,
     local: &str,
     remote: &str,
+    cancellation: crate::fang_registry::FangCancellation,
 ) -> tokio::io::Result<()> {
-    tcp_plain::run_plain_tcp_forwarder(fang_id, local, remote).await
+    tcp_plain::run_plain_tcp_forwarder(fang_id, local, remote, cancellation).await
 }
 
 pub(super) async fn run_selected_forwarder(
@@ -47,10 +57,11 @@ pub(super) async fn run_selected_forwarder(
     remote: &str,
     identity: werewolf_core::pelt::PeltIdentity,
     plain_tcp: bool,
+    cancellation: crate::fang_registry::FangCancellation,
 ) -> tokio::io::Result<()> {
     if plain_tcp {
-        run_plain_tcp_forwarder(fang_id, local, remote).await
+        run_plain_tcp_forwarder(fang_id, local, remote, cancellation).await
     } else {
-        run_local_fang_forwarder(fang_id, local, peer_addr, remote, identity).await
+        run_local_fang_forwarder(fang_id, local, peer_addr, remote, identity, cancellation).await
     }
 }

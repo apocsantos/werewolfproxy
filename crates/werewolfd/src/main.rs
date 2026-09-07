@@ -3,6 +3,7 @@ mod fang_registry;
 mod policy;
 mod state;
 mod transport;
+use fang_registry::FangCancellation;
 use state::DaemonState;
 mod cli;
 use cli::Args;
@@ -232,15 +233,21 @@ async fn open_fang_from_parts(
         Ok(transport::FangTransport::Quic(a)) => {
             let fang_id = generate_fang_id(&peer, &local, &remote, st.fang_registry.len());
 
-            let handle =
-                match open_quic_fang(local.clone(), a.clone(), remote.clone(), identity.clone())
-                    .await
-                {
-                    Ok(h) => h,
-                    Err(e) => {
-                        return ControlResponse::err(req_id, "QUIC_FANG_FAILED", e.to_string());
-                    }
-                };
+            let cancellation = FangCancellation::default();
+            let handle = match open_quic_fang(
+                local.clone(),
+                a.clone(),
+                remote.clone(),
+                identity.clone(),
+                cancellation.clone(),
+            )
+            .await
+            {
+                Ok(h) => h,
+                Err(e) => {
+                    return ControlResponse::err(req_id, "QUIC_FANG_FAILED", e.to_string());
+                }
+            };
 
             let fang = FangRecord {
                 id: fang_id.clone(),
@@ -252,6 +259,8 @@ async fn open_fang_from_parts(
 
             st.fang_registry.push(fang);
             st.fang_registry.insert_task(fang_id.clone(), handle);
+            st.fang_registry
+                .insert_cancellation(fang_id.clone(), cancellation);
             st.fang_registry
                 .insert_started(fang_id.clone(), std::time::Instant::now());
 
@@ -305,6 +314,8 @@ async fn open_fang_from_parts(
     let task_remote = remote.clone();
     let task_identity = identity.clone();
     let task_transport = transport.clone();
+    let cancellation = FangCancellation::default();
+    let task_cancellation = cancellation.clone();
 
     let handle = tokio::spawn(async move {
         let result = transport::run_selected_forwarder(
@@ -314,6 +325,7 @@ async fn open_fang_from_parts(
             &task_remote,
             task_identity,
             is_plain_tcp(&task_transport),
+            task_cancellation,
         )
         .await;
 
@@ -323,6 +335,8 @@ async fn open_fang_from_parts(
     });
 
     st.fang_registry.insert_task(fang_id.clone(), handle);
+    st.fang_registry
+        .insert_cancellation(fang_id.clone(), cancellation);
     st.fang_registry
         .insert_started(fang_id.clone(), std::time::Instant::now());
 

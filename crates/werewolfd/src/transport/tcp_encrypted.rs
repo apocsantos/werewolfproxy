@@ -183,6 +183,7 @@ pub(super) async fn run_local_fang_forwarder(
     peer_addr: &str,
     remote: &str,
     identity: PeltIdentity,
+    cancellation: crate::fang_registry::FangCancellation,
 ) -> io::Result<()> {
     let listener = TcpListener::bind(local).await?;
     println!("🦷 {} listening locally on {}", fang_id, local);
@@ -194,13 +195,14 @@ pub(super) async fn run_local_fang_forwarder(
         let fang_id = fang_id.to_string();
         let identity = identity.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             if let Err(e) =
                 pipe_one_fang_connection(&mut inbound, &peer_addr, &remote, identity).await
             {
                 eprintln!("🦷 {} client {} pipe error: {}", fang_id, client_addr, e);
             }
         });
+        cancellation.track(&handle);
     }
 }
 

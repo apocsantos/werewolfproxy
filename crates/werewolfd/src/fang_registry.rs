@@ -1,12 +1,34 @@
-use std::{collections::HashMap, time::Instant};
-use tokio::task::JoinHandle;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
+use tokio::task::{AbortHandle, JoinHandle};
 use werewolf_core::fang::FangRecord;
+
+#[derive(Clone, Default)]
+pub(super) struct FangCancellation {
+    children: Arc<Mutex<Vec<AbortHandle>>>,
+}
+
+impl FangCancellation {
+    pub(super) fn track(&self, handle: &JoinHandle<()>) {
+        self.children.lock().unwrap().push(handle.abort_handle());
+    }
+
+    pub(super) fn abort_children(&self) {
+        for handle in self.children.lock().unwrap().drain(..) {
+            handle.abort();
+        }
+    }
+}
 
 #[derive(Default)]
 pub(super) struct FangRegistry {
     pub(super) fangs: Vec<FangRecord>,
     pub(super) tasks: HashMap<String, JoinHandle<()>>,
     pub(super) started: HashMap<String, Instant>,
+    cancellations: HashMap<String, FangCancellation>,
 }
 
 impl FangRegistry {
@@ -53,6 +75,9 @@ impl FangRegistry {
     pub(super) fn insert_started(&mut self, id: String, started: Instant) {
         self.started.insert(id, started);
     }
+    pub(super) fn insert_cancellation(&mut self, id: String, cancellation: FangCancellation) {
+        self.cancellations.insert(id, cancellation);
+    }
     pub(super) fn remove_task(&mut self, id: &str) -> Option<JoinHandle<()>> {
         self.tasks.remove(id)
     }
@@ -70,6 +95,7 @@ impl FangRegistry {
         for id in dead_ids {
             self.tasks.remove(id);
             self.started.remove(id);
+            self.cancellations.remove(id);
         }
         self.fangs.retain(|f| !dead_ids.contains(&f.id));
     }
@@ -77,9 +103,13 @@ impl FangRegistry {
         self.started.get(id)
     }
     pub(super) fn abort_all(&mut self) {
+        for cancellation in self.cancellations.values() {
+            cancellation.abort_children();
+        }
         for (_, handle) in self.tasks.drain() {
             handle.abort();
         }
+        self.cancellations.clear();
     }
     pub(super) fn clear_started(&mut self) {
         self.started.clear();

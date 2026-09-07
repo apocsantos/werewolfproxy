@@ -17,6 +17,7 @@ pub async fn open_quic_fang(
     quic_server: String,
     remote_addr: String,
     identity: PeltIdentity,
+    cancellation: crate::fang_registry::FangCancellation,
 ) -> Result<JoinHandle<()>, Box<dyn Error + Send + Sync>> {
     let handle = tokio::spawn(async move {
         let listener = match TcpListener::bind(&local_addr).await {
@@ -45,7 +46,7 @@ pub async fn open_quic_fang(
             let remote_addr = remote_addr.clone();
             let identity = identity.clone();
 
-            tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 let server_addr: SocketAddr = match quic_server.parse() {
                     Ok(v) => v,
                     Err(e) => {
@@ -150,6 +151,7 @@ pub async fn open_quic_fang(
 
                 let _ = proxy_streams(tcp, send, recv).await;
             });
+            cancellation.track(&handle);
         }
     });
 
