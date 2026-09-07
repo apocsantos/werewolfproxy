@@ -1,3 +1,5 @@
+mod state;
+use state::DaemonState;
 mod cli;
 use cli::Args;
 mod quic_fang;
@@ -13,7 +15,6 @@ use clap::Parser;
 use rand_core::{OsRng, RngCore};
 use serde_json::json;
 use std::{
-    collections::HashMap,
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -23,7 +24,6 @@ use tokio::{
     io::{self, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream, UnixListener, UnixStream},
     sync::Mutex,
-    task::JoinHandle,
 };
 use werewolf_core::{
     fang::{FangRecord, FangState},
@@ -34,7 +34,7 @@ use werewolf_core::{
         sign_message, verify_message, PeltIdentity,
     },
     protocol::{ControlRequest, ControlResponse},
-    state::{Status, WolfMode},
+    state::WolfMode,
 };
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
@@ -56,22 +56,6 @@ macro_rules! ww_error {
     ($subsystem:expr, $event:expr, $($arg:tt)*) => {
         eprintln!("[ERROR][{}][{}] {}", $subsystem, $event, format!($($arg)*));
     };
-}
-
-#[derive(Default)]
-struct DaemonState {
-    peers: Vec<PeerRecord>,
-    fangs: Vec<FangRecord>,
-    fang_profiles: Vec<FangProfile>,
-    fang_tasks: HashMap<String, JoinHandle<()>>,
-    fang_started: HashMap<String, std::time::Instant>,
-    seen_nonces: HashMap<String, Instant>,
-    status: Status,
-    pelt: Option<PeltIdentity>,
-    den_socket: String,
-    den_home: String,
-    den_listen: String,
-    den_quic_listen: String,
 }
 
 #[tokio::main]
