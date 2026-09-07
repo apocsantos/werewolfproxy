@@ -1,0 +1,19 @@
+{
+  "protocol": "fang.pipe/fang.ack",
+  "hello_signed_template": "fang.pipe|{sender_fingerprint}|{remote}|{nonce}|{client_x25519}",
+  "ack_signed_template": "fang.ack|{receiver_fingerprint}|{sender_fingerprint}|{nonce}|{server_x25519}",
+  "nonce_vectors": [
+    {"direction": 0, "counter": 0, "hex": "000000000000000000000000"},
+    {"direction": 1, "counter": 1, "hex": "010000000000000000000001"},
+    {"direction": 2, "counter": 72623859790382856, "hex": "020000000102030405060708"}
+  ],
+  "frame_limits": {
+    "minimum_frame_size": 768,
+    "maximum_frame_size": 2048,
+    "step": 128,
+    "maximum_plaintext": 2046,
+    "length_prefix_bytes": 4,
+    "aead_tag_bytes": 16
+  },
+  "purpose": "Characterization of existing Stage 2 encrypted TCP v2 behavior; not a protocol specification."
+}

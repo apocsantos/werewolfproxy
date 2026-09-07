@@ -1,4 +1,22 @@
+pub(super) mod tcp_encrypted;
 pub(super) mod tcp_plain;
+
+pub(super) async fn run_fang_listener(
+    listen_addr: &str,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::DaemonState>>,
+) -> tokio::io::Result<()> {
+    tcp_encrypted::run_fang_listener(listen_addr, state).await
+}
+
+pub(super) async fn run_local_fang_forwarder(
+    fang_id: &str,
+    local: &str,
+    peer_addr: &str,
+    remote: &str,
+    identity: werewolf_core::pelt::PeltIdentity,
+) -> tokio::io::Result<()> {
+    tcp_encrypted::run_local_fang_forwarder(fang_id, local, peer_addr, remote, identity).await
+}
 
 pub(super) async fn run_plain_tcp_forwarder(
     fang_id: &str,
