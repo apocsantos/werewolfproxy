@@ -58,6 +58,9 @@ macro_rules! ww_error {
     };
 }
 
+mod config;
+use config::{configure_den, expand_home, validate_startup_config};
+
 #[tokio::main]
 async fn main() -> anyhow_free::Result<()> {
     tracing_subscriber::fmt::init();
@@ -74,10 +77,7 @@ async fn main() -> anyhow_free::Result<()> {
     let home = expand_home(&args.home);
 
     let mut initial_state = DaemonState::default();
-    initial_state.den_socket = args.socket.clone();
-    initial_state.den_home = home.display().to_string();
-    initial_state.den_listen = args.listen.clone();
-    initial_state.den_quic_listen = args.quic_listen.clone();
+    configure_den(&mut initial_state, &args, &home);
 
     let pelt_path = home.join("pelt.json");
     match load_identity(&pelt_path) {
@@ -280,98 +280,6 @@ fn forget_active_fang_profile(home: &std::path::Path, profile_name: &str) {
     if let Err(e) = save_active_fang_profiles(&path, &profiles) {
         eprintln!("⚠️ Failed to update active Fang profiles: {}", e);
     }
-}
-
-fn validate_startup_config(state: &DaemonState) {
-    ww_info!(
-        "CONFIG",
-        "VALIDATE_START",
-        "🧪 Validating startup config..."
-    );
-
-    for peer in &state.peers {
-        if !peer.fingerprint.starts_with("wwp1:") {
-            eprintln!(
-                "⚠️ Config warning: peer {} has invalid fingerprint {}",
-                peer.name, peer.fingerprint
-            );
-        }
-
-        if !(peer.address.starts_with("tcp://") || peer.address.starts_with("quic://")) {
-            eprintln!(
-                "⚠️ Config warning: peer {} has invalid address {}",
-                peer.name, peer.address
-            );
-        }
-
-        if peer.address.starts_with("quic://") && peer.public_key_b64.is_none() {
-            eprintln!(
-                "⚠️ Config warning: QUIC peer {} has no public_key_b64",
-                peer.name
-            );
-        }
-
-        if let Some(pk) = &peer.public_key_b64 {
-            match fingerprint_from_public_key_b64(pk) {
-                Ok(fp) => {
-                    if fp != peer.fingerprint {
-                        eprintln!(
-                            "⚠️ Config warning: peer {} public key fingerprint mismatch: expected {}, got {}",
-                            peer.name,
-                            peer.fingerprint,
-                            fp
-                        );
-                    }
-                }
-                Err(e) => {
-                    eprintln!(
-                        "⚠️ Config warning: peer {} has invalid public_key_b64: {}",
-                        peer.name, e
-                    );
-                }
-            }
-        }
-    }
-
-    for profile in &state.fang_profiles {
-        if profile.name.trim().is_empty() {
-            eprintln!("⚠️ Config warning: Fang profile with empty name");
-        }
-
-        if profile.peer.trim().is_empty() {
-            eprintln!(
-                "⚠️ Config warning: Fang profile {} has empty peer",
-                profile.name
-            );
-        }
-
-        if profile.local.parse::<std::net::SocketAddr>().is_err() {
-            eprintln!(
-                "⚠️ Config warning: Fang profile {} has invalid local address {}",
-                profile.name, profile.local
-            );
-        }
-
-        if profile.remote.parse::<std::net::SocketAddr>().is_err() {
-            eprintln!(
-                "⚠️ Config warning: Fang profile {} has invalid remote address {}",
-                profile.name, profile.remote
-            );
-        }
-
-        if !state.peers.iter().any(|p| p.name == profile.peer) {
-            eprintln!(
-                "⚠️ Config warning: Fang profile {} references unknown peer {}",
-                profile.name, profile.peer
-            );
-        }
-    }
-
-    ww_info!(
-        "CONFIG",
-        "VALIDATE_OK",
-        "✅ Startup config validation complete"
-    );
 }
 
 async fn run_quic_fang_listener(
@@ -1772,18 +1680,6 @@ fn parse_fang_transport(address: &str) -> Result<FangTransport, String> {
     }
 
     Err("peer address must start with tcp:// or quic://".to_string())
-}
-
-fn expand_home(input: &str) -> PathBuf {
-    if input == "~" {
-        return PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()));
-    }
-
-    if let Some(rest) = input.strip_prefix("~/") {
-        return PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string())).join(rest);
-    }
-
-    PathBuf::from(input)
 }
 
 fn derive_shared_key(secret: &StaticSecret, peer_public_b64: &str) -> io::Result<[u8; 32]> {
