@@ -1,0 +1,55 @@
+{
+  "generated_at": "2026-06-19T09:50:09Z",
+  "peer_count": 4,
+  "best_peer": "wolf-c",
+  "peers": [
+    {
+      "name": "wolf-c",
+      "address": "127.0.0.1:9562",
+      "healthy": true,
+      "reputation": 97,
+      "availability_pct": 100,
+      "avg_latency_ms": 10.75,
+      "total_pings": 3,
+      "successful_pings": 3,
+      "failed_pings": 0,
+      "last_seen": "2026-06-19T10:38:19+01:00"
+    },
+    {
+      "name": "wolf-a",
+      "address": "127.0.0.1:9560",
+      "healthy": true,
+      "reputation": 96.7,
+      "availability_pct": 100,
+      "avg_latency_ms": 11.5,
+      "total_pings": 3,
+      "successful_pings": 3,
+      "failed_pings": 0,
+      "last_seen": "2026-06-19T10:38:19+01:00"
+    },
+    {
+      "name": "wolf-d",
+      "address": "127.0.0.1:9563",
+      "healthy": true,
+      "reputation": 96.7,
+      "availability_pct": 100,
+      "avg_latency_ms": 11,
+      "total_pings": 3,
+      "successful_pings": 3,
+      "failed_pings": 0,
+      "last_seen": "2026-06-19T10:38:19+01:00"
+    },
+    {
+      "name": "wolf-b",
+      "address": "127.0.0.1:9561",
+      "healthy": true,
+      "reputation": 94.3,
+      "availability_pct": 100,
+      "avg_latency_ms": 16.75,
+      "total_pings": 3,
+      "successful_pings": 3,
+      "failed_pings": 0,
+      "last_seen": "2026-06-19T10:38:19+01:00"
+    }
+  ]
+}

@@ -95,13 +95,35 @@ if [[ "${1:-}" == "heal" ]]; then
   ensure_profile() {
     local name="$1"
     local port="$2"
+    local url="http://127.0.0.1:${port}/"
 
-    if "$0" fang list | grep -q "local:  127.0.0.1:${port}"; then
-      [[ "$quiet" == "0" ]] && echo "✅ $name already active on $port"
-    else
-      [[ "$quiet" == "0" ]] && echo "🔁 opening $name..."
-      "$0" fang open-profile "$name" >/dev/null || true
+    if curl --max-time 3 -fsS "$url" >/dev/null 2>&1; then
+      [[ "$quiet" == "0" ]] && echo "✅ $name healthy on $port"
+      return 0
     fi
+
+    [[ "$quiet" == "0" ]] && echo "🔁 $name unhealthy/missing on $port; reopening..."
+
+    # Close any stale Fang on this local port first.
+    "$0" fang list \
+      | awk -v port="$port" '
+          /- fang_/ {id=$2}
+          $0 ~ ("local:  127.0.0.1:" port) {print id}
+        ' \
+      | while read -r stale_id; do
+          [[ -n "$stale_id" ]] && "$0" fang close "$stale_id" >/dev/null 2>&1 || true
+        done
+
+    "$0" fang open-profile "$name" >/dev/null 2>&1 || true
+    sleep 1
+
+    if curl --max-time 3 -fsS "$url" >/dev/null 2>&1; then
+      [[ "$quiet" == "0" ]] && echo "✅ $name recovered on $port"
+      return 0
+    fi
+
+    [[ "$quiet" == "0" ]] && echo "❌ $name still unhealthy on $port"
+    return 1
   }
 
   ensure_profile home-web-tcp 9021
@@ -135,6 +157,1135 @@ if [[ "${1:-}" == "fallback-plan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "status-full" ]]; then
+  json_mode=0
+  [[ "${2:-}" == "--json" ]] && json_mode=1
+
+  json_or_empty() {
+    local out
+    if out="$("$@" 2>/dev/null)" && echo "$out" | jq -e . >/dev/null 2>&1; then
+      echo "$out"
+    else
+      echo '{}'
+    fi
+  }
+
+  if [[ "$json_mode" == "1" ]]; then
+    watchdog_active=false
+    maintenance_active=false
+    systemctl --user is-active --quiet werewolf-b-watchdog.timer && watchdog_active=true || true
+    systemctl --user is-active --quiet werewolf-b-maintenance.timer && maintenance_active=true || true
+
+    jq -n \
+      --arg timestamp "$(date -Iseconds)" \
+      --argjson ready "$(json_or_empty "$0" ready --json)" \
+      --argjson doctor "$(json_or_empty "$0" doctor --json)" \
+      --argjson scores "$(json_or_empty "$0" score-json)" \
+      --argjson health "$(json_or_empty "$0" transport-health-json)" \
+      --argjson benchmark "$(json_or_empty "$0" benchmark --json)" \
+      --argjson watchdog_active "$watchdog_active" \
+      --argjson maintenance_active "$maintenance_active" \
+      '{
+        timestamp: $timestamp,
+        ready: $ready,
+        doctor: $doctor,
+        scores: $scores,
+        health: $health,
+        benchmark: $benchmark,
+        timers: {
+          watchdog_active: $watchdog_active,
+          maintenance_active: $maintenance_active
+        }
+      }'
+    exit 0
+  fi
+
+  echo "🐺 Werewolf Full Status"
+  echo "======================"
+  echo
+
+  echo "🧠 Ready"
+  "$0" ready --json | jq '.ready, .selected' || true
+
+  echo
+  echo "📊 Scores"
+  "$0" score || true
+
+  echo
+  echo "📜 Policies"
+  "$0" policy-test || true
+
+  echo
+  echo "🩺 Doctor"
+  "$0" doctor || true
+
+  echo
+  echo "🛡 Watchdog"
+  systemctl --user is-active --quiet werewolf-b-watchdog.timer \
+    && echo "watchdog timer: active ✅" \
+    || echo "watchdog timer: inactive ❌"
+
+  echo
+  echo "🧹 Maintenance"
+  systemctl --user is-active --quiet werewolf-b-maintenance.timer \
+    && echo "maintenance timer: active ✅" \
+    || echo "maintenance timer: inactive ❌"
+
+  echo
+  echo "✅ status-full complete"
+  exit 0
+fi
+
+if [[ "${1:-}" == "maintenance-status" ]]; then
+  echo "🐺 Werewolf B Maintenance Status"
+  echo "==============================="
+  echo
+
+  systemctl --user status werewolf-b-maintenance.timer --no-pager || true
+  echo
+  systemctl --user status werewolf-b-maintenance.service --no-pager || true
+  echo
+  journalctl --user -u werewolf-b-maintenance.service -n 40 --no-pager || true
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "export-prune" ]]; then
+  keep="${2:-30}"
+  export_dir="${WEREWOLF_EXPORT_DIR:-$HOME/.cache/werewolf/exports}"
+
+  mkdir -p "$export_dir"
+
+  echo "🐺 Werewolf Export Prune"
+  echo "======================="
+  echo "keeping newest: $keep"
+  echo
+
+  mapfile -t old_files < <(ls -1t "$export_dir"/wolf-b-status-*.json 2>/dev/null | tail -n +$((keep + 1)))
+
+  if [[ "${#old_files[@]}" == "0" ]]; then
+    echo "✅ nothing to prune"
+    exit 0
+  fi
+
+  for f in "${old_files[@]}"; do
+    echo "🗑 removing $(basename "$f")"
+    rm -f "$f"
+  done
+
+  echo
+  echo "✅ pruned ${#old_files[@]} export(s)"
+  exit 0
+fi
+
+if [[ "${1:-}" == "export-status" ]]; then
+  policy="${2:-secure}"
+  out="${3:-}"
+
+  if [[ -z "$out" ]]; then
+    mkdir -p ~/.cache/werewolf/exports
+    out="$HOME/.cache/werewolf/exports/wolf-b-status-$(date +%Y%m%d_%H%M%S).json"
+  fi
+
+  "$0" status-json "$policy" > "$out"
+
+  echo "✅ status exported: $out"
+  jq . "$out"
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "status-plus" ]]; then
+  policy="${2:-secure}"
+
+  data="$("$0" status-json "$policy")"
+
+  echo "🐺 Werewolf Status+"
+  echo "=================="
+  echo
+  echo "policy:   $policy"
+  echo "ready:    $(echo "$data" | jq -r '.ready.ready')"
+  echo "selected: $(echo "$data" | jq -r '.ready.selected.transport')"
+  echo "url:      $(echo "$data" | jq -r '.ready.selected.url')"
+  echo
+
+  echo "🧠 Scores"
+  echo "$data" | jq -r '
+    .ready.scores.transports
+    | to_entries[]
+    | "\(.key): score=\(.value.score) healthy=\(.value.healthy) latency=\(.value.latency_seconds)"
+  '
+
+  echo
+  echo "💾 Cache"
+  echo "scores:    $(echo "$data" | jq -r '.cache.scores.entries') entries"
+  echo "snapshots: $(echo "$data" | jq -r '.cache.snapshots.count')"
+  echo "reports:   $(echo "$data" | jq -r '.cache.reports.count')"
+
+  echo
+  echo "🧪 Policies"
+  echo "$data" | jq -r '
+    .policy_test[]
+    | "\(.policy): \(.transport) healthy=\(.healthy)"
+  '
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "status-json" ]]; then
+  policy="${2:-secure}"
+
+  jq -n \
+    --arg timestamp "$(date -Iseconds)" \
+    --arg policy "$policy" \
+    --argjson ready "$("$0" ready --policy "$policy" --json)" \
+    --argjson cache "$("$0" cache-status --json)" \
+    --argjson policy_test "$("$0" policy-test | awk '
+      BEGIN { print "["; first=1 }
+      /^[a-z]/ {
+        gsub("->", "", $0)
+        policy=$1
+        transport=$2
+        healthy=$3
+        url=$4
+        gsub("healthy=", "", healthy)
+        gsub("url=", "", url)
+        if (!first) print ","
+        first=0
+        printf("{\"policy\":\"%s\",\"transport\":\"%s\",\"healthy\":%s,\"url\":\"%s\"}", policy, transport, healthy, url)
+      }
+      END { print "]" }
+    ')" \
+    '{
+      timestamp: $timestamp,
+      policy: $policy,
+      ready: $ready,
+      cache: $cache,
+      policy_test: $policy_test
+    }'
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "cache-prune" ]]; then
+  snapshot_keep="${WEREWOLF_SNAPSHOT_KEEP:-20}"
+  score_keep="${WEREWOLF_SCORE_KEEP:-500}"
+  report_keep="${WEREWOLF_REPORT_KEEP:-30}"
+  export_keep="${WEREWOLF_EXPORT_KEEP:-30}"
+
+  echo "🐺 Werewolf Cache Prune"
+  echo "======================"
+  echo
+
+  "$0" snapshot-prune "$snapshot_keep"
+  echo
+  "$0" score-prune "$score_keep"
+  echo
+  "$0" report-prune "$report_keep"
+  echo
+  "$0" export-prune "$export_keep"
+  echo
+  "$0" cache-status
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "cache-status" ]]; then
+  json_mode=0
+  if [[ "${2:-}" == "--json" ]]; then
+    json_mode=1
+  fi
+
+  score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+  snapshot_dir="${WEREWOLF_SNAPSHOT_DIR:-$HOME/.cache/werewolf/snapshots}"
+  report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+
+  score_entries=0
+  score_size="0"
+  [[ -f "$score_file" ]] && score_entries="$(wc -l < "$score_file")" && score_size="$(du -b "$score_file" | awk '{print $1}')"
+
+  snapshot_count="$(find "$snapshot_dir" -maxdepth 1 -name 'wolf-b-*.json' 2>/dev/null | wc -l)"
+  snapshot_size="$(du -sb "$snapshot_dir" 2>/dev/null | awk '{print $1}' || echo 0)"
+
+  report_count="$(find "$report_dir" -maxdepth 1 -name 'maintenance-*.json' 2>/dev/null | wc -l)"
+  report_size="$(du -sb "$report_dir" 2>/dev/null | awk '{print $1}' || echo 0)"
+
+  if [[ "$json_mode" == "1" ]]; then
+    jq -n \
+      --arg score_file "$score_file" \
+      --arg snapshot_dir "$snapshot_dir" \
+      --arg report_dir "$report_dir" \
+      --argjson score_entries "$score_entries" \
+      --argjson score_size "$score_size" \
+      --argjson snapshot_count "$snapshot_count" \
+      --argjson snapshot_size "$snapshot_size" \
+      --argjson report_count "$report_count" \
+      --argjson report_size "$report_size" \
+      '{
+        scores: { file: $score_file, entries: $score_entries, size_bytes: $score_size },
+        snapshots: { dir: $snapshot_dir, count: $snapshot_count, size_bytes: $snapshot_size },
+        reports: { dir: $report_dir, count: $report_count, size_bytes: $report_size }
+      }'
+    exit 0
+  fi
+
+  echo "🐺 Werewolf Cache Status"
+  echo "======================="
+  echo
+
+  if [[ -f "$score_file" ]]; then
+    echo "scores:"
+    echo "  file:    $score_file"
+    echo "  entries: $(wc -l < "$score_file")"
+    echo "  size:    $(du -h "$score_file" | awk '{print $1}')"
+  else
+    echo "scores: none"
+  fi
+
+  echo
+  echo "snapshots:"
+  echo "  dir:     $snapshot_dir"
+  echo "  count:   $(find "$snapshot_dir" -maxdepth 1 -name 'wolf-b-*.json' 2>/dev/null | wc -l)"
+  echo "  size:    $(du -sh "$snapshot_dir" 2>/dev/null | awk '{print $1}' || echo 0)"
+
+  echo
+  echo "reports:"
+  echo "  dir:     $report_dir"
+  echo "  count:   $(find "$report_dir" -maxdepth 1 -name 'maintenance-*.json' 2>/dev/null | wc -l)"
+  echo "  size:    $(du -sh "$report_dir" 2>/dev/null | awk '{print $1}' || echo 0)"
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "report-alert" ]]; then
+  diff_json="$("$0" report-diff | sed -n '/^{/,$p')"
+
+  failures=0
+
+  old_status="$(echo "$diff_json" | jq -r '.status.old')"
+  new_status="$(echo "$diff_json" | jq -r '.status.new')"
+  old_failures="$(echo "$diff_json" | jq -r '.doctor_failures.old')"
+  new_failures="$(echo "$diff_json" | jq -r '.doctor_failures.new')"
+  old_transport="$(echo "$diff_json" | jq -r '.selected_transport.old')"
+  new_transport="$(echo "$diff_json" | jq -r '.selected_transport.new')"
+
+  echo "🐺 Werewolf Report Alert"
+  echo "======================="
+  echo
+
+  if [[ "$old_status" == "passed" && "$new_status" != "passed" ]]; then
+    echo "❌ gate status degraded: $old_status -> $new_status"
+    failures=$((failures + 1))
+  else
+    echo "✅ gate status: $old_status -> $new_status"
+  fi
+
+  if [[ "$new_failures" -gt "$old_failures" ]]; then
+    echo "❌ doctor failures increased: $old_failures -> $new_failures"
+    failures=$((failures + 1))
+  else
+    echo "✅ doctor failures: $old_failures -> $new_failures"
+  fi
+
+  if [[ "$old_transport" != "$new_transport" ]]; then
+    echo "⚠ selected transport changed: $old_transport -> $new_transport"
+  else
+    echo "✅ selected transport stable: $new_transport"
+  fi
+
+  echo
+  if [[ "$failures" == "0" ]]; then
+    echo "🎉 no report regression"
+    exit 0
+  else
+    echo "⚠ report regression detected"
+    exit 1
+  fi
+fi
+
+if [[ "${1:-}" == "report-diff" ]]; then
+  report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+
+  latest="$(ls -1t "$report_dir"/*.json 2>/dev/null | sed -n '1p')"
+  previous="$(ls -1t "$report_dir"/*.json 2>/dev/null | sed -n '2p')"
+
+  if [[ -z "${latest:-}" || -z "${previous:-}" ]]; then
+    echo "❌ need at least two reports"
+    exit 1
+  fi
+
+  echo "🐺 Werewolf Report Diff"
+  echo "======================"
+  echo "latest:   $(basename "$latest")"
+  echo "previous: $(basename "$previous")"
+  echo
+
+  jq -n \
+    --slurpfile old "$previous" \
+    --slurpfile new "$latest" \
+    '{
+      status: {
+        old: ($old[0].status // "unknown"),
+        new: ($new[0].status // "unknown")
+      },
+      selected_transport: {
+        old: ($old[0].ready.selected.transport // $old[0].wolf_status.ready.selected.transport // "unknown"),
+        new: ($new[0].ready.selected.transport // $new[0].wolf_status.ready.selected.transport // "unknown")
+      },
+      doctor_failures: {
+        old: ($old[0].doctor.failures // 0),
+        new: ($new[0].doctor.failures // 0)
+      }
+    }' | jq .
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "report-show" ]]; then
+  target="${2:-latest}"
+  report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+
+  if [[ "$target" == "latest" ]]; then
+    file="$(ls -1t "$report_dir"/*.json 2>/dev/null | head -n 1)"
+  else
+    file="$target"
+  fi
+
+  if [[ -z "${file:-}" || ! -f "$file" ]]; then
+    echo "❌ report not found"
+    exit 1
+  fi
+
+  echo "🐺 Werewolf Report"
+  echo "================="
+  echo "file: $file"
+  echo
+
+  jq . "$file"
+  exit 0
+fi
+
+if [[ "${1:-}" == "report-list" ]]; then
+  limit="${2:-10}"
+  report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+
+  echo "🐺 Werewolf Reports"
+  echo "=================="
+  echo
+
+  ls -1t "$report_dir"/*.json 2>/dev/null | head -n "$limit" | while read -r f; do
+    status="$(jq -r '.status // .doctor.healthy // "unknown"' "$f" 2>/dev/null || echo unknown)"
+    gate="$(jq -r '.gate // "maintenance"' "$f" 2>/dev/null || echo maintenance)"
+    ts="$(jq -r '.timestamp // "unknown"' "$f" 2>/dev/null || echo unknown)"
+    echo "$(basename "$f") | gate=$gate | status=$status | ts=$ts"
+  done
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "report-prune" ]]; then
+  keep="${2:-30}"
+  report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+
+  mkdir -p "$report_dir"
+
+  echo "🐺 Werewolf Report Prune"
+  echo "======================="
+  echo "keeping newest: $keep"
+  echo
+
+  mapfile -t old_files < <(ls -1t "$report_dir"/maintenance-*.json 2>/dev/null | tail -n +$((keep + 1)))
+
+  if [[ "${#old_files[@]}" == "0" ]]; then
+    echo "✅ nothing to prune"
+    exit 0
+  fi
+
+  for f in "${old_files[@]}"; do
+    echo "🗑 removing $(basename "$f")"
+    rm -f "$f"
+  done
+
+  echo
+  echo "✅ pruned ${#old_files[@]} report(s)"
+  exit 0
+fi
+
+if [[ "${1:-}" == "maintenance-report" ]]; then
+  report_dir="${WEREWOLF_REPORT_DIR:-$HOME/.cache/werewolf/reports}"
+  mkdir -p "$report_dir"
+
+  ts="$(date +%Y%m%d_%H%M%S)"
+  report="$report_dir/maintenance-${ts}.json"
+
+  echo "🐺 Generating maintenance report..."
+
+  jq -n \
+    --arg timestamp "$(date -Iseconds)" \
+    --argjson doctor "$("$0" doctor --json)" \
+    --argjson ready "$("$0" ready --json)" \
+    --argjson benchmark "$("$0" benchmark --json)" \
+    --argjson scores "$("$0" score-json)" \
+    --argjson history "$("$0" transport-health-json)" \
+    '{
+      timestamp: $timestamp,
+      doctor: $doctor,
+      ready: $ready,
+      benchmark: $benchmark,
+      scores: $scores,
+      transport_health: $history
+    }' > "$report"
+
+  echo "✅ report saved: $report"
+  jq . "$report"
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "maintenance" ]]; then
+  echo "🐺 Werewolf Maintenance"
+  echo "======================"
+  echo
+
+  echo "1) cleanup"
+  "$0" cleanup
+
+  echo
+  echo "2) save score"
+  "$0" score-save
+
+  echo
+  echo "3) snapshot"
+  "$0" snapshot >/tmp/werewolf-maintenance-snapshot.txt
+  cat /tmp/werewolf-maintenance-snapshot.txt | head -n 1
+
+  echo
+  echo "4) drift alert"
+  "$0" snapshot-alert 20 || true
+
+  echo
+  echo "5) doctor"
+  "$0" doctor
+
+  echo
+  echo "✅ maintenance complete"
+  exit 0
+fi
+
+if [[ "${1:-}" == "cleanup" ]]; then
+  keep_snapshots="${WEREWOLF_KEEP_SNAPSHOTS:-50}"
+  keep_scores="${WEREWOLF_KEEP_SCORE_SAMPLES:-500}"
+
+  snapshot_dir="${WEREWOLF_SNAPSHOT_DIR:-$HOME/.cache/werewolf/snapshots}"
+  score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+
+  echo "🐺 Werewolf Cleanup"
+  echo "=================="
+  echo
+  echo "keep snapshots: $keep_snapshots"
+  echo "keep scores:    $keep_scores"
+  echo
+
+  mkdir -p "$snapshot_dir"
+
+  if ls "$snapshot_dir"/wolf-b-*.json >/dev/null 2>&1; then
+    ls -1t "$snapshot_dir"/wolf-b-*.json | tail -n +"$((keep_snapshots + 1))" | while read -r old; do
+      echo "removing snapshot: $(basename "$old")"
+      rm -f "$old"
+    done
+  fi
+
+  if [[ -f "$score_file" ]]; then
+    tmp="${score_file}.tmp"
+    tail -n "$keep_scores" "$score_file" > "$tmp"
+    mv "$tmp" "$score_file"
+    echo "score samples kept: $(wc -l < "$score_file")"
+  else
+    echo "score file: missing"
+  fi
+
+  echo
+  echo "cache size:"
+  du -sh "${HOME}/.cache/werewolf" 2>/dev/null || true
+
+  echo
+  echo "✅ cleanup complete"
+  exit 0
+fi
+
+if [[ "${1:-}" == "snapshot-prune" ]]; then
+  keep="${2:-20}"
+  snapshot_dir="${WEREWOLF_SNAPSHOT_DIR:-$HOME/.cache/werewolf/snapshots}"
+
+  mkdir -p "$snapshot_dir"
+
+  echo "🐺 Werewolf Snapshot Prune"
+  echo "========================="
+  echo "keeping newest: $keep"
+  echo
+
+  mapfile -t old_files < <(ls -1t "$snapshot_dir"/wolf-b-*.json 2>/dev/null | tail -n +$((keep + 1)))
+
+  if [[ "${#old_files[@]}" == "0" ]]; then
+    echo "✅ nothing to prune"
+    exit 0
+  fi
+
+  for f in "${old_files[@]}"; do
+    echo "🗑 removing $(basename "$f")"
+    rm -f "$f"
+  done
+
+  echo
+  echo "✅ pruned ${#old_files[@]} snapshot(s)"
+  exit 0
+fi
+
+if [[ "${1:-}" == "snapshot-alert" ]]; then
+  threshold_ms="${2:-20}"
+
+  diff_json="$("$0" snapshot-diff | sed -n '/^{/,$p')"
+
+  failures=0
+
+  check_delta() {
+    local name="$1"
+    local jq_path="$2"
+    local delta
+
+    delta="$(echo "$diff_json" | jq -r "$jq_path")"
+
+    if awk "BEGIN {exit !($delta > $threshold_ms)}"; then
+      echo "⚠ $name latency increased by ${delta}ms > ${threshold_ms}ms"
+      failures=$((failures + 1))
+    else
+      echo "✅ $name latency delta ${delta}ms"
+    fi
+  }
+
+  echo "🐺 Werewolf Snapshot Alert"
+  echo "========================="
+  echo "threshold: ${threshold_ms}ms"
+  echo
+
+  check_delta "QUIC" '.quic.latency_delta_ms'
+  check_delta "TCP encrypted v2" '.tcp_encrypted_v2.latency_delta_ms'
+  check_delta "TCP plain" '.tcp_plain.latency_delta_ms'
+
+  echo
+  if [[ "$failures" == "0" ]]; then
+    echo "🎉 no concerning drift"
+    exit 0
+  else
+    echo "⚠ drift alerts: $failures"
+    exit 1
+  fi
+fi
+
+if [[ "${1:-}" == "snapshot-diff" ]]; then
+  snapshot_dir="${WEREWOLF_SNAPSHOT_DIR:-$HOME/.cache/werewolf/snapshots}"
+
+  latest="$(ls -1t "$snapshot_dir"/wolf-b-*.json 2>/dev/null | sed -n '1p')"
+  previous="$(ls -1t "$snapshot_dir"/wolf-b-*.json 2>/dev/null | sed -n '2p')"
+
+  if [[ -z "$latest" || -z "$previous" ]]; then
+    echo "❌ need at least two snapshots"
+    exit 1
+  fi
+
+  echo "🐺 Werewolf Snapshot Diff"
+  echo "========================"
+  echo
+  echo "latest:   $(basename "$latest")"
+  echo "previous: $(basename "$previous")"
+  echo
+
+  jq -n \
+    --slurpfile old "$previous" \
+    --slurpfile new "$latest" \
+    '{
+      quic: {
+        latency_delta_ms:
+          (
+            (($new[0].benchmark.transports.quic.latency_seconds // 0)
+            -
+            ($old[0].benchmark.transports.quic.latency_seconds // 0))
+            * 1000
+          ),
+        score_delta:
+          (
+            ($new[0].scores.transports.quic.score // 0)
+            -
+            ($old[0].scores.transports.quic.score // 0)
+          )
+      },
+      tcp_encrypted_v2: {
+        latency_delta_ms:
+          (
+            (($new[0].benchmark.transports["tcp-encrypted-v2"].latency_seconds // 0)
+            -
+            ($old[0].benchmark.transports["tcp-encrypted-v2"].latency_seconds // 0))
+            * 1000
+          ),
+        score_delta:
+          (
+            ($new[0].scores.transports["tcp-encrypted-v2"].score // 0)
+            -
+            ($old[0].scores.transports["tcp-encrypted-v2"].score // 0)
+          )
+      },
+      tcp_plain: {
+        latency_delta_ms:
+          (
+            (($new[0].benchmark.transports["tcp-plain"].latency_seconds // 0)
+            -
+            ($old[0].benchmark.transports["tcp-plain"].latency_seconds // 0))
+            * 1000
+          ),
+        score_delta:
+          (
+            ($new[0].scores.transports["tcp-plain"].score // 0)
+            -
+            ($old[0].scores.transports["tcp-plain"].score // 0)
+          )
+      }
+    }' | jq .
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "snapshot" ]]; then
+  mkdir -p ~/.cache/werewolf/snapshots
+  ts="$(date +%Y%m%d_%H%M%S)"
+  out="${WEREWOLF_SNAPSHOT_FILE:-$HOME/.cache/werewolf/snapshots/wolf-b-${ts}.json}"
+
+  "$0" heal --quiet || true
+  "$0" score-save >/dev/null 2>&1 || true
+
+  jq -n \
+    --arg timestamp "$(date -Iseconds)" \
+    --argjson ready "$("$0" ready --json)" \
+    --argjson health "$("$0" transport-health-json)" \
+    --argjson benchmark "$("$0" benchmark --json)" \
+    --argjson scores "$("$0" score-json)" \
+    --argjson doctor "$("$0" doctor --json)" \
+    '{
+      timestamp: $timestamp,
+      ready: $ready,
+      health: $health,
+      benchmark: $benchmark,
+      scores: $scores,
+      doctor: $doctor
+    }' > "$out"
+
+  echo "✅ snapshot saved: $out"
+  jq . "$out"
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "ready" ]]; then
+  json_mode=0
+  policy="secure"
+
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json)
+        json_mode=1
+        ;;
+      --policy)
+        shift || true
+        policy="${1:-secure}"
+        ;;
+      --policy=*)
+        policy="${1#--policy=}"
+        ;;
+      *)
+        policy="$1"
+        ;;
+    esac
+    shift || true
+  done
+
+  "$0" heal --quiet || true
+
+  if [[ "$json_mode" == "1" ]]; then
+    doctor="$("$0" doctor --json)"
+    selected="$("$0" auto --policy "$policy" --json)"
+    scores="$("$0" score-json)"
+
+    jq -n       --arg policy "$policy"       --argjson doctor "$doctor"       --argjson selected "$selected"       --argjson scores "$scores"       '{
+        ready: ($doctor.healthy == true and $selected.healthy == true),
+        policy: $policy,
+        doctor: $doctor,
+        selected: $selected,
+        scores: $scores
+      }'
+    exit 0
+  fi
+
+  echo "🐺 Werewolf Ready Check"
+  echo "======================"
+  echo "policy: $policy"
+  echo
+
+  "$0" doctor --json | jq .
+  echo
+
+  "$0" policy-explain "$policy"
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "doctor-fix" ]]; then
+  echo "🐺 Werewolf Doctor Fix"
+  echo "====================="
+  echo
+
+  echo "🔧 running heal..."
+  "$0" heal || true
+
+  echo
+  echo "🩺 re-running doctor..."
+  "$0" doctor
+
+  exit $?
+fi
+
+if [[ "${1:-}" == "selftest" ]]; then
+  json_mode=0
+  if [[ "${2:-}" == "--json" ]]; then
+    json_mode=1
+  fi
+
+  "$0" heal --quiet || true
+
+  doctor_json="$("$0" doctor --json)"
+  ready_json="$("$0" ready --json)"
+  policy_json="$("$0" status-json | jq '.policy_test')"
+
+  if [[ "$json_mode" == "1" ]]; then
+    jq -n \
+      --argjson doctor "$doctor_json" \
+      --argjson ready "$ready_json" \
+      --argjson policy_test "$policy_json" \
+      '{
+        ok: ($doctor.healthy == true and $ready.ready == true),
+        doctor: $doctor,
+        ready: $ready,
+        policy_test: $policy_test
+      }'
+    exit 0
+  fi
+
+  echo "🐺 Werewolf Selftest"
+  echo "==================="
+  echo
+
+  echo "$doctor_json" | jq .
+  echo
+  "$0" policy-test
+  echo
+  "$0" snapshot-alert 20 || true
+  echo
+  echo "$ready_json" | jq -e '.ready == true' >/dev/null \
+    && echo "✅ ready json true" \
+    || { echo "❌ ready json failed"; exit 1; }
+
+  echo
+  echo "🎉 selftest passed"
+  exit 0
+fi
+
+if [[ "${1:-}" == "doctor" ]]; then
+  json_mode=0
+  if [[ "${2:-}" == "--json" ]]; then
+    json_mode=1
+  fi
+
+  if [[ "$json_mode" == "0" ]]; then
+    echo "🐺 Werewolf Doctor"
+    echo "================="
+    echo
+  fi
+
+  failures=0
+  results="[]"
+
+  check_cmd() {
+    local label="$1"
+    shift
+
+    if "$@" >/tmp/werewolf-doctor-check.out 2>/tmp/werewolf-doctor-check.err; then
+      [[ "$json_mode" == "0" ]] && echo "✅ $label"
+      results="$(echo "$results" | jq -c --arg label "$label" '. + [{label:$label, ok:true}]')"
+    else
+      [[ "$json_mode" == "0" ]] && echo "❌ $label"
+      [[ "$json_mode" == "0" ]] && cat /tmp/werewolf-doctor-check.err || true
+      err="$(cat /tmp/werewolf-doctor-check.err 2>/dev/null || true)"
+      results="$(echo "$results" | jq -c --arg label "$label" --arg err "$err" '. + [{label:$label, ok:false, error:$err}]')"
+      failures=$((failures + 1))
+    fi
+  }
+
+  check_cmd "wolf-b daemon reachable" bash -lc 'systemctl --user is-active --quiet werewolf-b.service || test -S /tmp/wolf-b.sock'
+  check_cmd "wolf-a daemon reachable" bash -lc 'systemctl --user is-active --quiet werewolf-a.service || test -S /tmp/wolf-a.sock'
+  check_cmd "wolf-b socket exists" test -S /tmp/wolf-b.sock
+  check_cmd "wolf-a socket exists" test -S /tmp/wolf-a.sock
+
+  check_cmd "transport health json valid" bash -lc "$0 transport-health-json | jq -e '.transports' >/dev/null"
+  check_cmd "benchmark json valid" bash -lc "$0 benchmark --json | jq -e '.transports' >/dev/null"
+  check_cmd "score json valid" bash -lc "$0 score-json | jq -e '.transports' >/dev/null"
+  check_cmd "auto secure valid" bash -lc "$0 auto --policy secure --json | jq -e '.healthy == true' >/dev/null"
+  check_cmd "auto resilience valid" bash -lc "$0 auto --policy resilience --json | jq -e '.healthy == true' >/dev/null"
+  check_cmd "score history readable" bash -lc "test ! -f ~/.cache/werewolf/wolf-b-scores.jsonl || tail -n 5 ~/.cache/werewolf/wolf-b-scores.jsonl | jq -e . >/dev/null"
+  check_cmd "snapshot directory writable" bash -lc "mkdir -p ~/.cache/werewolf/snapshots && test -w ~/.cache/werewolf/snapshots"
+
+  if [[ "$json_mode" == "1" ]]; then
+    jq -n --argjson checks "$results" --argjson failures "$failures"       '{healthy:($failures == 0), failures:$failures, checks:$checks}'
+  else
+    echo
+    "$0" policy-test
+
+    echo
+    if [[ "$failures" == "0" ]]; then
+      echo "🎉 Doctor result: healthy"
+    else
+      echo "⚠ Doctor result: $failures failure(s)"
+    fi
+  fi
+
+  [[ "$failures" == "0" ]]
+  exit $?
+fi
+
+if [[ "${1:-}" == "policy-explain" ]]; then
+  policy="${2:-secure}"
+
+  echo "🐺 Werewolf Policy Explain"
+  echo "========================="
+  echo
+  echo "policy: $policy"
+  echo
+
+  echo "📊 Current scores"
+  "$0" score --no-decision
+
+  echo
+  echo "🧠 Decision"
+  "$0" auto --policy "$policy" --json | jq .
+
+  echo
+  echo "📜 Policy meaning"
+  case "$policy" in
+    secure)
+      echo "secure: prefer QUIC, then TCP encrypted v2, then TCP plain."
+      ;;
+    performance)
+      echo "performance: choose the currently lowest-latency healthy transport."
+      ;;
+    stealth)
+      echo "stealth: prefer TCP encrypted v2, then TCP plain, then QUIC."
+      ;;
+    resilience)
+      echo "resilience: choose the currently highest-scoring healthy transport."
+      ;;
+    learned)
+      echo "learned: choose the historically highest average score, if currently healthy."
+      ;;
+    recent)
+      echo "recent: choose the highest average score from recent score samples."
+      ;;
+    *)
+      echo "unknown policy."
+      exit 2
+      ;;
+  esac
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "policy-test" ]]; then
+  echo "🐺 Werewolf Policy Test"
+  echo "======================"
+  echo
+
+  for policy in secure performance stealth resilience learned recent; do
+    result="$("$0" auto --policy "$policy" --json || true)"
+    transport="$(echo "$result" | jq -r '.transport // "error"')"
+    healthy="$(echo "$result" | jq -r '.healthy // false')"
+    url="$(echo "$result" | jq -r '.url // "-"')"
+
+    printf "%-12s -> %-18s healthy=%-5s url=%s\n" "$policy" "$transport" "$healthy" "$url"
+  done
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "score-prune" ]]; then
+  keep="${2:-500}"
+  score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+
+  if [[ ! -f "$score_file" ]]; then
+    echo "✅ no score history to prune"
+    exit 0
+  fi
+
+  tmp="${score_file}.tmp"
+  total="$(wc -l < "$score_file")"
+
+  if [[ "$total" -le "$keep" ]]; then
+    echo "✅ score history has $total entries; nothing to prune"
+    exit 0
+  fi
+
+  tail -n "$keep" "$score_file" > "$tmp"
+  mv "$tmp" "$score_file"
+
+  echo "✅ pruned score history: kept $keep of $total entries"
+  exit 0
+fi
+
+if [[ "${1:-}" == "score-history" ]]; then
+  score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+
+  if [[ ! -f "$score_file" ]]; then
+    echo "❌ no score history found"
+    exit 1
+  fi
+
+  echo "🐺 Werewolf Transport Trends"
+  echo "============================"
+  echo
+
+  analyze_transport() {
+    local transport="$1"
+
+    avg_latency="$(jq -s --arg t "$transport" '
+      map(.transports[$t].latency_seconds // empty)
+      | if length == 0 then null else (add / length) end
+    ' "$score_file")"
+
+    avg_score="$(jq -s --arg t "$transport" '
+      map(.transports[$t].score // empty)
+      | if length == 0 then null else (add / length) end
+    ' "$score_file")"
+
+    healthy_pct="$(jq -s --arg t "$transport" '
+      map(.transports[$t].healthy)
+      | if length == 0 then 0
+        else ((map(select(. == true)) | length) / length * 100)
+      end
+    ' "$score_file")"
+
+    echo "$transport"
+    if [[ "$avg_latency" == "null" || -z "$avg_latency" ]]; then
+      avg_latency_ms="0"
+    else
+      avg_latency_ms="$(awk "BEGIN {print $avg_latency * 1000}")"
+    fi
+
+    printf "  avg latency:   %.2f ms\n" "$avg_latency_ms"
+    printf "  avg score:     %.2f\n" "$(echo "$avg_score" | awk '{print $1+0}')"
+    printf "  healthy:       %.1f%%\n" "$(echo "$healthy_pct" | awk '{print $1+0}')"
+    echo
+  }
+
+  analyze_transport quic
+  analyze_transport tcp-encrypted-v2
+  analyze_transport tcp-plain
+
+  echo "recommended:"
+  "$0" auto --policy resilience --json | jq -r '
+    "  " + .label
+  '
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "score-save" ]]; then
+  mkdir -p ~/.cache/werewolf
+  score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+
+  "$0" score-json | jq -c --arg ts "$(date -Iseconds)" '. + {timestamp: $ts}' >> "$score_file"
+
+  echo "✅ score saved: $score_file"
+  tail -n 1 "$score_file" | jq .
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "score" ]]; then
+  no_decision=0
+  if [[ "${2:-}" == "--no-decision" ]]; then
+    no_decision=1
+  fi
+
+  echo "🐺 Werewolf Transport Scores"
+  echo "==========================="
+  echo
+
+  data="$("$0" score-json)"
+
+  for t in quic tcp-encrypted-v2 tcp-plain; do
+    healthy="$(echo "$data" | jq -r ".transports[\"$t\"].healthy")"
+    latency="$(echo "$data" | jq -r ".transports[\"$t\"].latency_seconds")"
+    score="$(echo "$data" | jq -r ".transports[\"$t\"].score")"
+
+    printf "%-18s healthy=%-5s latency=%-10s score=%s\n" "$t" "$healthy" "$latency" "$score"
+  done
+
+  if [[ "$no_decision" == "0" ]]; then
+    echo
+    "$0" auto --policy resilience --json | jq .
+  fi
+
+  exit 0
+fi
+
+if [[ "${1:-}" == "score-json" ]]; then
+  health="$("$0" transport-health-json)"
+  bench="$("$0" benchmark --json)"
+
+  jq -n \
+    --argjson health "$health" \
+    --argjson bench "$bench" \
+    '{
+      transports: {
+        quic: {
+          healthy: $health.transports.quic.healthy,
+          latency_seconds: $bench.transports.quic.latency_seconds,
+          score: (
+            if $health.transports.quic.healthy == true then
+              100 - (($bench.transports.quic.latency_seconds // 1) * 1000)
+            else 0 end
+          )
+        },
+        "tcp-encrypted-v2": {
+          healthy: $health.transports["tcp-encrypted-v2"].healthy,
+          latency_seconds: $bench.transports["tcp-encrypted-v2"].latency_seconds,
+          score: (
+            if $health.transports["tcp-encrypted-v2"].healthy == true then
+              90 - (($bench.transports["tcp-encrypted-v2"].latency_seconds // 1) * 1000)
+            else 0 end
+          )
+        },
+        "tcp-plain": {
+          healthy: $health.transports["tcp-plain"].healthy,
+          latency_seconds: $bench.transports["tcp-plain"].latency_seconds,
+          score: (
+            if $health.transports["tcp-plain"].healthy == true then
+              70 - (($bench.transports["tcp-plain"].latency_seconds // 1) * 1000)
+            else 0 end
+          )
+        }
+      }
+    }'
+
+  exit 0
+fi
+
 if [[ "${1:-}" == "auto" ]]; then
   json_mode=0
   policy="${WEREWOLF_TRANSPORT_POLICY:-secure}"
@@ -163,6 +1314,96 @@ if [[ "${1:-}" == "auto" ]]; then
   }
 
   [[ "$json_mode" == "0" ]] && echo "🐺 Werewolf Auto Transport" && echo "=========================" && echo && echo "policy:    $policy"
+
+  if [[ "$policy" == "recent" ]]; then
+    score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+    sample_count="${WEREWOLF_SCORE_RECENT_SAMPLES:-20}"
+
+    if [[ -f "$score_file" ]]; then
+      best_transport="$(tail -n "$sample_count" "$score_file" | jq -s -r '
+        {
+          quic: (map(.transports.quic.score // empty) | if length == 0 then -999999 else add / length end),
+          "tcp-encrypted-v2": (map(.transports["tcp-encrypted-v2"].score // empty) | if length == 0 then -999999 else add / length end),
+          "tcp-plain": (map(.transports["tcp-plain"].score // empty) | if length == 0 then -999999 else add / length end)
+        }
+        | to_entries
+        | sort_by(.value)
+        | reverse
+        | .[0].key
+      ')"
+
+      case "$best_transport" in
+        quic)
+          is_healthy "$QUIC_URL" && emit_choice "quic" "QUIC 🟢" "$QUIC_URL"
+          ;;
+        tcp-encrypted-v2)
+          is_healthy "$TCP_ENC_URL" && emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL"
+          ;;
+        tcp-plain)
+          is_healthy "$TCP_URL" && emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL"
+          ;;
+      esac
+    fi
+
+    policy="resilience"
+  fi
+
+  if [[ "$policy" == "learned" ]]; then
+    score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
+
+    if [[ -f "$score_file" ]]; then
+      best_transport="$(jq -s -r '
+        {
+          quic: (map(.transports.quic.score // empty) | if length == 0 then -999999 else add / length end),
+          "tcp-encrypted-v2": (map(.transports["tcp-encrypted-v2"].score // empty) | if length == 0 then -999999 else add / length end),
+          "tcp-plain": (map(.transports["tcp-plain"].score // empty) | if length == 0 then -999999 else add / length end)
+        }
+        | to_entries
+        | sort_by(.value)
+        | reverse
+        | .[0].key
+      ' "$score_file")"
+
+      case "$best_transport" in
+        quic)
+          is_healthy "$QUIC_URL" && emit_choice "quic" "QUIC 🟢" "$QUIC_URL"
+          ;;
+        tcp-encrypted-v2)
+          is_healthy "$TCP_ENC_URL" && emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL"
+          ;;
+        tcp-plain)
+          is_healthy "$TCP_URL" && emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL"
+          ;;
+      esac
+    fi
+
+    policy="resilience"
+  fi
+
+  if [[ "$policy" == "resilience" ]]; then
+    data="$("$0" score-json)"
+
+    best_transport=""
+    best_score="-999999"
+
+    for t in quic tcp-encrypted-v2 tcp-plain; do
+      healthy="$(echo "$data" | jq -r ".transports[\"$t\"].healthy")"
+      score="$(echo "$data" | jq -r ".transports[\"$t\"].score")"
+
+      [[ "$healthy" != "true" ]] && continue
+
+      if awk "BEGIN {exit !($score > $best_score)}"; then
+        best_score="$score"
+        best_transport="$t"
+      fi
+    done
+
+    case "$best_transport" in
+      quic) emit_choice "quic" "QUIC 🟢" "$QUIC_URL" ;;
+      tcp-encrypted-v2) emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL" ;;
+      tcp-plain) emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL" ;;
+    esac
+  fi
 
   if [[ "$policy" == "performance" ]]; then
     data="$("$0" benchmark --json)"

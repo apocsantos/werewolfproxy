@@ -10,12 +10,7 @@ use chacha20poly1305::{
 use clap::Parser;
 use rand_core::{OsRng, RngCore};
 use serde_json::json;
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::{Duration, Instant}};
 use tokio::{
     fs,
     io::{self, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
@@ -37,10 +32,6 @@ use werewolf_core::{
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
 const WEREWOLF_VERSION: &str = "v0.1.0-rc1";
-
-const TRANSPORT_QUIC: &str = "quic";
-const TRANSPORT_TCP_ENCRYPTED: &str = "tcp";
-const TRANSPORT_TCP_PLAIN: &str = "tcp-plain";
 
 macro_rules! ww_info {
     ($subsystem:expr, $event:expr, $($arg:tt)*) => {
@@ -121,11 +112,7 @@ async fn main() -> anyhow_free::Result<()> {
             initial_state.pelt = Some(identity);
         }
         Ok(None) => {
-            ww_warn!(
-                "PELT",
-                "MISSING",
-                "🐾 No Pelt found. Run: werewolfctl pelt init"
-            );
+            ww_warn!("PELT", "MISSING", "🐾 No Pelt found. Run: werewolfctl pelt init");
         }
         Err(e) => {
             ww_warn!("PELT", "LOAD_FAILED", "⚠️ Failed to load Pelt: {}", e);
@@ -146,21 +133,11 @@ async fn main() -> anyhow_free::Result<()> {
     let fang_profiles_path = home.join("fangs.json");
     match load_fang_profiles(&fang_profiles_path) {
         Ok(profiles) => {
-            ww_info!(
-                "FANG",
-                "PROFILES_LOADED",
-                "🦷 Loaded {} Fang profiles",
-                profiles.len()
-            );
+            ww_info!("FANG", "PROFILES_LOADED", "🦷 Loaded {} Fang profiles", profiles.len());
             initial_state.fang_profiles = profiles;
         }
         Err(e) => {
-            ww_warn!(
-                "FANG",
-                "PROFILES_LOAD_FAILED",
-                "⚠️ Failed to load Fang profiles: {}",
-                e
-            );
+            ww_warn!("FANG", "PROFILES_LOAD_FAILED", "⚠️ Failed to load Fang profiles: {}", e);
         }
     }
 
@@ -172,12 +149,7 @@ async fn main() -> anyhow_free::Result<()> {
     let active_profiles = load_active_fang_profiles(&active_fangs_path);
 
     if !active_profiles.is_empty() {
-        ww_info!(
-            "FANG",
-            "RESTORE_COUNT",
-            "🦷 Restoring {} active Fang profile(s)",
-            active_profiles.len()
-        );
+        ww_info!("FANG", "RESTORE_COUNT", "🦷 Restoring {} active Fang profile(s)", active_profiles.len());
     }
 
     for profile_name in active_profiles {
@@ -191,12 +163,7 @@ async fn main() -> anyhow_free::Result<()> {
 
         match profile {
             Some(profile) => {
-                ww_info!(
-                    "FANG",
-                    "RESTORE_PROFILE",
-                    "🦷 Restoring active Fang profile: {}",
-                    profile.name
-                );
+                ww_info!("FANG", "RESTORE_PROFILE", "🦷 Restoring active Fang profile: {}", profile.name);
 
                 let response = open_fang_from_parts(
                     "restore".to_string(),
@@ -204,9 +171,8 @@ async fn main() -> anyhow_free::Result<()> {
                     profile.peer,
                     profile.local,
                     profile.remote,
-                    profile.transport,
-                )
-                .await;
+                    profile.transport
+                ).await;
 
                 if !response.ok {
                     eprintln!("⚠️ Failed to restore Fang profile: {}", profile_name);
@@ -238,24 +204,9 @@ async fn main() -> anyhow_free::Result<()> {
     let _ = fs::remove_file(&args.socket).await;
     let listener = UnixListener::bind(&args.socket)?;
 
-    ww_info!(
-        "CONTROL",
-        "SOCKET_READY",
-        "🐺 werewolfd control socket: {}",
-        args.socket
-    );
-    ww_info!(
-        "FANG",
-        "TCP_LISTENER",
-        "🦷 Fang network listener: tcp://{}",
-        args.listen
-    );
-    ww_info!(
-        "QUIC",
-        "LISTENER",
-        "⚡ QUIC Fang listener: quic://{}",
-        args.quic_listen
-    );
+    ww_info!("CONTROL", "SOCKET_READY", "🐺 werewolfd control socket: {}", args.socket);
+    ww_info!("FANG", "TCP_LISTENER", "🦷 Fang network listener: tcp://{}", args.listen);
+    ww_info!("QUIC", "LISTENER", "⚡ QUIC Fang listener: quic://{}", args.quic_listen);
     ww_info!("DEN", "HOME", "🏠 Den home: {}", home.display());
 
     loop {
@@ -270,6 +221,9 @@ async fn main() -> anyhow_free::Result<()> {
         });
     }
 }
+
+
+
 
 fn load_active_fang_profiles(path: &std::path::Path) -> Vec<String> {
     match std::fs::read_to_string(path) {
@@ -298,10 +252,7 @@ fn remember_active_fang_profile(home: &std::path::Path, profile_name: &str) {
     }
 
     if let Err(e) = save_active_fang_profiles(&path, &profiles) {
-        eprintln!(
-            "⚠️ Failed to persist active Fang profile {}: {}",
-            profile_name, e
-        );
+        eprintln!("⚠️ Failed to persist active Fang profile {}: {}", profile_name, e);
     }
 }
 
@@ -316,33 +267,21 @@ fn forget_active_fang_profile(home: &std::path::Path, profile_name: &str) {
     }
 }
 
+
 fn validate_startup_config(state: &DaemonState) {
-    ww_info!(
-        "CONFIG",
-        "VALIDATE_START",
-        "🧪 Validating startup config..."
-    );
+    ww_info!("CONFIG", "VALIDATE_START", "🧪 Validating startup config...");
 
     for peer in &state.peers {
         if !peer.fingerprint.starts_with("wwp1:") {
-            eprintln!(
-                "⚠️ Config warning: peer {} has invalid fingerprint {}",
-                peer.name, peer.fingerprint
-            );
+            eprintln!("⚠️ Config warning: peer {} has invalid fingerprint {}", peer.name, peer.fingerprint);
         }
 
         if !(peer.address.starts_with("tcp://") || peer.address.starts_with("quic://")) {
-            eprintln!(
-                "⚠️ Config warning: peer {} has invalid address {}",
-                peer.name, peer.address
-            );
+            eprintln!("⚠️ Config warning: peer {} has invalid address {}", peer.name, peer.address);
         }
 
         if peer.address.starts_with("quic://") && peer.public_key_b64.is_none() {
-            eprintln!(
-                "⚠️ Config warning: QUIC peer {} has no public_key_b64",
-                peer.name
-            );
+            eprintln!("⚠️ Config warning: QUIC peer {} has no public_key_b64", peer.name);
         }
 
         if let Some(pk) = &peer.public_key_b64 {
@@ -358,10 +297,7 @@ fn validate_startup_config(state: &DaemonState) {
                     }
                 }
                 Err(e) => {
-                    eprintln!(
-                        "⚠️ Config warning: peer {} has invalid public_key_b64: {}",
-                        peer.name, e
-                    );
+                    eprintln!("⚠️ Config warning: peer {} has invalid public_key_b64: {}", peer.name, e);
                 }
             }
         }
@@ -373,51 +309,33 @@ fn validate_startup_config(state: &DaemonState) {
         }
 
         if profile.peer.trim().is_empty() {
-            eprintln!(
-                "⚠️ Config warning: Fang profile {} has empty peer",
-                profile.name
-            );
+            eprintln!("⚠️ Config warning: Fang profile {} has empty peer", profile.name);
         }
 
         if profile.local.parse::<std::net::SocketAddr>().is_err() {
-            eprintln!(
-                "⚠️ Config warning: Fang profile {} has invalid local address {}",
-                profile.name, profile.local
-            );
+            eprintln!("⚠️ Config warning: Fang profile {} has invalid local address {}", profile.name, profile.local);
         }
 
         if profile.remote.parse::<std::net::SocketAddr>().is_err() {
-            eprintln!(
-                "⚠️ Config warning: Fang profile {} has invalid remote address {}",
-                profile.name, profile.remote
-            );
+            eprintln!("⚠️ Config warning: Fang profile {} has invalid remote address {}", profile.name, profile.remote);
         }
 
         if !state.peers.iter().any(|p| p.name == profile.peer) {
-            eprintln!(
-                "⚠️ Config warning: Fang profile {} references unknown peer {}",
-                profile.name, profile.peer
-            );
+            eprintln!("⚠️ Config warning: Fang profile {} references unknown peer {}", profile.name, profile.peer);
         }
     }
 
-    ww_info!(
-        "CONFIG",
-        "VALIDATE_OK",
-        "✅ Startup config validation complete"
-    );
+    ww_info!("CONFIG", "VALIDATE_OK", "✅ Startup config validation complete");
 }
+
 
 async fn run_quic_fang_listener(
     listen_addr: &str,
     state: Arc<Mutex<DaemonState>>,
 ) -> io::Result<()> {
-    let addr: std::net::SocketAddr = listen_addr.parse().map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("bad QUIC listen addr: {}", e),
-        )
-    })?;
+    let addr: std::net::SocketAddr = listen_addr
+        .parse()
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("bad QUIC listen addr: {}", e)))?;
 
     let endpoint = make_server_endpoint(addr)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
@@ -435,10 +353,7 @@ async fn run_quic_fang_listener(
         tokio::spawn(async move {
             match incoming.await {
                 Ok(connection) => {
-                    println!(
-                        "⚡ Native QUIC Fang connection from {}",
-                        connection.remote_address()
-                    );
+                    println!("⚡ Native QUIC Fang connection from {}", connection.remote_address());
 
                     while let Ok((mut send, mut recv)) = connection.accept_bi().await {
                         let state = state.clone();
@@ -474,15 +389,14 @@ async fn run_quic_fang_listener(
 
                         let request_line = String::from_utf8_lossy(&line_buf).trim().to_string();
 
-                        let request_value: serde_json::Value =
-                            match serde_json::from_str(&request_line) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    eprintln!("bad QUIC Fang request JSON: {}", e);
-                                    eprintln!("raw request line: {}", request_line);
-                                    continue;
-                                }
-                            };
+                        let request_value: serde_json::Value = match serde_json::from_str(&request_line) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                eprintln!("bad QUIC Fang request JSON: {}", e);
+                                eprintln!("raw request line: {}", request_line);
+                                continue;
+                            }
+                        };
 
                         if request_value["cmd"].as_str() != Some("fang.quic.open") {
                             eprintln!("bad QUIC Fang request cmd");
@@ -514,10 +428,7 @@ async fn run_quic_fang_listener(
                                 Some(peer) => match &peer.public_key_b64 {
                                     Some(pk) => pk.clone(),
                                     None => {
-                                        eprintln!(
-                                            "❌ QUIC sender has no public key in Pack: {}",
-                                            sender_fp
-                                        );
+                                        eprintln!("❌ QUIC sender has no public key in Pack: {}", sender_fp);
                                         continue;
                                     }
                                 },
@@ -544,8 +455,12 @@ async fn run_quic_fang_listener(
                             }
                         };
 
-                        let signed_payload =
-                            format!("fang.quic.open|{}|{}|{}", sender_fp, nonce, target);
+                        let signed_payload = format!(
+                            "fang.quic.open|{}|{}|{}",
+                            sender_fp,
+                            nonce,
+                            target
+                        );
 
                         if let Err(e) = verify_message(
                             &sender_public_key,
@@ -574,27 +489,40 @@ async fn run_quic_fang_listener(
                         println!("🧠 QUIC nonce accepted");
                         println!("🦷 Native QUIC target request: {}", target);
 
-                        match tokio::net::TcpStream::connect(&target).await {
-                            Ok(mut target_stream) => {
+                        match tokio::time::timeout(
+                            Duration::from_secs(5),
+                            tokio::net::TcpStream::connect(&target),
+                        ).await {
+                            Ok(Ok(mut target_stream)) => {
                                 println!("✅ target connected: {}", target);
 
                                 let (mut target_read, mut target_write) = target_stream.split();
 
-                                let up =
-                                    async { tokio::io::copy(&mut recv, &mut target_write).await };
+                                let up = async {
+                                    tokio::io::copy(&mut recv, &mut target_write).await
+                                };
 
-                                let down =
-                                    async { tokio::io::copy(&mut target_read, &mut send).await };
+                                let down = async {
+                                    tokio::io::copy(&mut target_read, &mut send).await
+                                };
 
                                 let _ = tokio::join!(up, down);
                             }
-                            Err(e) => {
+                            Ok(Err(e)) => {
                                 ww_error!(
                                     "QUIC",
                                     "TARGET_CONNECT_FAILED",
                                     "❌ target connect failed {}: {}",
                                     target,
                                     e
+                                );
+                            }
+                            Err(_) => {
+                                ww_error!(
+                                    "QUIC",
+                                    "TARGET_CONNECT_TIMEOUT",
+                                    "❌ target connect timed out {} after 5s",
+                                    target
                                 );
                             }
                         }
@@ -736,7 +664,12 @@ async fn handle_fang_pipe(stream: TcpStream, state: Arc<Mutex<DaemonState>>) -> 
     let ack_signature = sign_message(&receiver_identity, ack_text.as_bytes())
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-    let remote_stream = TcpStream::connect(remote).await?;
+    let remote_stream = tokio::time::timeout(
+        Duration::from_secs(5),
+        TcpStream::connect(remote),
+    )
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "remote connect timed out"))??;
 
     let ack = json!({
         "ok": true,
@@ -782,6 +715,8 @@ async fn handle_control_client(
     Ok(())
 }
 
+
+
 fn generate_fang_id(peer: &str, local: &str, remote: &str, existing_count: usize) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -793,7 +728,12 @@ fn generate_fang_id(peer: &str, local: &str, remote: &str, existing_count: usize
 
     let seed = format!(
         "{}|{}|{}|{}|{}|{:02x?}",
-        now, existing_count, peer, local, remote, random
+        now,
+        existing_count,
+        peer,
+        local,
+        remote,
+        random
     );
 
     let hash = blake3::hash(seed.as_bytes());
@@ -801,6 +741,7 @@ fn generate_fang_id(peer: &str, local: &str, remote: &str, existing_count: usize
 
     format!("fang_{}", &hex[..16])
 }
+
 
 async fn open_fang_from_parts(
     req_id: String,
@@ -828,11 +769,7 @@ async fn open_fang_from_parts(
         );
     }
 
-    if st
-        .fangs
-        .iter()
-        .any(|f| f.local == local && matches!(f.state, FangState::Active))
-    {
+    if st.fangs.iter().any(|f| f.local == local && matches!(f.state, FangState::Active)) {
         return ControlResponse::err(
             req_id,
             "FANG_ALREADY_ACTIVE",
@@ -853,66 +790,115 @@ async fn open_fang_from_parts(
 
     let identity = match &st.pelt {
         Some(pelt) => pelt.clone(),
-        None => return ControlResponse::err(req_id, "NO_PELT", "No local Pelt identity exists"),
+        None => {
+            return ControlResponse::err(
+                req_id,
+                "NO_PELT",
+                "No local Pelt identity exists",
+            )
+        }
     };
 
-    let peer_addr = match resolve_peer_address_for_transport(&peer_record.address, &transport) {
-        Ok(addr) => addr,
-        Err(e) => return ControlResponse::err(req_id, "FANG_BAD_ADDRESS", e),
+    let peer_addr = match transport.as_str() {
+        "tcp" | "tcp-plain" => match parse_fang_transport(
+            &peer_record.address.replace("quic://", "tcp://")
+        ) {
+            Ok(FangTransport::Tcp(a)) => a,
+            _ => {
+                return ControlResponse::err(
+                    req_id,
+                    "FANG_BAD_TCP_ADDRESS",
+                    "Peer TCP address invalid",
+                )
+            }
+        },
+
+        _ => {
+            match parse_fang_transport(&peer_record.address) {
+                Ok(FangTransport::Quic(a)) => {
+                    let fang_id = generate_fang_id(
+                        &peer,
+                        &local,
+                        &remote,
+                        st.fangs.len()
+                    );
+
+                    let handle = match open_quic_fang(
+                        local.clone(),
+                                                      a.clone(),
+                                                      remote.clone(),
+                                                      identity.clone()
+                    ).await {
+                        Ok(h) => h,
+                        Err(e) => {
+                            return ControlResponse::err(
+                                req_id,
+                                "QUIC_FANG_FAILED",
+                                e.to_string(),
+                            );
+                        }
+                    };
+
+                    let fang = FangRecord {
+                        id: fang_id.clone(),
+                        peer: peer.clone(),
+                        local: local.clone(),
+                        remote: remote.clone(),
+                        state: FangState::Active,
+                    };
+
+                    st.fangs.push(fang);
+                    st.fang_tasks.insert(fang_id.clone(), handle);
+                    st.fang_started.insert(
+                        fang_id.clone(),
+                                           std::time::Instant::now()
+                    );
+
+                    st.status.active_fangs = st.fangs.len();
+                    st.status.mode = WolfMode::Wolf;
+
+                    return ControlResponse::ok(
+                        req_id,
+                        json!({
+                            "fang_id": fang_id,
+                            "peer": peer,
+                            "local": local,
+                            "remote": remote,
+                            "state": "active",
+                            "transport": "quic",
+                            "quic_server": a
+                        }),
+                    );
+                }
+
+                _ => {
+                    return ControlResponse::err(
+                        req_id,
+                        "FANG_BAD_QUIC_ADDRESS",
+                        "Peer QUIC address invalid",
+                    )
+                }
+            }
+        }
     };
 
-    if transport == TRANSPORT_QUIC {
-        let fang_id = generate_fang_id(&peer, &local, &remote, st.fangs.len());
 
-        let handle = match open_quic_fang(
-            local.clone(),
-            peer_addr.clone(),
-            remote.clone(),
-            identity.clone(),
-        )
-        .await
-        {
-            Ok(h) => h,
-            Err(e) => return ControlResponse::err(req_id, "QUIC_FANG_FAILED", e.to_string()),
-        };
+    let fang_id = generate_fang_id(
+                        &peer,
+                        &local,
+                        &remote,
+                        st.fangs.len()
+                    );
 
-        st.fangs.push(FangRecord {
-            id: fang_id.clone(),
-            peer: peer.clone(),
-            local: local.clone(),
-            remote: remote.clone(),
-            state: FangState::Active,
-        });
-
-        st.fang_tasks.insert(fang_id.clone(), handle);
-        st.fang_started
-            .insert(fang_id.clone(), std::time::Instant::now());
-        st.status.active_fangs = st.fangs.len();
-        st.status.mode = WolfMode::Wolf;
-
-        return ControlResponse::ok(
-            req_id,
-            json!({
-                "fang_id": fang_id,
-                "peer": peer,
-                "local": local,
-                "remote": remote,
-                "state": "active",
-                "transport": TRANSPORT_QUIC,
-                "quic_server": peer_addr
-            }),
-        );
-    }
-
-    let fang_id = generate_fang_id(&peer, &local, &remote, st.fangs.len());
-
-    st.fangs.push(FangRecord {
+    let fang = FangRecord {
         id: fang_id.clone(),
         peer: peer.clone(),
         local: local.clone(),
         remote: remote.clone(),
         state: FangState::Active,
-    });
+    };
+
+    st.fangs.push(fang);
 
     st.status.active_fangs = st.fangs.len();
     st.status.mode = WolfMode::Wolf;
@@ -925,8 +911,12 @@ async fn open_fang_from_parts(
     let task_transport = transport.clone();
 
     let handle = tokio::spawn(async move {
-        let result = if task_transport == TRANSPORT_TCP_PLAIN {
-            run_plain_tcp_forwarder(&task_fang_id, &task_local, &task_remote).await
+        let result = if task_transport == "tcp-plain" {
+            run_plain_tcp_forwarder(
+                &task_fang_id,
+                &task_local,
+                &task_remote,
+            ).await
         } else {
             run_local_fang_forwarder(
                 &task_fang_id,
@@ -934,8 +924,7 @@ async fn open_fang_from_parts(
                 &task_peer_addr,
                 &task_remote,
                 task_identity,
-            )
-            .await
+            ).await
         };
 
         if let Err(e) = result {
@@ -944,8 +933,10 @@ async fn open_fang_from_parts(
     });
 
     st.fang_tasks.insert(fang_id.clone(), handle);
-    st.fang_started
-        .insert(fang_id.clone(), std::time::Instant::now());
+    st.fang_started.insert(
+        fang_id.clone(),
+        std::time::Instant::now(),
+    );
 
     ControlResponse::ok(
         req_id,
@@ -992,20 +983,17 @@ async fn handle_request(
             st.status.packmates = st.peers.len();
             st.status.active_fangs = st.fangs.len();
 
-            ControlResponse::ok(
-                req.id,
-                json!({
-                    "mode": st.status.mode,
-                    "pelt_ready": st.status.pelt_ready,
-                    "packmates": st.peers.len(),
-                    "fang_profiles": st.fang_profiles.len(),
-                    "active_fangs": st.fangs.len(),
-                    "silver": st.status.silver,
-                    "hide": st.status.hide,
-                    "listen": st.den_listen,
-                    "quic_listen": st.den_quic_listen
-                }),
-            )
+            ControlResponse::ok(req.id, json!({
+                "mode": st.status.mode,
+                "pelt_ready": st.status.pelt_ready,
+                "packmates": st.peers.len(),
+                "fang_profiles": st.fang_profiles.len(),
+                "active_fangs": st.fangs.len(),
+                "silver": st.status.silver,
+                "hide": st.status.hide,
+                "listen": st.den_listen,
+                "quic_listen": st.den_quic_listen
+            }))
         }
 
         "pelt.init" => {
@@ -1121,29 +1109,15 @@ async fn handle_request(
             let mut st = state.lock().await;
 
             let name = req.args["name"].as_str().unwrap_or("").trim().to_string();
-            let address = req.args["address"]
-                .as_str()
-                .unwrap_or("")
-                .trim()
-                .to_string();
+            let address = req.args["address"].as_str().unwrap_or("").trim().to_string();
 
             if name.is_empty() || address.is_empty() {
-                return ControlResponse::err(
-                    req.id,
-                    "PACK_INVALID",
-                    "name and address are required",
-                );
+                return ControlResponse::err(req.id, "PACK_INVALID", "name and address are required");
             }
 
             let peer = match st.peers.iter_mut().find(|p| p.name == name) {
                 Some(p) => p,
-                None => {
-                    return ControlResponse::err(
-                        req.id,
-                        "PACK_NOT_FOUND",
-                        format!("Peer not found: {}", name),
-                    )
-                }
+                None => return ControlResponse::err(req.id, "PACK_NOT_FOUND", format!("Peer not found: {}", name)),
             };
 
             peer.address = address.clone();
@@ -1151,14 +1125,11 @@ async fn handle_request(
             let path = home.join("pack.json");
 
             match save_pack(&path, &st.peers) {
-                Ok(_) => ControlResponse::ok(
-                    req.id,
-                    json!({
-                        "status": "address_updated",
-                        "name": name,
-                        "address": address
-                    }),
-                ),
+                Ok(_) => ControlResponse::ok(req.id, json!({
+                    "status": "address_updated",
+                    "name": name,
+                    "address": address
+                })),
                 Err(e) => ControlResponse::err(req.id, "PACK_SAVE_FAILED", e.to_string()),
             }
         }
@@ -1168,18 +1139,30 @@ async fn handle_request(
             ControlResponse::ok(req.id, json!(st.peers))
         }
 
+
         "pack.revoke" => {
             let mut st = state.lock().await;
 
-            let name = req.args["name"].as_str().unwrap_or("").trim().to_string();
+            let name = req.args["name"]
+                .as_str()
+                .unwrap_or("")
+                .trim()
+                .to_string();
 
             if name.is_empty() {
-                return ControlResponse::err(req.id, "PACK_INVALID", "name is required");
+                return ControlResponse::err(
+                    req.id,
+                    "PACK_INVALID",
+                    "name is required"
+                );
             }
 
             let before = st.peers.len();
 
-            let closed_fangs = st.fangs.iter().filter(|f| f.peer == name).count();
+            let closed_fangs = st.fangs
+                .iter()
+                .filter(|f| f.peer == name)
+                .count();
 
             st.fangs.retain(|f| f.peer != name);
             st.fang_tasks.retain(|_, _| true);
@@ -1206,7 +1189,11 @@ async fn handle_request(
                         "packmates": st.peers.len()
                     }),
                 ),
-                Err(e) => ControlResponse::err(req.id, "PACK_SAVE_FAILED", e.to_string()),
+                Err(e) => ControlResponse::err(
+                    req.id,
+                    "PACK_SAVE_FAILED",
+                    e.to_string()
+                ),
             }
         }
 
@@ -1249,12 +1236,19 @@ async fn handle_request(
             let remote = req.args["remote"].as_str().unwrap_or("").trim().to_string();
 
             let transport = req.args["transport"]
-                .as_str()
-                .unwrap_or(TRANSPORT_QUIC)
-                .trim()
-                .to_string();
+            .as_str()
+            .unwrap_or("quic")
+            .trim()
+            .to_string();
 
-            open_fang_from_parts(req.id, state.clone(), peer, local, remote, transport).await
+            open_fang_from_parts(
+                req.id,
+                state.clone(),
+                                 peer,
+                                 local,
+                                 remote,
+                                 transport
+            ).await
         }
 
         "fang.profile.add" => {
@@ -1266,46 +1260,35 @@ async fn handle_request(
             let remote = req.args["remote"].as_str().unwrap_or("").trim().to_string();
 
             if name.is_empty() || peer.is_empty() || local.is_empty() || remote.is_empty() {
-                return ControlResponse::err(
-                    req.id,
-                    "FANG_PROFILE_INVALID",
-                    "name, peer, local and remote are required",
-                );
+                return ControlResponse::err(req.id, "FANG_PROFILE_INVALID", "name, peer, local and remote are required");
             }
 
             if st.fang_profiles.iter().any(|p| p.name == name) {
-                return ControlResponse::err(
-                    req.id,
-                    "FANG_PROFILE_DUP_NAME",
-                    format!("Fang profile already exists: {}", name),
-                );
+                return ControlResponse::err(req.id, "FANG_PROFILE_DUP_NAME", format!("Fang profile already exists: {}", name));
             }
 
             let transport = req.args["transport"]
-                .as_str()
-                .unwrap_or(TRANSPORT_QUIC)
-                .trim()
-                .to_string();
+            .as_str()
+            .unwrap_or("quic")
+            .trim()
+            .to_string();
 
             st.fang_profiles.push(FangProfile {
                 name: name.clone(),
-                peer,
-                local,
-                remote,
-                transport,
+                                  peer,
+                                  local,
+                                  remote,
+                                  transport,
             });
 
             let path = home.join("fangs.json");
 
             match save_fang_profiles(&path, &st.fang_profiles) {
-                Ok(_) => ControlResponse::ok(
-                    req.id,
-                    json!({
-                        "status": "profile_added",
-                        "name": name,
-                        "profiles": st.fang_profiles.len()
-                    }),
-                ),
+                Ok(_) => ControlResponse::ok(req.id, json!({
+                    "status": "profile_added",
+                    "name": name,
+                    "profiles": st.fang_profiles.len()
+                })),
                 Err(e) => ControlResponse::err(req.id, "FANG_PROFILE_SAVE_FAILED", e.to_string()),
             }
         }
@@ -1327,23 +1310,16 @@ async fn handle_request(
             st.fang_profiles.retain(|p| p.name != name);
 
             if st.fang_profiles.len() == before {
-                return ControlResponse::err(
-                    req.id,
-                    "FANG_PROFILE_NOT_FOUND",
-                    format!("Fang profile not found: {}", name),
-                );
+                return ControlResponse::err(req.id, "FANG_PROFILE_NOT_FOUND", format!("Fang profile not found: {}", name));
             }
 
             let path = home.join("fangs.json");
 
             match save_fang_profiles(&path, &st.fang_profiles) {
-                Ok(_) => ControlResponse::ok(
-                    req.id,
-                    json!({
-                        "status": "profile_removed",
-                        "profiles": st.fang_profiles.len()
-                    }),
-                ),
+                Ok(_) => ControlResponse::ok(req.id, json!({
+                    "status": "profile_removed",
+                    "profiles": st.fang_profiles.len()
+                })),
                 Err(e) => ControlResponse::err(req.id, "FANG_PROFILE_SAVE_FAILED", e.to_string()),
             }
         }
@@ -1359,25 +1335,18 @@ async fn handle_request(
                 let st = state.lock().await;
                 match st.fang_profiles.iter().find(|p| p.name == profile_name) {
                     Some(p) => p.clone(),
-                    None => {
-                        return ControlResponse::err(
-                            req.id,
-                            "FANG_PROFILE_NOT_FOUND",
-                            format!("Fang profile not found: {}", profile_name),
-                        )
-                    }
+                    None => return ControlResponse::err(req.id, "FANG_PROFILE_NOT_FOUND", format!("Fang profile not found: {}", profile_name)),
                 }
             };
 
             let response = open_fang_from_parts(
                 req.id,
                 state.clone(),
-                profile.peer,
-                profile.local,
-                profile.remote,
-                profile.transport,
-            )
-            .await;
+                                                profile.peer,
+                                                profile.local,
+                                                profile.remote,
+                                                profile.transport
+            ).await;
 
             if response.ok {
                 remember_active_fang_profile(&home, &profile_name);
@@ -1425,8 +1394,7 @@ async fn handle_request(
         "fang.cleanup" => {
             let mut st = state.lock().await;
 
-            let dead_ids: Vec<String> = st
-                .fang_tasks
+            let dead_ids: Vec<String> = st.fang_tasks
                 .iter()
                 .filter_map(|(id, handle)| {
                     if handle.is_finished() {
@@ -1445,21 +1413,17 @@ async fn handle_request(
             st.fangs.retain(|f| !dead_ids.contains(&f.id));
             st.status.active_fangs = st.fangs.len();
 
-            ControlResponse::ok(
-                req.id,
-                json!({
-                    "status": "cleanup_done",
-                    "removed": dead_ids.len(),
-                    "active_fangs": st.fangs.len()
-                }),
-            )
+            ControlResponse::ok(req.id, json!({
+                "status": "cleanup_done",
+                "removed": dead_ids.len(),
+                "active_fangs": st.fangs.len()
+            }))
         }
 
         "fang.list" => {
             let mut st = state.lock().await;
 
-            let dead_ids: Vec<String> = st
-                .fang_tasks
+            let dead_ids: Vec<String> = st.fang_tasks
                 .iter()
                 .filter_map(|(id, handle)| {
                     if handle.is_finished() {
@@ -1478,19 +1442,16 @@ async fn handle_request(
             st.fangs.retain(|f| !dead_ids.contains(&f.id));
             st.status.active_fangs = st.fangs.len();
 
-            let fangs: Vec<serde_json::Value> = st
-                .fangs
+            let fangs: Vec<serde_json::Value> = st.fangs
                 .iter()
                 .map(|f| {
-                    let transport = st
-                        .fang_profiles
-                        .iter()
-                        .find(|p| p.local == f.local)
-                        .map(|p| p.transport.as_str())
-                        .unwrap_or("unknown");
+                    let transport = st.fang_profiles
+                    .iter()
+                    .find(|p| p.local == f.local)
+                    .map(|p| p.transport.as_str())
+                    .unwrap_or("unknown");
 
-                    let uptime_seconds = st
-                        .fang_started
+                    let uptime_seconds = st.fang_started
                         .get(&f.id)
                         .map(|t| t.elapsed().as_secs())
                         .unwrap_or(0);
@@ -1522,7 +1483,11 @@ async fn handle_request(
                 return ControlResponse::err(req.id, "FANG_INVALID", "fang_id is required");
             }
 
-            let closed_fang = st.fangs.iter().find(|f| f.id == fang_id).cloned();
+            let closed_fang = st
+                .fangs
+                .iter()
+                .find(|f| f.id == fang_id)
+                .cloned();
 
             let before = st.fangs.len();
             st.fangs.retain(|f| f.id != fang_id);
@@ -1542,9 +1507,11 @@ async fn handle_request(
             st.fang_started.remove(&fang_id);
 
             if let Some(fang) = closed_fang {
-                if let Some(profile) = st.fang_profiles.iter().find(|p| {
-                    p.peer == fang.peer && p.local == fang.local && p.remote == fang.remote
-                }) {
+                if let Some(profile) = st.fang_profiles.iter().find(|p|
+                    p.peer == fang.peer &&
+                    p.local == fang.local &&
+                    p.remote == fang.remote
+                ) {
                     forget_active_fang_profile(&home, &profile.name);
                     println!("🦷 Forgot active Fang profile: {}", profile.name);
                 }
@@ -1573,7 +1540,12 @@ async fn handle_request(
     }
 }
 
-async fn run_plain_tcp_forwarder(fang_id: &str, local: &str, remote: &str) -> io::Result<()> {
+
+async fn run_plain_tcp_forwarder(
+    fang_id: &str,
+    local: &str,
+    remote: &str,
+) -> io::Result<()> {
     let listener = TcpListener::bind(local).await?;
     println!("🦷 {} plain TCP listening locally on {}", fang_id, local);
 
@@ -1583,26 +1555,26 @@ async fn run_plain_tcp_forwarder(fang_id: &str, local: &str, remote: &str) -> io
         let fang_id = fang_id.to_string();
 
         tokio::spawn(async move {
-            match TcpStream::connect(&remote).await {
-                Ok(mut outbound) => {
-                    if let Err(e) = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await
-                    {
-                        eprintln!(
-                            "🦷 {} plain client {} pipe error: {}",
-                            fang_id, client_addr, e
-                        );
+            match tokio::time::timeout(
+                Duration::from_secs(5),
+                TcpStream::connect(&remote),
+            ).await {
+                Ok(Ok(mut outbound)) => {
+                    if let Err(e) = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await {
+                        eprintln!("🦷 {} plain client {} pipe error: {}", fang_id, client_addr, e);
                     }
                 }
-                Err(e) => {
-                    eprintln!(
-                        "🦷 {} plain target connect error {}: {}",
-                        fang_id, remote, e
-                    );
+                Ok(Err(e)) => {
+                    eprintln!("🦷 {} plain target connect error {}: {}", fang_id, remote, e);
+                }
+                Err(_) => {
+                    eprintln!("🦷 {} plain target connect timed out after 5s: {}", fang_id, remote);
                 }
             }
         });
     }
 }
+
 
 async fn run_local_fang_forwarder(
     fang_id: &str,
@@ -1637,7 +1609,12 @@ async fn pipe_one_fang_connection(
     remote: &str,
     identity: PeltIdentity,
 ) -> io::Result<()> {
-    let mut outbound = TcpStream::connect(peer_addr).await?;
+    let mut outbound = tokio::time::timeout(
+        Duration::from_secs(5),
+        TcpStream::connect(peer_addr),
+    )
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "peer connect timed out"))??;
 
     let nonce = format!(
         "{}",
@@ -1741,19 +1718,11 @@ async fn pipe_one_fang_connection(
     Ok(())
 }
 
+
 #[derive(Debug, Clone)]
 enum FangTransport {
     Tcp(String),
     Quic(String),
-}
-
-fn normalized_transport(input: &str) -> Result<&'static str, String> {
-    match input.trim() {
-        TRANSPORT_QUIC => Ok(TRANSPORT_QUIC),
-        TRANSPORT_TCP_ENCRYPTED => Ok(TRANSPORT_TCP_ENCRYPTED),
-        TRANSPORT_TCP_PLAIN => Ok(TRANSPORT_TCP_PLAIN),
-        other => Err(format!("Unknown transport: {}", other)),
-    }
 }
 
 fn parse_fang_transport(address: &str) -> Result<FangTransport, String> {
@@ -1766,26 +1735,6 @@ fn parse_fang_transport(address: &str) -> Result<FangTransport, String> {
     }
 
     Err("peer address must start with tcp:// or quic://".to_string())
-}
-
-fn resolve_peer_address_for_transport(
-    peer_address: &str,
-    transport: &str,
-) -> Result<String, String> {
-    match transport {
-        "tcp" | TRANSPORT_TCP_PLAIN => match parse_fang_transport(peer_address) {
-            Ok(FangTransport::Tcp(addr)) => Ok(addr),
-            Ok(FangTransport::Quic(addr)) => Ok(addr),
-            Err(e) => Err(e),
-        },
-
-        TRANSPORT_QUIC => match parse_fang_transport(peer_address) {
-            Ok(FangTransport::Quic(addr)) => Ok(addr),
-            _ => Err("Peer QUIC address invalid".into()),
-        },
-
-        _ => Err(format!("Unknown transport: {}", transport)),
-    }
 }
 
 fn expand_home(input: &str) -> PathBuf {
@@ -1889,10 +1838,7 @@ async fn read_encrypted_frame<R: AsyncReadExt + Unpin>(
     let len = u32::from_be_bytes(len_buf) as usize;
 
     if len > 4096 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "frame too large",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large"));
     }
 
     let mut ciphertext = vec![0u8; len];
@@ -1913,10 +1859,7 @@ async fn read_encrypted_frame<R: AsyncReadExt + Unpin>(
     let real_len = u16::from_be_bytes([padded_plaintext[0], padded_plaintext[1]]) as usize;
 
     if real_len > padded_plaintext.len() - 2 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "bad plaintext length",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "bad plaintext length"));
     }
 
     Ok(padded_plaintext[2..2 + real_len].to_vec())
@@ -1952,21 +1895,23 @@ async fn secure_copy_client_side(
 
         loop {
             eprintln!("TCPV2 client waiting server->client counter={}", counter);
-            match read_encrypted_frame(&mut out_r, &key, 1, &mut counter).await {
-                Ok(plaintext) => {
-                    eprintln!(
-                        "TCPV2 client recv server->client plaintext={} counter={}",
-                        plaintext.len(),
-                        counter
-                    );
+            match tokio::time::timeout(
+                Duration::from_secs(60),
+                read_encrypted_frame(&mut out_r, &key, 1, &mut counter),
+            ).await {
+                Ok(Ok(plaintext)) => {
+                    eprintln!("TCPV2 client recv server->client plaintext={} counter={}", plaintext.len(), counter);
                     in_w.write_all(&plaintext).await?;
                     in_w.flush().await?;
                 }
-                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                Ok(Err(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
                     let _ = in_w.shutdown().await;
                     return Ok::<(), io::Error>(());
                 }
-                Err(e) => return Err(e),
+                Ok(Err(e)) => return Err(e),
+                Err(_) => {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "tcp-v2 client read idle timeout"));
+                }
             }
         }
     };
@@ -1988,21 +1933,23 @@ async fn secure_copy_server_side(
 
         loop {
             eprintln!("TCPV2 server waiting client->remote counter={}", counter);
-            match read_encrypted_frame(&mut fang_r, &key, 0, &mut counter).await {
-                Ok(plaintext) => {
-                    eprintln!(
-                        "TCPV2 server recv client->remote plaintext={} counter={}",
-                        plaintext.len(),
-                        counter
-                    );
+            match tokio::time::timeout(
+                Duration::from_secs(60),
+                read_encrypted_frame(&mut fang_r, &key, 0, &mut counter),
+            ).await {
+                Ok(Ok(plaintext)) => {
+                    eprintln!("TCPV2 server recv client->remote plaintext={} counter={}", plaintext.len(), counter);
                     remote_w.write_all(&plaintext).await?;
                     remote_w.flush().await?;
                 }
-                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                Ok(Err(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
                     let _ = remote_w.shutdown().await;
                     return Ok::<(), io::Error>(());
                 }
-                Err(e) => return Err(e),
+                Ok(Err(e)) => return Err(e),
+                Err(_) => {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "tcp-v2 server read idle timeout"));
+                }
             }
         }
     };
