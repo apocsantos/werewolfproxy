@@ -1,4 +1,5 @@
 use crate::fang_registry::FangRegistry;
+use crate::target_policy::TargetPolicy;
 use std::collections::HashMap;
 use werewolf_core::{
     fang_profile::FangProfile, pack::PeerRecord, pelt::PeltIdentity, state::Status,
@@ -16,4 +17,5 @@ pub(super) struct DaemonState {
     pub(super) den_home: String,
     pub(super) den_listen: String,
     pub(super) den_quic_listen: String,
+    pub(super) target_policy: TargetPolicy,
 }

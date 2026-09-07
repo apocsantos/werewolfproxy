@@ -1,7 +1,8 @@
-use crate::state::DaemonState;
+use crate::{state::DaemonState, target_policy};
 use werewolf_core::{fang_profile::load_fang_profiles, pack::load_pack, pelt::load_identity};
 
 pub(super) fn load_startup_state(home: &std::path::Path, initial_state: &mut DaemonState) {
+    initial_state.target_policy = target_policy::load(&home.join("target_policy.json"));
     let pelt_path = home.join("pelt.json");
     match load_identity(&pelt_path) {
         Ok(Some(identity)) => {

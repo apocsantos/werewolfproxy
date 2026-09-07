@@ -2,6 +2,7 @@ mod control;
 mod fang_registry;
 mod policy;
 mod state;
+mod target_policy;
 mod transport;
 use fang_registry::FangCancellation;
 use state::DaemonState;
