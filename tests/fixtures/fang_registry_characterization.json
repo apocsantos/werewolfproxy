@@ -1,0 +1,13 @@
+{
+  "runtime_state": ["fangs", "fang_tasks", "fang_started"],
+  "preserved_characteristics": {
+    "duplicate_local_address": "FANG_ALREADY_ACTIVE",
+    "close_removes_record_and_tracked_task": true,
+    "cleanup_removes_finished_listener_tasks": true,
+    "restore_generates_new_ids": true,
+    "active_profiles_are_persistent_names": true,
+    "pack_revoke_does_not_guarantee_child_task_shutdown": true,
+    "silver_clear_does_not_guarantee_detached_child_shutdown": true
+  },
+  "purpose": "Characterization of Stage 3 Fang bookkeeping; not a lifecycle redesign."
+}
