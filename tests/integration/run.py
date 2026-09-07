@@ -311,6 +311,16 @@ class Lab:
                  'b': [peer('wolf-a', 'a', 'quic'), peer('wolf-a-tcp', 'a', 'tcp')]}
         for wolf, pack in packs.items():
             write_json(self.base / wolf / 'pack.json', pack)
+        write_json(self.base / 'a' / 'target_policy.json', {
+            'mode': 'deny-by-default',
+            'peers': {identities['b']['fingerprint']: {'targets': [
+                {'address': '127.0.0.1', 'port': self.ports['target']},
+                {'address': '127.0.0.1', 'port': self.ports['echo']},
+            ]}},
+        })
+        write_json(self.base / 'b' / 'target_policy.json', {
+            'mode': 'deny-by-default', 'peers': {}
+        })
         self.start_wolves()
         for wolf in ('a', 'b'):
             require(self.control(wolf, 'pack.list') == packs[wolf], f'{wolf}: Pack load mismatch')
