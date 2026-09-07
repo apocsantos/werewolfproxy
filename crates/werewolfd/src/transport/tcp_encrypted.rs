@@ -1,23 +1,17 @@
-use crate::state::DaemonState;
+use crate::{admission::HandshakePermit, handshake as hs, state::DaemonState};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
 };
 use rand_core::{OsRng, RngCore};
-use serde_json::json;
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 use tokio::{
-    io::{self, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{self, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::Mutex,
 };
-use werewolf_core::pelt::{
-    fingerprint_from_public_key_b64, sign_message, verify_message, PeltIdentity,
-};
+use werewolf_core::pelt::PeltIdentity;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
 pub(super) async fn run_fang_listener(
@@ -25,176 +19,97 @@ pub(super) async fn run_fang_listener(
     state: Arc<Mutex<DaemonState>>,
 ) -> io::Result<()> {
     let listener = TcpListener::bind(listen_addr).await?;
+    let admission = state.lock().await.admission.clone();
 
     loop {
         let (stream, peer_addr) = listener.accept().await?;
+        let started = tokio::time::Instant::now();
+        let Ok(permit) = admission.handshake() else {
+            continue;
+        };
         let state_for_client = state.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = handle_fang_pipe(stream, state_for_client).await {
+            if let Err(e) = handle_fang_pipe(stream, state_for_client, permit, started).await {
                 eprintln!("fang pipe from {} error: {}", peer_addr, e);
             }
         });
     }
 }
 
-async fn handle_fang_pipe(stream: TcpStream, state: Arc<Mutex<DaemonState>>) -> io::Result<()> {
-    let mut reader = BufReader::new(stream);
-    let mut line = String::new();
+async fn handle_fang_pipe(
+    mut stream: TcpStream,
+    state: Arc<Mutex<DaemonState>>,
+    permit: HandshakePermit,
+    started: tokio::time::Instant,
+) -> io::Result<()> {
+    let (remote, key) = tokio::time::timeout_at(
+        started + hs::SERVER_WINDOW,
+        server_handshake(&mut stream, state, permit, started),
+    )
+    .await
+    .map_err(|_| hs::rejected())??;
+    secure_copy_server_side(stream, remote, key).await
+}
 
-    reader.read_line(&mut line).await?;
-    let mut stream = reader.into_inner();
-
-    let value: serde_json::Value = serde_json::from_str(&line)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-
-    let remote = value["remote"]
-        .as_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing remote"))?;
-
-    let sender_pubkey = value["sender_pubkey"]
-        .as_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing sender_pubkey"))?;
-
-    let sender_fingerprint = value["sender_fingerprint"]
-        .as_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing sender_fingerprint"))?;
-
-    let client_x25519 = value["client_x25519"]
-        .as_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing client_x25519"))?;
-
-    let nonce = value["nonce"]
-        .as_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing nonce"))?;
-
-    let signature = value["signature"]
-        .as_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing signature"))?;
-
-    let derived_fp = fingerprint_from_public_key_b64(sender_pubkey)
-        .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, e))?;
-
-    if derived_fp != sender_fingerprint {
-        stream
-            .write_all(b"{\"ok\":false,\"error\":\"fingerprint mismatch\"}\n")
-            .await?;
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "fingerprint mismatch",
-        ));
-    }
-
-    let signed_text = format!(
-        "fang.pipe|{}|{}|{}|{}",
-        sender_fingerprint, remote, nonce, client_x25519
-    );
-
-    if let Err(e) = verify_message(sender_pubkey, signed_text.as_bytes(), signature) {
-        stream
-            .write_all(b"{\"ok\":false,\"error\":\"bad signature\"}\n")
-            .await?;
-        return Err(io::Error::new(io::ErrorKind::PermissionDenied, e));
-    }
-
+async fn server_handshake(
+    stream: &mut TcpStream,
+    state: Arc<Mutex<DaemonState>>,
+    mut permit: HandshakePermit,
+    started: tokio::time::Instant,
+) -> io::Result<(TcpStream, [u8; 32])> {
+    let receiver = state.lock().await.pelt.clone().ok_or_else(hs::rejected)?;
+    // The identity and key snapshot travel with this challenge through ACK signing.
+    let mut context = hs::TcpChallengeContext::new(receiver)?;
+    context.deadline = context.deadline.min(started + hs::READ_WINDOW);
+    hs::write(
+        stream,
+        &context.message,
+        hs::CHALLENGE_LIMIT,
+        context.deadline,
+    )
+    .await?;
+    let open: hs::TcpOpen = hs::read(stream, hs::MESSAGE_LIMIT, context.deadline).await?;
+    let retained = open.transcript()?;
     {
-        let mut st = state.lock().await;
-
-        if !st.peers.iter().any(|p| p.fingerprint == sender_fingerprint) {
-            stream
-                .write_all(b"{\"ok\":false,\"error\":\"sender not in pack\"}\n")
-                .await?;
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "sender not in pack",
-            ));
-        }
-
-        const REPLAY_WINDOW: Duration = Duration::from_secs(300);
-
-        let now = Instant::now();
-
-        st.seen_nonces
-            .retain(|_, seen_at| now.duration_since(*seen_at) < REPLAY_WINDOW);
-
-        let replay_key = format!("{}|{}", sender_fingerprint, nonce);
-
-        if st.seen_nonces.contains_key(&replay_key) {
-            stream
-                .write_all(b"{\"ok\":false,\"error\":\"replay detected\"}\n")
-                .await?;
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "replay detected",
-            ));
-        }
-
-        st.seen_nonces.insert(replay_key, now);
-    }
-
-    let receiver_identity = {
         let st = state.lock().await;
-        st.pelt.clone().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::PermissionDenied, "receiver has no Pelt")
-        })?
-    };
+        hs::require(
+            st.peers
+                .iter()
+                .any(|p| p.fingerprint == open.sender_fingerprint),
+        )?;
+    }
+    context.check(&open)?;
+    hs::verify(&open.sender_pubkey, &retained, &open.signature)?;
+    permit.authenticated(&open.sender_fingerprint)?;
+    context.consume(&open)?;
 
-    let target_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    let authorized_targets = {
-        let policy = state.lock().await.target_policy.clone();
-        tokio::time::timeout_at(
-            target_deadline,
-            crate::target_policy::authorize(&policy, sender_fingerprint, remote),
-        )
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "target operation timed out"))?
-        .map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "target authorization denied",
-            )
-        })?
-    };
-
-    let server_secret = StaticSecret::random_from_rng(OsRng);
+    let server_secret = StaticSecret::from(hs::random::<32>()?);
     let server_public = X25519PublicKey::from(&server_secret);
-    let server_public_b64 = STANDARD.encode(server_public.as_bytes());
-
-    let ack_text = format!(
-        "fang.ack|{}|{}|{}|{}",
-        receiver_identity.fingerprint, sender_fingerprint, nonce, server_public_b64
-    );
-
-    let ack_signature = sign_message(&receiver_identity, ack_text.as_bytes())
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-    let remote_stream = tokio::time::timeout_at(
+    let key = derive_shared_key(&server_secret, &open.client_x25519)?;
+    let policy = state.lock().await.target_policy.clone();
+    let target_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let authorized_targets = tokio::time::timeout_at(
+        target_deadline,
+        crate::target_policy::authorize(&policy, &open.sender_fingerprint, &open.remote),
+    )
+    .await
+    .map_err(|_| hs::rejected())?
+    .map_err(|_| hs::rejected())?;
+    let remote = tokio::time::timeout_at(
         target_deadline,
         TcpStream::connect(authorized_targets.as_slice()),
     )
     .await
-    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "remote connect timed out"))??;
-
-    let ack = json!({
-        "ok": true,
-        "session": "fang-v1-secure",
-        "receiver_pubkey": receiver_identity.public_key_b64,
-        "receiver_fingerprint": receiver_identity.fingerprint,
-        "server_x25519": server_public_b64,
-        "nonce": nonce,
-        "signature": ack_signature
-    });
-
-    stream
-        .write_all(serde_json::to_string(&ack).unwrap().as_bytes())
-        .await?;
-    stream.write_all(b"\n").await?;
-
-    let key = derive_shared_key(&server_secret, client_x25519)?;
-
-    secure_copy_server_side(stream, remote_stream, key).await?;
-
-    Ok(())
+    .map_err(|_| hs::rejected())??;
+    let ack = hs::TcpAck::new(
+        &open,
+        &retained,
+        &context.receiver,
+        server_public.as_bytes(),
+    )?;
+    hs::write(stream, &ack, hs::MESSAGE_LIMIT, started + hs::SERVER_WINDOW).await?;
+    Ok((remote, key))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -249,115 +164,34 @@ async fn pipe_one_fang_connection(
 ) -> io::Result<()> {
     let mut outbound = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(peer_addr))
         .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "peer connect timed out"))??;
-
-    let nonce = format!(
-        "{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    );
-
-    let client_secret = StaticSecret::random_from_rng(OsRng);
-    let client_public = X25519PublicKey::from(&client_secret);
-    let client_public_b64 = STANDARD.encode(client_public.as_bytes());
-
-    let signed_text = format!(
-        "fang.pipe|{}|{}|{}|{}",
-        identity.fingerprint, remote, nonce, client_public_b64
-    );
-
-    let signature = sign_message(&identity, signed_text.as_bytes())
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-    let hello = json!({
-        "cmd": "fang.pipe",
-        "remote": remote,
-        "sender_pubkey": identity.public_key_b64,
-        "sender_fingerprint": identity.fingerprint,
-        "client_x25519": client_public_b64,
-        "nonce": nonce,
-        "signature": signature
-    });
-
-    outbound
-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .map_err(|_| hs::rejected())??;
+    let deadline = tokio::time::Instant::now() + hs::CLIENT_WINDOW;
+    let key = tokio::time::timeout_at(deadline, async {
+        let challenge: hs::TcpChallenge = hs::read(
+            &mut outbound,
+            hs::CHALLENGE_LIMIT,
+            (tokio::time::Instant::now() + hs::READ_WINDOW).min(deadline),
+        )
         .await?;
-    outbound.write_all(b"\n").await?;
-
-    let mut reader = BufReader::new(outbound);
-    let mut ack = String::new();
-    reader.read_line(&mut ack).await?;
-    let outbound = reader.into_inner();
-
-    let ack_value: serde_json::Value = serde_json::from_str(&ack)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-
-    if ack_value["ok"].as_bool() != Some(true) {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!("fang rejected: {}", ack),
-        ));
-    }
-
-    let receiver_pubkey = ack_value["receiver_pubkey"]
-        .as_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing receiver_pubkey"))?;
-
-    let receiver_fingerprint = ack_value["receiver_fingerprint"].as_str().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidData, "missing receiver_fingerprint")
-    })?;
-
-    let server_x25519 = ack_value["server_x25519"]
-        .as_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing server_x25519"))?;
-
-    let ack_nonce = ack_value["nonce"]
-        .as_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing ack nonce"))?;
-
-    let ack_signature = ack_value["signature"]
-        .as_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing ack signature"))?;
-
-    if ack_nonce != nonce {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "ack nonce mismatch",
-        ));
-    }
-
-    let derived_receiver_fp = fingerprint_from_public_key_b64(receiver_pubkey)
-        .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, e))?;
-
-    if derived_receiver_fp != receiver_fingerprint {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "receiver fingerprint mismatch",
-        ));
-    }
-
-    if receiver_fingerprint != expected_peer.fingerprint {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "receiver identity not expected",
-        ));
-    }
-
-    let expected_ack_text = format!(
-        "fang.ack|{}|{}|{}|{}",
-        receiver_fingerprint, identity.fingerprint, nonce, server_x25519
-    );
-
-    verify_message(receiver_pubkey, expected_ack_text.as_bytes(), ack_signature)
-        .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, e))?;
-
-    let key = derive_shared_key(&client_secret, server_x25519)?;
-
-    secure_copy_client_side(inbound, outbound, key).await?;
-
-    Ok(())
+        challenge.validate()?;
+        hs::require(challenge.receiver_fingerprint == expected_peer.fingerprint)?;
+        let client_secret = StaticSecret::from(hs::random::<32>()?);
+        let client_public = X25519PublicKey::from(&client_secret);
+        let open = hs::TcpOpen::new(&identity, &challenge, remote, client_public.as_bytes())?;
+        let retained = open.transcript()?;
+        hs::write(&mut outbound, &open, hs::MESSAGE_LIMIT, deadline).await?;
+        let ack: hs::TcpAck = hs::read(&mut outbound, hs::MESSAGE_LIMIT, deadline).await?;
+        hs::require(ack.receiver_fingerprint == expected_peer.fingerprint)?;
+        hs::verify(
+            &ack.receiver_pubkey,
+            &ack.transcript(&open, &retained)?,
+            &ack.signature,
+        )?;
+        derive_shared_key(&client_secret, &ack.server_x25519)
+    })
+    .await
+    .map_err(|_| hs::rejected())??;
+    secure_copy_client_side(inbound, outbound, key).await
 }
 
 async fn secure_copy_client_side(

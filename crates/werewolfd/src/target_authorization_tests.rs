@@ -7,7 +7,6 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
     sync::Mutex,
     time::timeout,
@@ -47,19 +46,30 @@ async fn tcp_request(
     nonce: &str,
 ) -> Vec<u8> {
     let mut stream = TcpStream::connect(address).await.unwrap();
-    let key = STANDARD.encode([7u8; 32]);
-    let signed = format!(
-        "fang.pipe|{}|{}|{}|{}",
-        sender.fingerprint, remote, nonce, key
-    );
-    let request = json!({"cmd":"fang.pipe", "remote":remote, "sender_pubkey":sender.public_key_b64, "sender_fingerprint":sender.fingerprint, "client_x25519":key, "nonce":nonce, "signature":sign_message(sender, signed.as_bytes()).unwrap()});
-    stream
-        .write_all(format!("{request}\n").as_bytes())
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let challenge: crate::handshake::TcpChallenge =
+        crate::handshake::read(&mut stream, 512, deadline)
+            .await
+            .unwrap();
+    let mut open = crate::handshake::TcpOpen::new(sender, &challenge, remote, &[7; 32]).unwrap();
+    // v3 uses canonical random nonces; the matrix label remains local only.
+    let _ = nonce;
+    open.signature = crate::handshake::sign(sender, &open.transcript().unwrap()).unwrap();
+    crate::handshake::write(&mut stream, &open, 4096, deadline)
         .await
         .unwrap();
-    let mut line = String::new();
-    BufReader::new(stream).read_line(&mut line).await.unwrap();
-    line.into_bytes()
+    match crate::handshake::read::<crate::handshake::TcpAck, _>(&mut stream, 4096, deadline).await {
+        Ok(ack) => {
+            crate::handshake::verify(
+                &ack.receiver_pubkey,
+                &ack.transcript(&open, &open.transcript().unwrap()).unwrap(),
+                &ack.signature,
+            )
+            .unwrap();
+            serde_json::to_vec(&ack).unwrap()
+        }
+        Err(_) => Vec::new(),
+    }
 }
 
 async fn quic_request(
@@ -240,39 +250,26 @@ async fn receiver_matrix(quic: bool) {
             })
             .await
             .expect("request outcome deadline");
-            let replay_key = if quic {
-                format!("quic|{}|{}", identity.fingerprint, nonce)
-            } else {
-                format!("{}|{}", identity.fingerprint, nonce)
-            };
-            assert!(
-                state.lock().await.seen_nonces.contains_key(&replay_key),
-                "{nonce}: request must have passed authentication and replay validation"
-            );
+            if quic {
+                let replay_key = format!("quic|{}|{}", identity.fingerprint, nonce);
+                assert!(state.lock().await.seen_nonces.contains_key(&replay_key));
+            }
             if allowed {
                 let ack: serde_json::Value =
                     serde_json::from_slice(&line).expect("successful ACK JSON");
                 assert_eq!(ack["ok"], true, "{nonce}");
-                let signed = if quic {
-                    format!(
+                if quic {
+                    let signed = format!(
                         "fang.quic.ack|fang-quic-v2|{}|{}|{}|{}",
                         receiver.fingerprint, identity.fingerprint, nonce, remote
+                    );
+                    verify_message(
+                        &receiver.public_key_b64,
+                        signed.as_bytes(),
+                        ack["signature"].as_str().unwrap(),
                     )
-                } else {
-                    format!(
-                        "fang.ack|{}|{}|{}|{}",
-                        receiver.fingerprint,
-                        identity.fingerprint,
-                        nonce,
-                        ack["server_x25519"].as_str().unwrap()
-                    )
-                };
-                verify_message(
-                    &receiver.public_key_b64,
-                    signed.as_bytes(),
-                    ack["signature"].as_str().unwrap(),
-                )
-                .unwrap();
+                    .unwrap();
+                }
                 timeout(Duration::from_secs(1), target.accept())
                     .await
                     .expect("authorized target connection")

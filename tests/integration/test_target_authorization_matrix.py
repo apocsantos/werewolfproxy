@@ -39,7 +39,8 @@ class TargetAuthorizationMatrix(unittest.TestCase):
             self.assertNotIn('lookup_host', source)
             self.assertNotIn('TcpStream::connect(remote)', source)
             self.assertNotIn('TcpStream::connect(&target)', source)
-            self.assertGreater(source.index('"ok": true', connect), connect)
+            ack = 'hs::TcpAck::new(' if name == 'tcp_encrypted.rs' else '\"ok\": true'
+            self.assertGreater(source.index(ack, connect), connect)
 
     def test_resolution_has_one_dns_call_and_never_connects(self):
         source = (ROOT / 'crates/werewolfd/src/target_policy.rs').read_text().split('#[cfg(test)]')[0]
