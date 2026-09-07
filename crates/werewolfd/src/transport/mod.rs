@@ -1,5 +1,13 @@
+pub(super) mod quic;
 pub(super) mod tcp_encrypted;
 pub(super) mod tcp_plain;
+
+pub(super) async fn run_quic_fang_listener(
+    listen_addr: &str,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::DaemonState>>,
+) -> tokio::io::Result<()> {
+    quic::run_quic_fang_listener(listen_addr, state).await
+}
 
 pub(super) async fn run_fang_listener(
     listen_addr: &str,
