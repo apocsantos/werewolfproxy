@@ -1,5 +1,6 @@
 mod control;
 mod fang_registry;
+mod policy;
 mod state;
 mod transport;
 use state::DaemonState;
@@ -35,6 +36,7 @@ macro_rules! ww_warn {
 
 mod config;
 use config::{configure_den, expand_home, validate_startup_config};
+use policy::{is_plain_tcp, select_peer_transport, TransportPolicyError};
 
 mod persistence;
 use persistence::{load_active_fang_profiles, load_startup_state};
@@ -226,32 +228,13 @@ async fn open_fang_from_parts(
         None => return ControlResponse::err(req_id, "NO_PELT", "No local Pelt identity exists"),
     };
 
-    let peer_addr = match transport.as_str() {
-        "tcp" | "tcp-plain" => {
-            match transport::parse_fang_transport(&peer_record.address.replace("quic://", "tcp://"))
-            {
-                Ok(transport::FangTransport::Tcp(a)) => a,
-                _ => {
-                    return ControlResponse::err(
-                        req_id,
-                        "FANG_BAD_TCP_ADDRESS",
-                        "Peer TCP address invalid",
-                    )
-                }
-            }
-        }
+    let peer_addr = match select_peer_transport(&transport, &peer_record.address) {
+        Ok(transport::FangTransport::Quic(a)) => {
+            let fang_id = generate_fang_id(&peer, &local, &remote, st.fang_registry.len());
 
-        _ => match transport::parse_fang_transport(&peer_record.address) {
-            Ok(transport::FangTransport::Quic(a)) => {
-                let fang_id = generate_fang_id(&peer, &local, &remote, st.fang_registry.len());
-
-                let handle = match open_quic_fang(
-                    local.clone(),
-                    a.clone(),
-                    remote.clone(),
-                    identity.clone(),
-                )
-                .await
+            let handle =
+                match open_quic_fang(local.clone(), a.clone(), remote.clone(), identity.clone())
+                    .await
                 {
                     Ok(h) => h,
                     Err(e) => {
@@ -259,44 +242,46 @@ async fn open_fang_from_parts(
                     }
                 };
 
-                let fang = FangRecord {
-                    id: fang_id.clone(),
-                    peer: peer.clone(),
-                    local: local.clone(),
-                    remote: remote.clone(),
-                    state: FangState::Active,
-                };
+            let fang = FangRecord {
+                id: fang_id.clone(),
+                peer: peer.clone(),
+                local: local.clone(),
+                remote: remote.clone(),
+                state: FangState::Active,
+            };
 
-                st.fang_registry.push(fang);
-                st.fang_registry.insert_task(fang_id.clone(), handle);
-                st.fang_registry
-                    .insert_started(fang_id.clone(), std::time::Instant::now());
+            st.fang_registry.push(fang);
+            st.fang_registry.insert_task(fang_id.clone(), handle);
+            st.fang_registry
+                .insert_started(fang_id.clone(), std::time::Instant::now());
 
-                st.status.active_fangs = st.fang_registry.len();
-                st.status.mode = WolfMode::Wolf;
+            st.status.active_fangs = st.fang_registry.len();
+            st.status.mode = WolfMode::Wolf;
 
-                return ControlResponse::ok(
-                    req_id,
-                    json!({
-                        "fang_id": fang_id,
-                        "peer": peer,
-                        "local": local,
-                        "remote": remote,
-                        "state": "active",
-                        "transport": "quic",
-                        "quic_server": a
-                    }),
-                );
-            }
-
-            _ => {
-                return ControlResponse::err(
-                    req_id,
-                    "FANG_BAD_QUIC_ADDRESS",
-                    "Peer QUIC address invalid",
-                )
-            }
-        },
+            return ControlResponse::ok(
+                req_id,
+                json!({
+                    "fang_id": fang_id,
+                    "peer": peer,
+                    "local": local,
+                    "remote": remote,
+                    "state": "active",
+                    "transport": "quic",
+                    "quic_server": a
+                }),
+            );
+        }
+        Ok(transport::FangTransport::Tcp(a)) => a,
+        Err(TransportPolicyError::BadTcpAddress) => {
+            return ControlResponse::err(req_id, "FANG_BAD_TCP_ADDRESS", "Peer TCP address invalid")
+        }
+        Err(TransportPolicyError::BadQuicAddress) => {
+            return ControlResponse::err(
+                req_id,
+                "FANG_BAD_QUIC_ADDRESS",
+                "Peer QUIC address invalid",
+            )
+        }
     };
 
     let fang_id = generate_fang_id(&peer, &local, &remote, st.fang_registry.len());
@@ -322,7 +307,7 @@ async fn open_fang_from_parts(
     let task_transport = transport.clone();
 
     let handle = tokio::spawn(async move {
-        let result = if task_transport == "tcp-plain" {
+        let result = if is_plain_tcp(&task_transport) {
             transport::run_plain_tcp_forwarder(&task_fang_id, &task_local, &task_remote).await
         } else {
             transport::run_local_fang_forwarder(

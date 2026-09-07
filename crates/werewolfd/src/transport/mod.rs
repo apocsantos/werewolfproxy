@@ -8,18 +8,6 @@ pub(super) enum FangTransport {
     Quic(String),
 }
 
-pub(super) fn parse_fang_transport(address: &str) -> Result<FangTransport, String> {
-    if let Some(rest) = address.strip_prefix("tcp://") {
-        return Ok(FangTransport::Tcp(rest.to_string()));
-    }
-
-    if let Some(rest) = address.strip_prefix("quic://") {
-        return Ok(FangTransport::Quic(rest.to_string()));
-    }
-
-    Err("peer address must start with tcp:// or quic://".to_string())
-}
-
 pub(super) async fn run_quic_fang_listener(
     listen_addr: &str,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::DaemonState>>,
