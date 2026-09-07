@@ -22,6 +22,7 @@ pub(super) async fn run_fang_listener(
     tcp_encrypted::run_fang_listener(listen_addr, state).await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn run_local_fang_forwarder(
     fang_id: &str,
     local: &str,
@@ -30,6 +31,7 @@ pub(super) async fn run_local_fang_forwarder(
     identity: werewolf_core::pelt::PeltIdentity,
     cancellation: crate::fang_registry::FangCancellation,
     ready: tokio::sync::oneshot::Sender<tokio::io::Result<()>>,
+    expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> tokio::io::Result<()> {
     tcp_encrypted::run_local_fang_forwarder(
         fang_id,
@@ -39,6 +41,7 @@ pub(super) async fn run_local_fang_forwarder(
         identity,
         cancellation,
         ready,
+        expected_peer,
     )
     .await
 }
@@ -49,7 +52,9 @@ pub(super) async fn run_plain_tcp_forwarder(
     remote: &str,
     cancellation: crate::fang_registry::FangCancellation,
     ready: tokio::sync::oneshot::Sender<tokio::io::Result<()>>,
+    expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> tokio::io::Result<()> {
+    let _ = expected_peer;
     tcp_plain::run_plain_tcp_forwarder(fang_id, local, remote, cancellation, ready).await
 }
 
@@ -63,9 +68,10 @@ pub(super) async fn run_selected_forwarder(
     plain_tcp: bool,
     cancellation: crate::fang_registry::FangCancellation,
     ready: tokio::sync::oneshot::Sender<tokio::io::Result<()>>,
+    expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> tokio::io::Result<()> {
     if plain_tcp {
-        run_plain_tcp_forwarder(fang_id, local, remote, cancellation, ready).await
+        run_plain_tcp_forwarder(fang_id, local, remote, cancellation, ready, expected_peer).await
     } else {
         run_local_fang_forwarder(
             fang_id,
@@ -75,6 +81,7 @@ pub(super) async fn run_selected_forwarder(
             identity,
             cancellation,
             ready,
+            expected_peer,
         )
         .await
     }

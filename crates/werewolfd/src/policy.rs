@@ -1,5 +1,11 @@
 use crate::transport::FangTransport;
 
+#[allow(dead_code)]
+#[derive(Clone)]
+pub(super) struct ExpectedPeerIdentity {
+    pub(super) fingerprint: String,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) enum TransportPolicyError {
     BadTcpAddress,

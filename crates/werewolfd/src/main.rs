@@ -37,7 +37,7 @@ macro_rules! ww_warn {
 
 mod config;
 use config::{configure_den, expand_home, validate_startup_config};
-use policy::{is_plain_tcp, select_peer_transport, TransportPolicyError};
+use policy::{is_plain_tcp, select_peer_transport, ExpectedPeerIdentity, TransportPolicyError};
 
 mod persistence;
 use persistence::{load_active_fang_profiles, load_startup_state};
@@ -228,6 +228,9 @@ async fn open_fang_from_parts(
         Some(pelt) => pelt.clone(),
         None => return ControlResponse::err(req_id, "NO_PELT", "No local Pelt identity exists"),
     };
+    let expected_peer_identity = ExpectedPeerIdentity {
+        fingerprint: peer_record.fingerprint.clone(),
+    };
 
     let peer_addr = match select_peer_transport(&transport, &peer_record.address) {
         Ok(transport::FangTransport::Quic(a)) => {
@@ -335,6 +338,7 @@ async fn open_fang_from_parts(
     let cancellation = FangCancellation::default();
     let task_cancellation = cancellation.clone();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let task_expected_peer = expected_peer_identity;
 
     let handle = tokio::spawn(async move {
         let result = transport::run_selected_forwarder(
@@ -346,6 +350,7 @@ async fn open_fang_from_parts(
             is_plain_tcp(&task_transport),
             task_cancellation,
             ready_tx,
+            task_expected_peer,
         )
         .await;
 

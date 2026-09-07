@@ -177,6 +177,7 @@ async fn handle_fang_pipe(stream: TcpStream, state: Arc<Mutex<DaemonState>>) -> 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn run_local_fang_forwarder(
     fang_id: &str,
     local: &str,
@@ -185,6 +186,7 @@ pub(super) async fn run_local_fang_forwarder(
     identity: PeltIdentity,
     cancellation: crate::fang_registry::FangCancellation,
     ready: tokio::sync::oneshot::Sender<io::Result<()>>,
+    _expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> io::Result<()> {
     let listener = match TcpListener::bind(local).await {
         Ok(listener) => {
@@ -204,10 +206,12 @@ pub(super) async fn run_local_fang_forwarder(
         let remote = remote.to_string();
         let fang_id = fang_id.to_string();
         let identity = identity.clone();
+        let expected_peer = _expected_peer.clone();
 
         let handle = tokio::spawn(async move {
             if let Err(e) =
-                pipe_one_fang_connection(&mut inbound, &peer_addr, &remote, identity).await
+                pipe_one_fang_connection(&mut inbound, &peer_addr, &remote, identity, expected_peer)
+                    .await
             {
                 eprintln!("🦷 {} client {} pipe error: {}", fang_id, client_addr, e);
             }
@@ -221,6 +225,7 @@ async fn pipe_one_fang_connection(
     peer_addr: &str,
     remote: &str,
     identity: PeltIdentity,
+    expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> io::Result<()> {
     let mut outbound = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(peer_addr))
         .await
