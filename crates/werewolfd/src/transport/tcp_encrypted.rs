@@ -318,6 +318,13 @@ async fn pipe_one_fang_connection(
         ));
     }
 
+    if receiver_fingerprint != expected_peer.fingerprint {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "receiver identity not expected",
+        ));
+    }
+
     let expected_ack_text = format!(
         "fang.ack|{}|{}|{}|{}",
         receiver_fingerprint, identity.fingerprint, nonce, server_x25519
