@@ -139,16 +139,21 @@ async fn handle_fang_pipe(stream: TcpStream, state: Arc<Mutex<DaemonState>>) -> 
         })?
     };
 
+    let target_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let authorized_targets = {
         let policy = state.lock().await.target_policy.clone();
-        crate::target_policy::authorize(&policy, sender_fingerprint, remote)
-            .await
-            .map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "target authorization denied",
-                )
-            })?
+        tokio::time::timeout_at(
+            target_deadline,
+            crate::target_policy::authorize(&policy, sender_fingerprint, remote),
+        )
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "target operation timed out"))?
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "target authorization denied",
+            )
+        })?
     };
 
     let server_secret = StaticSecret::random_from_rng(OsRng);
@@ -163,8 +168,8 @@ async fn handle_fang_pipe(stream: TcpStream, state: Arc<Mutex<DaemonState>>) -> 
     let ack_signature = sign_message(&receiver_identity, ack_text.as_bytes())
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-    let remote_stream = tokio::time::timeout(
-        Duration::from_secs(5),
+    let remote_stream = tokio::time::timeout_at(
+        target_deadline,
         TcpStream::connect(authorized_targets.as_slice()),
     )
     .await
