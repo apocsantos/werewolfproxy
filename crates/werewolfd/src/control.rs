@@ -601,6 +601,10 @@ async fn handle_request(
                 handle.abort();
             }
 
+            if let Some(cancellation) = st.fang_registry.remove_cancellation(&fang_id) {
+                cancellation.abort_children();
+            }
+
             st.fang_registry.remove_started(&fang_id);
 
             if let Some(fang) = closed_fang {

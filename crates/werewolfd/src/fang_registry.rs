@@ -78,6 +78,9 @@ impl FangRegistry {
     pub(super) fn insert_cancellation(&mut self, id: String, cancellation: FangCancellation) {
         self.cancellations.insert(id, cancellation);
     }
+    pub(super) fn remove_cancellation(&mut self, id: &str) -> Option<FangCancellation> {
+        self.cancellations.remove(id)
+    }
     pub(super) fn remove_task(&mut self, id: &str) -> Option<JoinHandle<()>> {
         self.tasks.remove(id)
     }
