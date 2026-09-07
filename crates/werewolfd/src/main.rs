@@ -245,6 +245,7 @@ async fn open_fang_from_parts(
                 identity.clone(),
                 cancellation.clone(),
                 ready_tx,
+                expected_peer_identity.clone(),
             )
             .await
             {

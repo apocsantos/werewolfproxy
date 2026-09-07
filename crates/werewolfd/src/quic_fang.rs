@@ -19,6 +19,7 @@ pub async fn open_quic_fang(
     identity: PeltIdentity,
     cancellation: crate::fang_registry::FangCancellation,
     ready: tokio::sync::oneshot::Sender<std::io::Result<()>>,
+    _expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> Result<JoinHandle<()>, Box<dyn Error + Send + Sync>> {
     let handle = tokio::spawn(async move {
         let listener = match TcpListener::bind(&local_addr).await {
