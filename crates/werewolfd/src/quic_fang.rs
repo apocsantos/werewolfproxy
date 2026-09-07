@@ -21,7 +21,7 @@ pub async fn open_quic_fang(
     identity: PeltIdentity,
     cancellation: crate::fang_registry::FangCancellation,
     ready: tokio::sync::oneshot::Sender<std::io::Result<()>>,
-    _expected_peer: crate::policy::ExpectedPeerIdentity,
+    expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> Result<JoinHandle<()>, Box<dyn Error + Send + Sync>> {
     let handle = tokio::spawn(async move {
         let listener = match TcpListener::bind(&local_addr).await {
@@ -51,6 +51,7 @@ pub async fn open_quic_fang(
             let quic_server = quic_server.clone();
             let remote_addr = remote_addr.clone();
             let identity = identity.clone();
+            let expected_peer = expected_peer.clone();
 
             let handle = tokio::spawn(async move {
                 let server_addr: SocketAddr = match quic_server.parse() {
@@ -213,6 +214,10 @@ pub async fn open_quic_fang(
                     verify_message(receiver_pubkey, ack_payload.as_bytes(), ack_signature)
                 {
                     eprintln!("QUIC ACK signature verification failed: {}", e);
+                    return;
+                }
+                if receiver_fingerprint != expected_peer.fingerprint {
+                    eprintln!("QUIC receiver identity does not match selected peer");
                     return;
                 }
                 let _ = proxy_streams(tcp, send, recv).await;
