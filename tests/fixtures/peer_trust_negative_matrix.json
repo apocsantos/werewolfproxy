@@ -1,0 +1,12 @@
+{
+  "cases": [
+    {"name": "selected peer equals authenticated peer", "expected": "pass"},
+    {"name": "selected peer differs from authenticated peer", "expected": "fail"},
+    {"name": "revoked peer", "expected": "fail"},
+    {"name": "unknown peer", "expected": "fail"},
+    {"name": "invalid signature", "expected": "fail"},
+    {"name": "tampered identity field", "expected": "fail"},
+    {"name": "valid crypto under wrong identity", "expected": "fail"}
+  ],
+  "wire_format_changed": false
+}
