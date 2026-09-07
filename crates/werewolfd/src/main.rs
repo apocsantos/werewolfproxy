@@ -1,3 +1,4 @@
+mod admission;
 mod control;
 mod fang_registry;
 mod handshake;
