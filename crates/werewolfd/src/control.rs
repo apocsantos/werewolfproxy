@@ -84,7 +84,7 @@ async fn handle_request(
                     "pelt_ready": st.status.pelt_ready,
                     "packmates": st.peers.len(),
                     "fang_profiles": st.fang_profiles.len(),
-                    "active_fangs": st.fang_registry.fangs.len(),
+                    "active_fangs": st.fang_registry.len(),
                     "silver": st.status.silver,
                     "hide": st.status.hide
                 }),
@@ -94,7 +94,7 @@ async fn handle_request(
         "status" => {
             let mut st = state.lock().await;
             st.status.packmates = st.peers.len();
-            st.status.active_fangs = st.fang_registry.fangs.len();
+            st.status.active_fangs = st.fang_registry.len();
 
             ControlResponse::ok(
                 req.id,
@@ -103,7 +103,7 @@ async fn handle_request(
                     "pelt_ready": st.status.pelt_ready,
                     "packmates": st.peers.len(),
                     "fang_profiles": st.fang_profiles.len(),
-                    "active_fangs": st.fang_registry.fangs.len(),
+                    "active_fangs": st.fang_registry.len(),
                     "silver": st.status.silver,
                     "hide": st.status.hide,
                     "listen": st.den_listen,
@@ -285,13 +285,13 @@ async fn handle_request(
 
             let closed_fangs = st
                 .fang_registry
-                .fangs
+                .records()
                 .iter()
                 .filter(|f| f.peer == name)
                 .count();
 
-            st.fang_registry.fangs.retain(|f| f.peer != name);
-            st.fang_registry.tasks.retain(|_, _| true);
+            st.fang_registry.retain_records(|f| f.peer != name);
+            st.fang_registry.tasks_mut().retain(|_, _| true);
 
             st.peers.retain(|p| p.name != name);
 
@@ -498,12 +498,10 @@ async fn handle_request(
         "silver.trigger" => {
             let mut st = state.lock().await;
 
-            for (_, handle) in st.fang_registry.tasks.drain() {
-                handle.abort();
-            }
-            st.fang_registry.started.clear();
+            st.fang_registry.abort_all();
+            st.fang_registry.clear_started();
 
-            st.fang_registry.fangs.clear();
+            st.fang_registry.clear_records();
             st.status.active_fangs = 0;
             st.status.mode = WolfMode::Silver;
             st.status.silver = "active".to_string();
@@ -534,33 +532,16 @@ async fn handle_request(
         "fang.cleanup" => {
             let mut st = state.lock().await;
 
-            let dead_ids: Vec<String> = st
-                .fang_registry
-                .tasks
-                .iter()
-                .filter_map(|(id, handle)| {
-                    if handle.is_finished() {
-                        Some(id.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            for id in &dead_ids {
-                st.fang_registry.tasks.remove(id);
-                st.fang_registry.started.remove(id);
-            }
-
-            st.fang_registry.fangs.retain(|f| !dead_ids.contains(&f.id));
-            st.status.active_fangs = st.fang_registry.fangs.len();
+            let dead_ids = st.fang_registry.finished_ids();
+            st.fang_registry.remove_finished(&dead_ids);
+            st.status.active_fangs = st.fang_registry.len();
 
             ControlResponse::ok(
                 req.id,
                 json!({
                     "status": "cleanup_done",
                     "removed": dead_ids.len(),
-                    "active_fangs": st.fang_registry.fangs.len()
+                    "active_fangs": st.fang_registry.len()
                 }),
             )
         }
@@ -568,30 +549,13 @@ async fn handle_request(
         "fang.list" => {
             let mut st = state.lock().await;
 
-            let dead_ids: Vec<String> = st
-                .fang_registry
-                .tasks
-                .iter()
-                .filter_map(|(id, handle)| {
-                    if handle.is_finished() {
-                        Some(id.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            for id in &dead_ids {
-                st.fang_registry.tasks.remove(id);
-                st.fang_registry.started.remove(id);
-            }
-
-            st.fang_registry.fangs.retain(|f| !dead_ids.contains(&f.id));
-            st.status.active_fangs = st.fang_registry.fangs.len();
+            let dead_ids = st.fang_registry.finished_ids();
+            st.fang_registry.remove_finished(&dead_ids);
+            st.status.active_fangs = st.fang_registry.len();
 
             let fangs: Vec<serde_json::Value> = st
                 .fang_registry
-                .fangs
+                .records()
                 .iter()
                 .map(|f| {
                     let transport = st
@@ -603,8 +567,7 @@ async fn handle_request(
 
                     let uptime_seconds = st
                         .fang_registry
-                        .started
-                        .get(&f.id)
+                        .started_at(&f.id)
                         .map(|t| t.elapsed().as_secs())
                         .unwrap_or(0);
 
@@ -635,17 +598,12 @@ async fn handle_request(
                 return ControlResponse::err(req.id, "FANG_INVALID", "fang_id is required");
             }
 
-            let closed_fang = st
-                .fang_registry
-                .fangs
-                .iter()
-                .find(|f| f.id == fang_id)
-                .cloned();
+            let closed_fang = st.fang_registry.find_id(&fang_id).cloned();
 
-            let before = st.fang_registry.fangs.len();
-            st.fang_registry.fangs.retain(|f| f.id != fang_id);
+            let before = st.fang_registry.len();
+            st.fang_registry.retain_records(|f| f.id != fang_id);
 
-            if st.fang_registry.fangs.len() == before {
+            if st.fang_registry.len() == before {
                 return ControlResponse::err(
                     req.id,
                     "FANG_NOT_FOUND",
@@ -653,11 +611,11 @@ async fn handle_request(
                 );
             }
 
-            if let Some(handle) = st.fang_registry.tasks.remove(&fang_id) {
+            if let Some(handle) = st.fang_registry.remove_task(&fang_id) {
                 handle.abort();
             }
 
-            st.fang_registry.started.remove(&fang_id);
+            st.fang_registry.remove_started(&fang_id);
 
             if let Some(fang) = closed_fang {
                 if let Some(profile) = st.fang_profiles.iter().find(|p| {
@@ -668,9 +626,9 @@ async fn handle_request(
                 }
             }
 
-            st.status.active_fangs = st.fang_registry.fangs.len();
+            st.status.active_fangs = st.fang_registry.len();
 
-            if st.fang_registry.fangs.is_empty() {
+            if st.fang_registry.is_empty() {
                 st.status.mode = WolfMode::Human;
             }
 
@@ -678,7 +636,7 @@ async fn handle_request(
                 req.id,
                 json!({
                     "status": "closed",
-                    "active_fangs": st.fang_registry.fangs.len()
+                    "active_fangs": st.fang_registry.len()
                 }),
             )
         }
