@@ -1,4 +1,5 @@
 mod control;
+mod fang_registry;
 mod state;
 mod transport;
 use state::DaemonState;
@@ -202,6 +203,7 @@ async fn open_fang_from_parts(
     }
 
     if st
+        .fang_registry
         .fangs
         .iter()
         .any(|f| f.local == local && matches!(f.state, FangState::Active))
@@ -246,7 +248,8 @@ async fn open_fang_from_parts(
 
         _ => match transport::parse_fang_transport(&peer_record.address) {
             Ok(transport::FangTransport::Quic(a)) => {
-                let fang_id = generate_fang_id(&peer, &local, &remote, st.fangs.len());
+                let fang_id =
+                    generate_fang_id(&peer, &local, &remote, st.fang_registry.fangs.len());
 
                 let handle = match open_quic_fang(
                     local.clone(),
@@ -270,12 +273,13 @@ async fn open_fang_from_parts(
                     state: FangState::Active,
                 };
 
-                st.fangs.push(fang);
-                st.fang_tasks.insert(fang_id.clone(), handle);
-                st.fang_started
+                st.fang_registry.fangs.push(fang);
+                st.fang_registry.tasks.insert(fang_id.clone(), handle);
+                st.fang_registry
+                    .started
                     .insert(fang_id.clone(), std::time::Instant::now());
 
-                st.status.active_fangs = st.fangs.len();
+                st.status.active_fangs = st.fang_registry.fangs.len();
                 st.status.mode = WolfMode::Wolf;
 
                 return ControlResponse::ok(
@@ -302,7 +306,7 @@ async fn open_fang_from_parts(
         },
     };
 
-    let fang_id = generate_fang_id(&peer, &local, &remote, st.fangs.len());
+    let fang_id = generate_fang_id(&peer, &local, &remote, st.fang_registry.fangs.len());
 
     let fang = FangRecord {
         id: fang_id.clone(),
@@ -312,9 +316,9 @@ async fn open_fang_from_parts(
         state: FangState::Active,
     };
 
-    st.fangs.push(fang);
+    st.fang_registry.fangs.push(fang);
 
-    st.status.active_fangs = st.fangs.len();
+    st.status.active_fangs = st.fang_registry.fangs.len();
     st.status.mode = WolfMode::Wolf;
 
     let task_fang_id = fang_id.clone();
@@ -343,8 +347,9 @@ async fn open_fang_from_parts(
         }
     });
 
-    st.fang_tasks.insert(fang_id.clone(), handle);
-    st.fang_started
+    st.fang_registry.tasks.insert(fang_id.clone(), handle);
+    st.fang_registry
+        .started
         .insert(fang_id.clone(), std::time::Instant::now());
 
     ControlResponse::ok(
