@@ -24,6 +24,34 @@ class TargetAuthorizationMatrix(unittest.TestCase):
         source = (ROOT / "crates/werewolfd/src/transport/tcp_plain.rs").read_text()
         self.assertNotIn("target_policy", source)
 
+    def test_receiver_connects_only_resolved_endpoints_under_shared_deadline(self):
+        # Source characterization supplements injected-resolver Rust tests.
+        for name in ('tcp_encrypted.rs', 'quic.rs'):
+            source = (ROOT / 'crates/werewolfd/src/transport' / name).read_text()
+            start = source.index('let target_deadline =')
+            connect = source.index('TcpStream::connect(authorized_targets.as_slice())', start)
+            authorization = source.index('target_policy::authorize(', start)
+            self.assertLess(authorization, connect)
+            segment = source[start:connect]
+            self.assertEqual(segment.count('timeout_at('), 2)
+            self.assertEqual(segment.count('target_deadline,'), 2)
+            self.assertEqual(segment.count('Duration::from_secs(5)'), 1)
+            self.assertNotIn('lookup_host', source)
+            self.assertNotIn('TcpStream::connect(remote)', source)
+            self.assertNotIn('TcpStream::connect(&target)', source)
+            self.assertGreater(source.index('"ok": true', connect), connect)
+
+    def test_resolution_has_one_dns_call_and_never_connects(self):
+        source = (ROOT / 'crates/werewolfd/src/target_policy.rs').read_text().split('#[cfg(test)]')[0]
+        self.assertEqual(source.count('tokio::net::lookup_host('), 1)
+        self.assertNotIn('TcpStream', source)
+
+    def test_lab_provisions_explicit_grants_not_legacy(self):
+        source = (ROOT / 'tests/integration/run.py').read_text()
+        self.assertNotIn('legacy-allow', source)
+        self.assertIn("'mode': 'deny-by-default'", source)
+        self.assertIn("identities['b']['fingerprint']: {'targets':", source)
+
 
 if __name__ == "__main__":
     unittest.main()

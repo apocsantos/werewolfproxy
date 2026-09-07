@@ -2,6 +2,8 @@ mod control;
 mod fang_registry;
 mod policy;
 mod state;
+#[cfg(test)]
+mod target_authorization_tests;
 mod target_policy;
 mod transport;
 use fang_registry::FangCancellation;
