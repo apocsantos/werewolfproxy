@@ -1,3 +1,5 @@
+mod cli;
+use cli::Args;
 mod quic_fang;
 use crate::quic_fang::open_quic_fang;
 use crate::quic_lab::make_server_endpoint;
@@ -54,22 +56,6 @@ macro_rules! ww_error {
     ($subsystem:expr, $event:expr, $($arg:tt)*) => {
         eprintln!("[ERROR][{}][{}] {}", $subsystem, $event, format!($($arg)*));
     };
-}
-
-#[derive(Parser, Debug, Clone)]
-#[command(name = "werewolfd")]
-struct Args {
-    #[arg(long, default_value = "/tmp/werewolf.sock")]
-    socket: String,
-
-    #[arg(long, default_value = "~/.config/werewolf")]
-    home: String,
-
-    #[arg(long, default_value = "127.0.0.1:8443")]
-    listen: String,
-
-    #[arg(long, default_value = "127.0.0.1:9560")]
-    quic_listen: String,
 }
 
 #[derive(Default)]
