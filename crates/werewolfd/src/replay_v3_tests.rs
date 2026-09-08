@@ -346,11 +346,42 @@ async fn exporter_equality_separation_and_ack_substitution() {
             assert_ne!(last, binding);
         }
         previous = Some(binding);
+        let export = |connection: &quinn::Connection, label: &[u8], context: &[u8]| {
+            let mut value = [0; 32];
+            connection
+                .export_keying_material(&mut value, label, context)
+                .unwrap();
+            value
+        };
+        let label = b"EXPORTER-WerewolfProxy-Fang-QUIC-v3";
+        let context = b"werewolfproxy/fang-quic-v3";
+        let original = export(&a, label, context);
+        assert_eq!(original, export(&b, label, context));
+        assert_ne!(original, export(&a, b"stage11a-distinct-label", context));
+        assert_ne!(original, export(&a, label, b"stage11a-distinct-context"));
         a.force_key_update();
+        let (mut send, _) = a.open_bi().await.unwrap();
+        send.write_all(b"key-update").await.unwrap();
+        send.finish().unwrap();
+        let (_, mut recv) = b.accept_bi().await.unwrap();
+        assert_eq!(recv.read_to_end(32).await.unwrap(), b"key-update");
+        assert_eq!(original, export(&a, label, context));
+        assert_eq!(original, export(&b, label, context));
         assert_eq!(binding, hs::quic_binding(&a).unwrap());
         a.close(0u32.into(), b"");
         b.close(0u32.into(), b"");
     }
+    let recreated = crate::quic_lab::make_server_endpoint("127.0.0.1:0".parse().unwrap()).unwrap();
+    let connecting = client
+        .connect(recreated.local_addr().unwrap(), "localhost")
+        .unwrap();
+    let (a, b) = tokio::join!(async { connecting.await.unwrap() }, async {
+        recreated.accept().await.unwrap().await.unwrap()
+    });
+    assert_eq!(hs::quic_binding(&a).unwrap(), hs::quic_binding(&b).unwrap());
+    assert_ne!(previous.unwrap(), hs::quic_binding(&a).unwrap());
+    a.close(0u32.into(), b"");
+    b.close(0u32.into(), b"");
     let sender = generate_identity();
     let receiver = generate_identity();
     let addr = server.local_addr().unwrap();
