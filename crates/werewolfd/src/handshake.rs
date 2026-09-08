@@ -543,7 +543,7 @@ mod tests {
             assert!(unhex::<16>(&bad).is_err());
         }
         assert!(binary::<32>(&STANDARD.encode([0; 31])).is_err());
-        assert!(binary::<32>(&STANDARD.encode([0; 32]).trim_end_matches('=').to_string()).is_err());
+        assert!(binary::<32>(STANDARD.encode([0; 32]).trim_end_matches('=')).is_err());
         struct Failed;
         impl CryptoRng for Failed {}
         impl RngCore for Failed {

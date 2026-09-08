@@ -408,3 +408,6 @@ async fn open_fang_from_parts(
 mod anyhow_free {
     pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 }
+
+#[cfg(test)]
+mod replay_v3_tests;
