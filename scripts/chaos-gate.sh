@@ -50,12 +50,10 @@ fi
 echo
 echo "🧪 Fallback check"
 
-transport="$(wolf-b auto --policy secure --json | jq -r '.transport')"
+transport="$( { wolf-b auto --policy secure --json || [[ "$?" == 2 ]]; } | jq -r '.transport')"
 
 if [[ "$transport" == "tcp-encrypted-v2" ]]; then
   pass "fallback switched to tcp-encrypted-v2"
-elif [[ "$transport" == "tcp-plain" ]]; then
-  pass "fallback switched to tcp-plain"
 else
   fail "fallback transport unexpected: $transport"
 fi
@@ -68,7 +66,7 @@ sleep 3
 echo
 echo "🧪 Recovery check"
 
-transport="$(wolf-b auto --policy secure --json | jq -r '.transport')"
+transport="$( { wolf-b auto --policy secure --json || [[ "$?" == 2 ]]; } | jq -r '.transport')"
 
 if [[ "$transport" == "quic" ]]; then
   pass "QUIC recovered"

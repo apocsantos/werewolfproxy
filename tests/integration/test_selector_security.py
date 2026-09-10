@@ -108,3 +108,22 @@ sys.exit(0 if sys.argv[-1] in os.environ['HEALTHY'].split(',') else 22)
         self.env['WEREWOLF_QUIC_URL'] = 'url"\\value'
         value, _ = self.select(healthy=['url"\\value'])
         self.assertEqual(value['url'], 'url"\\value')
+
+    def test_policy_explain_preserves_exhaustion(self):
+        (self.base / 'probes').write_text('')
+        result = subprocess.run(['bash', str(ROOT / 'scripts/wolf-b.sh'), 'policy-explain', 'secure'],
+                                env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('"fail_closed": true', result.stdout)
+        self.assertEqual((self.base / 'probes').read_text().splitlines(), ['quic', 'encrypted'])
+
+    def test_invalid_wrapper_policy_exits_before_diagnostics(self):
+        for command in ('ready', 'policy-explain'):
+            (self.base / 'probes').write_text('')
+            result = subprocess.run(['bash', str(ROOT / 'scripts/wolf-b.sh'), command,
+                                     '--policy' if command == 'ready' else 'invalid',
+                                     'invalid'] if command == 'ready' else
+                                    ['bash', str(ROOT / 'scripts/wolf-b.sh'), command, 'invalid'],
+                                    env=self.env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual((self.base / 'probes').read_text(), '')

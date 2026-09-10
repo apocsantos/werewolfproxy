@@ -887,16 +887,20 @@ fi
 if [[ "${1:-}" == "ready" ]]; then
   json_mode=0
   policy="secure"
+  plain_args=()
 
   shift || true
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --allow-plain-fallback)
+        plain_args=(--allow-plain-fallback)
+        ;;
       --json)
         json_mode=1
         ;;
       --policy)
         shift || true
-        policy="${1:-secure}"
+        policy="${1-}"
         ;;
       --policy=*)
         policy="${1#--policy=}"
@@ -908,11 +912,13 @@ if [[ "${1:-}" == "ready" ]]; then
     shift || true
   done
 
+  case "$policy" in secure|strict|compatibility|legacy) ;; *) echo "unavailable"; exit 2 ;; esac
+
   "$0" heal --quiet || true
 
   if [[ "$json_mode" == "1" ]]; then
-    doctor="$("$0" doctor --json)"
-    selected="$("$0" auto --policy "$policy" --json)"
+    doctor="$("$0" doctor --json)" || [[ "$?" == 1 ]]
+    selected="$("$0" auto --policy "$policy" "${plain_args[@]}" --json)" || [[ "$?" == 2 ]]
     scores="$("$0" score-json)"
 
     jq -n       --arg policy "$policy"       --argjson doctor "$doctor"       --argjson selected "$selected"       --argjson scores "$scores"       '{
@@ -1038,7 +1044,7 @@ if [[ "${1:-}" == "doctor" ]]; then
   check_cmd "benchmark json valid" bash -lc "$0 benchmark --json | jq -e '.transports' >/dev/null"
   check_cmd "score json valid" bash -lc "$0 score-json | jq -e '.transports' >/dev/null"
   check_cmd "auto secure valid" bash -lc "$0 auto --policy secure --json | jq -e '.healthy == true' >/dev/null"
-  check_cmd "auto resilience valid" bash -lc "$0 auto --policy resilience --json | jq -e '.healthy == true' >/dev/null"
+  check_cmd "auto strict valid" bash -lc "$0 auto --policy strict --json | jq -e '.healthy == true' >/dev/null"
   check_cmd "score history readable" bash -lc "test ! -f ~/.cache/werewolf/wolf-b-scores.jsonl || tail -n 5 ~/.cache/werewolf/wolf-b-scores.jsonl | jq -e . >/dev/null"
   check_cmd "snapshot directory writable" bash -lc "mkdir -p ~/.cache/werewolf/snapshots && test -w ~/.cache/werewolf/snapshots"
 
@@ -1061,48 +1067,16 @@ if [[ "${1:-}" == "doctor" ]]; then
 fi
 
 if [[ "${1:-}" == "policy-explain" ]]; then
-  policy="${2:-secure}"
-
-  echo "🐺 Werewolf Policy Explain"
-  echo "========================="
-  echo
-  echo "policy: $policy"
-  echo
-
-  echo "📊 Current scores"
-  "$0" score --no-decision
-
-  echo
-  echo "🧠 Decision"
-  "$0" auto --policy "$policy" --json | jq .
-
-  echo
-  echo "📜 Policy meaning"
+  policy="${2-secure}"
   case "$policy" in
-    secure)
-      echo "secure: prefer QUIC, then TCP encrypted v2, then TCP plain."
-      ;;
-    performance)
-      echo "performance: choose the currently lowest-latency healthy transport."
-      ;;
-    stealth)
-      echo "stealth: prefer TCP encrypted v2, then TCP plain, then QUIC."
-      ;;
-    resilience)
-      echo "resilience: choose the currently highest-scoring healthy transport."
-      ;;
-    learned)
-      echo "learned: choose the historically highest average score, if currently healthy."
-      ;;
-    recent)
-      echo "recent: choose the highest average score from recent score samples."
-      ;;
-    *)
-      echo "unknown policy."
-      exit 2
-      ;;
+    secure|strict) echo "strict: QUIC v3, encrypted TCP v3, then fail closed; plain is ineligible." ;;
+    compatibility) echo "compatibility: strict unless this auto invocation includes --allow-plain-fallback." ;;
+    legacy) echo "legacy: QUIC, encrypted TCP, then plaintext; deliberately weaker operation." ;;
+    *) echo "unavailable"; exit 2 ;;
   esac
-
+  echo "tcp-encrypted-v2 is a legacy local selector identifier; the TCP wire handshake is v3."
+  result="$("$0" auto --policy "$policy" --json)" || [[ "$?" == 2 ]]
+  printf '%s\n' "$result" | jq .
   exit 0
 fi
 
@@ -1111,7 +1085,7 @@ if [[ "${1:-}" == "policy-test" ]]; then
   echo "======================"
   echo
 
-  for policy in secure performance stealth resilience learned recent; do
+  for policy in secure strict compatibility legacy; do
     result="$("$0" auto --policy "$policy" --json || true)"
     transport="$(echo "$result" | jq -r '.transport // "error"')"
     healthy="$(echo "$result" | jq -r '.healthy // false')"
@@ -1197,7 +1171,7 @@ if [[ "${1:-}" == "score-history" ]]; then
   analyze_transport tcp-plain
 
   echo "recommended:"
-  "$0" auto --policy resilience --json | jq -r '
+  { "$0" auto --policy secure --json || [[ "$?" == 2 ]]; } | jq -r '
     "  " + .label
   '
 
@@ -1238,7 +1212,7 @@ if [[ "${1:-}" == "score" ]]; then
 
   if [[ "$no_decision" == "0" ]]; then
     echo
-    "$0" auto --policy resilience --json | jq .
+    { "$0" auto --policy secure --json || [[ "$?" == 2 ]]; } | jq .
   fi
 
   exit 0

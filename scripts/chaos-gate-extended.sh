@@ -56,7 +56,7 @@ echo
 echo "⚡ Kill QUIC"
 close_port 9020 "QUIC"
 
-transport="$(wolf-b auto --policy secure --json | jq -r '.transport')"
+transport="$( { wolf-b auto --policy secure --json || [[ "$?" == 2 ]]; } | jq -r '.transport')"
 
 [[ "$transport" == "tcp-encrypted-v2" ]] \
   && pass "fallback to tcp-encrypted-v2" \
@@ -66,13 +66,21 @@ echo
 echo "⚡ Kill TCP encrypted v2"
 close_port 9022 "TCP encrypted v2"
 
-transport="$(wolf-b auto --policy secure --json | jq -r '.transport')"
+transport="$( { wolf-b auto --policy secure --json || [[ "$?" == 2 ]]; } | jq -r '.transport')"
 
-[[ "$transport" == "tcp-plain" ]] \
-  && pass "fallback to tcp-plain" \
+[[ "$transport" == "unavailable" ]] \
+  && pass "strict exhaustion fails closed" \
   || fail "unexpected fallback: $transport"
 
 echo
+for policy in compatibility legacy; do
+  plain_args=()
+  [[ "$policy" != compatibility ]] || plain_args=(--allow-plain-fallback)
+  wolf-b auto --policy "$policy" "${plain_args[@]}" --json | jq -e \
+    '.transport == "tcp-plain" and .security_downgrade == true' >/dev/null \
+    && pass "$policy explicit weaker operation" || fail "$policy plain selection"
+done
+
 echo "🔧 Healing all"
 wolf-b heal --quiet || true
 sleep 4
@@ -80,7 +88,7 @@ sleep 4
 echo
 echo "🧪 Recovery"
 
-transport="$(wolf-b auto --policy secure --json | jq -r '.transport')"
+transport="$( { wolf-b auto --policy secure --json || [[ "$?" == 2 ]]; } | jq -r '.transport')"
 
 [[ "$transport" == "quic" ]] \
   && pass "full recovery to QUIC" \

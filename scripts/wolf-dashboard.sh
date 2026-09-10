@@ -28,7 +28,7 @@ end
 
 echo
 echo "🚇 Selected transport"
-wolf-b auto --policy secure --json 2>/dev/null | jq -r '
+{ wolf-b auto --policy secure --json 2>/dev/null || [[ "$?" == 2 ]]; } | jq -r '
 "\(.transport) | healthy=\(.healthy)"
 ' || echo "unknown"
 

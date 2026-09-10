@@ -19,11 +19,9 @@ Transport:
   wolf-b auto
   wolf-b auto --json
   wolf-b auto --policy secure
-  wolf-b auto --policy performance
-  wolf-b auto --policy stealth
-  wolf-b auto --policy resilience
-  wolf-b auto --policy learned
-  wolf-b auto --policy recent
+  wolf-b auto --policy strict
+  wolf-b auto --policy compatibility --allow-plain-fallback
+  wolf-b auto --policy legacy
 
 Scoring and memory:
   wolf-b score
@@ -35,7 +33,7 @@ Scoring and memory:
 Policies:
   wolf-b policy-test
   wolf-b policy-explain secure
-  wolf-b policy-explain recent
+  wolf-b policy-explain compatibility
 
 Healing and diagnostics:
   wolf-b heal
