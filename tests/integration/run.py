@@ -218,9 +218,11 @@ class Lab:
                               f'{key}-application', timeout=15)
         require(output == MARKER, f'{key}: application payload differs')
 
-    def selection(self, expected, key):
+    def selection(self, expected, key=None, policy="secure", allow_plain=False):
         # Selector stderr contains expected failed-probe diagnostics; capture separately.
-        argv = ['bash', ROOT / 'scripts/wolf-b.sh', 'auto', '--policy', 'secure', '--json']
+        argv = ['bash', ROOT / 'scripts/wolf-b.sh', 'auto', '--policy', policy, '--json']
+        if allow_plain:
+            argv.append('--allow-plain-fallback')
         error = (self.base / f'select-{len(self.commands)}.stderr').open('wb')
         self.handles.append(error)
         output = self.base / f'select-{len(self.commands)}.stdout'
@@ -236,12 +238,19 @@ class Lab:
             except subprocess.TimeoutExpired:
                 self.stop(p)
                 raise RuntimeError('secure selector timed out')
-        require(p.returncode == 0, f'selector exit {p.returncode}')
+        available = expected != 'unavailable'
+        require(p.returncode == (0 if available else 2), f'selector exit {p.returncode}')
         value = json.loads(output.read_bytes())
-        require(value.get('transport') == expected and value.get('healthy') is True
-                and value.get('policy') == 'secure' and value.get('url') == self.url(key),
-                f'wrong secure selection: {value}')
-        self.get_marker(key)
+        require(value.get('schema_version') == 2 and value.get('transport') == expected
+                and value.get('healthy') == available and value.get('policy') == policy
+                and value.get('fail_closed') == (not available)
+                and value.get('security_downgrade') == (expected == 'tcp-plain')
+                and value.get('plaintext_authorized') == allow_plain
+                and value.get('fallback') == (expected in ('tcp-encrypted-v2', 'tcp-plain'))
+                and value.get('url') == (self.url(key) if available else None),
+                f'wrong selection: {value}')
+        if available:
+            self.get_marker(key)
         return value
 
     def open_profile(self, key):
@@ -345,15 +354,22 @@ class Lab:
         for key in ('quic', 'encrypted', 'plain'):
             self.get_marker(key)
             self.record(f'{key} application traffic', {'bytes': len(MARKER), 'exact_payload': True})
-        selections = [self.selection('quic', 'quic')]
+        policies = [('secure', False), ('compatibility', False),
+                    ('compatibility', True), ('legacy', False)]
+        selections = {(p, a): [self.selection('quic', 'quic', p, a)] for p, a in policies}
         self.close('quic')
-        selections.append(self.selection('tcp-encrypted-v2', 'encrypted'))
+        for p, a in policies:
+            selections[p, a].append(self.selection('tcp-encrypted-v2', 'encrypted', p, a))
         self.close('encrypted')
-        selections.append(self.selection('tcp-plain', 'plain'))
-        self.record('secure fallback QUIC -> TCP encrypted v2 -> TCP plain', selections)
+        for p, a in policies:
+            plain = p == 'legacy' or a
+            selections[p, a].append(self.selection('tcp-plain' if plain else 'unavailable',
+                                                   'plain' if plain else None, p, a))
+            self.record(f'{p} allow_plain={a} fallback matrix', selections[p, a])
+        self.record('unknown policy fails closed', self.selection('unavailable', policy='unknown'))
         self.open_profile('encrypted')
         self.open_profile('quic')
-        self.record('restoration to QUIC', self.selection('quic', 'quic'))
+        self.record('restoration to QUIC', [self.selection('quic', 'quic', p, a) for p, a in policies])
         download = self.base / 'download.bin'
         self.command(['curl', '--noproxy', '*', '--fail', '--silent', '--show-error',
                       '--max-time', '180', '--output', download, self.url('large', 'large.bin')],

@@ -1288,162 +1288,85 @@ fi
 
 if [[ "${1:-}" == "auto" ]]; then
   json_mode=0
-  policy="${WEREWOLF_TRANSPORT_POLICY:-secure}"
-
-  shift || true
+  policy="${WEREWOLF_TRANSPORT_POLICY-secure}"
+  allow_plain=false
+  invalid=false
+  shift
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --json) json_mode=1 ;;
-      --policy) shift || true; policy="${1:-secure}" ;;
+      --allow-plain-fallback) allow_plain=true ;;
+      --policy)
+        if [[ $# -lt 2 || "$2" == --* ]]; then
+          invalid=true
+        else
+          shift
+          policy="$1"
+        fi
+        ;;
       --policy=*) policy="${1#--policy=}" ;;
+      *) invalid=true ;;
     esac
-    shift || true
+    shift
   done
 
-  emit_choice() {
-    local transport="$1"
-    local label="$2"
-    local url="$3"
-    if [[ "$json_mode" == "1" ]]; then
-      printf '{"transport":"%s","label":"%s","url":"%s","healthy":true,"policy":"%s"}\n' "$transport" "$label" "$url" "$policy"
-    else
-      echo "transport: $label"
-      echo "url:       $url"
+  policy_class=invalid
+  case "$policy" in
+    secure|strict) policy_class=strict ;;
+    compatibility) policy_class=compatibility ;;
+    legacy) policy_class=legacy ;;
+    *) invalid=true ;;
+  esac
+
+  # Eligibility is fixed locally before health probes or any scoring/history access.
+  # tcp-encrypted-v2 is a legacy local identifier; its wire handshake is v3.
+  plain_eligible=false
+  if [[ "$policy_class" == legacy || ( "$policy_class" == compatibility && "$allow_plain" == true ) ]]; then
+    plain_eligible=true
+  fi
+
+  emit_selection() {
+    local transport="$1" label="$2" url="$3" healthy="$4"
+    local plaintext=false fallback=false downgrade=false security_class=unavailable
+    if [[ "$healthy" == true ]]; then
+      security_class=authenticated-encrypted
+      [[ "$transport" != quic ]] && fallback=true
+      if [[ "$transport" == tcp-plain ]]; then
+        [[ "$plain_eligible" == true && "$policy_class" != strict ]] || exit 2
+        plaintext=true
+        downgrade=true
+        security_class=plaintext
+      fi
     fi
-    exit 0
+    if [[ "$json_mode" == 1 ]]; then
+      jq -cn --arg transport "$transport" --arg label "$label" --arg url "$url" \
+        --arg policy "$policy" --arg policy_class "$policy_class" \
+        --arg security_class "$security_class" --argjson healthy "$healthy" \
+        --argjson plaintext "$plaintext" --argjson fallback "$fallback" \
+        --argjson security_downgrade "$downgrade" --argjson plaintext_authorized "$allow_plain" \
+        '{schema_version:2, transport:$transport, label:$label,
+          url:(if $healthy then $url else null end), healthy:$healthy,
+          policy:$policy, policy_class:$policy_class, security_class:$security_class,
+          plaintext:$plaintext, fallback:$fallback, security_downgrade:$security_downgrade,
+          plaintext_authorization_required:($policy_class == "compatibility"),
+          plaintext_authorized:$plaintext_authorized, fail_closed:($healthy|not)}'
+    else
+      printf 'transport: %s\n' "$label"
+      [[ "$healthy" != true ]] || printf 'url:       %s\n' "$url"
+    fi
+    [[ "$healthy" == true ]] && exit 0
+    exit 2
   }
 
-  [[ "$json_mode" == "0" ]] && echo "🐺 Werewolf Auto Transport" && echo "=========================" && echo && echo "policy:    $policy"
-
-  if [[ "$policy" == "recent" ]]; then
-    score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
-    sample_count="${WEREWOLF_SCORE_RECENT_SAMPLES:-20}"
-
-    if [[ -f "$score_file" ]]; then
-      best_transport="$(tail -n "$sample_count" "$score_file" | jq -s -r '
-        {
-          quic: (map(.transports.quic.score // empty) | if length == 0 then -999999 else add / length end),
-          "tcp-encrypted-v2": (map(.transports["tcp-encrypted-v2"].score // empty) | if length == 0 then -999999 else add / length end),
-          "tcp-plain": (map(.transports["tcp-plain"].score // empty) | if length == 0 then -999999 else add / length end)
-        }
-        | to_entries
-        | sort_by(.value)
-        | reverse
-        | .[0].key
-      ')"
-
-      case "$best_transport" in
-        quic)
-          is_healthy "$QUIC_URL" && emit_choice "quic" "QUIC 🟢" "$QUIC_URL"
-          ;;
-        tcp-encrypted-v2)
-          is_healthy "$TCP_ENC_URL" && emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL"
-          ;;
-        tcp-plain)
-          is_healthy "$TCP_URL" && emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL"
-          ;;
-      esac
-    fi
-
-    policy="resilience"
+  if [[ "$invalid" == true ]]; then
+    emit_selection unavailable unavailable "" false
   fi
-
-  if [[ "$policy" == "learned" ]]; then
-    score_file="${WEREWOLF_SCORE_FILE:-$HOME/.cache/werewolf/wolf-b-scores.jsonl}"
-
-    if [[ -f "$score_file" ]]; then
-      best_transport="$(jq -s -r '
-        {
-          quic: (map(.transports.quic.score // empty) | if length == 0 then -999999 else add / length end),
-          "tcp-encrypted-v2": (map(.transports["tcp-encrypted-v2"].score // empty) | if length == 0 then -999999 else add / length end),
-          "tcp-plain": (map(.transports["tcp-plain"].score // empty) | if length == 0 then -999999 else add / length end)
-        }
-        | to_entries
-        | sort_by(.value)
-        | reverse
-        | .[0].key
-      ' "$score_file")"
-
-      case "$best_transport" in
-        quic)
-          is_healthy "$QUIC_URL" && emit_choice "quic" "QUIC 🟢" "$QUIC_URL"
-          ;;
-        tcp-encrypted-v2)
-          is_healthy "$TCP_ENC_URL" && emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL"
-          ;;
-        tcp-plain)
-          is_healthy "$TCP_URL" && emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL"
-          ;;
-      esac
-    fi
-
-    policy="resilience"
+  is_healthy "$QUIC_URL" && emit_selection quic "QUIC 🟢" "$QUIC_URL" true
+  is_healthy "$TCP_ENC_URL" && emit_selection tcp-encrypted-v2 "TCP encrypted v2 🟡" "$TCP_ENC_URL" true
+  if [[ "$plain_eligible" == true ]]; then
+    is_healthy "$TCP_URL" && emit_selection tcp-plain "TCP plain fallback 🟠" "$TCP_URL" true
   fi
-
-  if [[ "$policy" == "resilience" ]]; then
-    data="$("$0" score-json)"
-
-    best_transport=""
-    best_score="-999999"
-
-    for t in quic tcp-encrypted-v2 tcp-plain; do
-      healthy="$(echo "$data" | jq -r ".transports[\"$t\"].healthy")"
-      score="$(echo "$data" | jq -r ".transports[\"$t\"].score")"
-
-      [[ "$healthy" != "true" ]] && continue
-
-      if awk "BEGIN {exit !($score > $best_score)}"; then
-        best_score="$score"
-        best_transport="$t"
-      fi
-    done
-
-    case "$best_transport" in
-      quic) emit_choice "quic" "QUIC 🟢" "$QUIC_URL" ;;
-      tcp-encrypted-v2) emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL" ;;
-      tcp-plain) emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL" ;;
-    esac
-  fi
-
-  if [[ "$policy" == "performance" ]]; then
-    data="$("$0" benchmark --json)"
-    best_transport=""
-    best_latency="999999"
-
-    for t in quic tcp-encrypted-v2 tcp-plain; do
-      healthy="$(echo "$data" | jq -r ".transports[\"$t\"].healthy")"
-      latency="$(echo "$data" | jq -r ".transports[\"$t\"].latency_seconds")"
-      [[ "$healthy" != "true" || "$latency" == "null" ]] && continue
-
-      if awk "BEGIN {exit !($latency < $best_latency)}"; then
-        best_latency="$latency"
-        best_transport="$t"
-      fi
-    done
-
-    case "$best_transport" in
-      quic) emit_choice "quic" "QUIC 🟢" "$QUIC_URL" ;;
-      tcp-encrypted-v2) emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL" ;;
-      tcp-plain) emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL" ;;
-    esac
-  fi
-
-  if [[ "$policy" == "stealth" ]]; then
-    is_healthy "$TCP_ENC_URL" && emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL"
-    is_healthy "$TCP_URL" && emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL"
-    is_healthy "$QUIC_URL" && emit_choice "quic" "QUIC 🟢" "$QUIC_URL"
-  fi
-
-  is_healthy "$QUIC_URL" && emit_choice "quic" "QUIC 🟢" "$QUIC_URL"
-  is_healthy "$TCP_ENC_URL" && emit_choice "tcp-encrypted-v2" "TCP encrypted v2 🟡" "$TCP_ENC_URL"
-  is_healthy "$TCP_URL" && emit_choice "tcp-plain" "TCP plain fallback 🟠" "$TCP_URL"
-
-  if [[ "$json_mode" == "1" ]]; then
-    printf '{"transport":"unavailable","label":"unavailable","url":null,"healthy":false,"policy":"%s"}\n' "$policy"
-  else
-    echo "transport: unavailable 🔴"
-  fi
-  exit 2
+  emit_selection unavailable unavailable "" false
 fi
 
 if [[ "${1:-}" == "benchmark" ]]; then
