@@ -637,3 +637,56 @@ async fn handle_request(
         ),
     }
 }
+
+#[cfg(test)]
+mod characterization_tests {
+    use super::*;
+    use std::os::unix::fs::FileTypeExt;
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "wwp-control-audit-{}-{}",
+                std::process::id(),
+                crate::handshake::hex(&crate::handshake::random::<16>().unwrap())
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    // Freeze the observed unsafe behavior before replacing socket lifecycle.
+    #[tokio::test]
+    async fn existing_regular_file_is_currently_replaced() {
+        let fixture = Fixture::new();
+        let path = fixture.0.join("control.sock");
+        std::fs::write(&path, b"isolated collision victim").unwrap();
+        let listener = bind_socket(path.to_str().unwrap()).await.unwrap();
+        assert!(std::fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_socket());
+        drop(listener);
+    }
+
+    #[tokio::test]
+    async fn active_socket_is_currently_unlinked_and_rebound() {
+        let fixture = Fixture::new();
+        let path = fixture.0.join("control.sock");
+        let first = bind_socket(path.to_str().unwrap()).await.unwrap();
+        let second = bind_socket(path.to_str().unwrap()).await.unwrap();
+        let client = UnixStream::connect(&path).await.unwrap();
+        let (accepted, _) = second.accept().await.unwrap();
+        assert_eq!(
+            accepted.peer_cred().unwrap().uid(),
+            client.peer_cred().unwrap().uid()
+        );
+        drop((first, second, client, accepted));
+    }
+}
