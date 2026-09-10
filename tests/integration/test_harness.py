@@ -91,7 +91,7 @@ class HarnessTests(unittest.TestCase):
                 lab.cleanup()
 
     def response_case(self, responder, pattern):
-        with tempfile.TemporaryDirectory(prefix='wwp-control-', dir='/tmp') as directory:
+        with tempfile.TemporaryDirectory(prefix='wwp-control-') as directory:
             path = pathlib.Path(directory) / 'control.sock'
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
                 server.bind(str(path))

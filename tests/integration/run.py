@@ -67,7 +67,7 @@ def control_request(path, cmd, args=None, timeout=5):
 
 class Lab:
     def __init__(self, keep=False):
-        self.base = pathlib.Path(tempfile.mkdtemp(prefix='wwp-lab-', dir='/tmp'))
+        self.base = pathlib.Path(tempfile.mkdtemp(prefix='wwp-lab-'))
         self.keep = keep
         self.processes = []
         self.handles = []
