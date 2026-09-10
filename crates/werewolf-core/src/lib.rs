@@ -20,3 +20,6 @@ pub mod lookup;
 pub mod message;
 
 pub mod find_node;
+
+#[cfg(target_os = "linux")]
+pub mod local_fs;
