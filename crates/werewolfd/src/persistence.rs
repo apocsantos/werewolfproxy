@@ -26,7 +26,7 @@ pub(super) fn load_startup_state(
     }
     if let Some(data) = den.read(OsStr::new("fangs.json"), 1024 * 1024)? {
         let profiles = serde_json::from_slice::<Vec<_>>(&data).map_err(|_| invalid())?;
-        state_validation::profiles(&profiles, &initial_state.peers)?;
+        state_validation::profile_document(&profiles)?;
         initial_state.fang_profiles = profiles;
     }
     if let Some(data) = den.read(OsStr::new("active_fangs.json"), 1024 * 1024)? {
@@ -94,6 +94,32 @@ mod tests {
             &serde_json::to_vec(&vec![peer.clone(), peer]).unwrap(),
         );
         assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+    }
+
+    #[tokio::test]
+    async fn removed_peer_profiles_remain_inert_and_partial_temps_are_ignored() {
+        let fixture = Fixture::new();
+        let identity = generate_identity();
+        fixture.write("pelt.json", &serde_json::to_vec(&identity).unwrap());
+        fixture.write("pack.json", b"[]");
+        fixture.write("fangs.json", br#"[{"name":"old","peer":"removed","local":"127.0.0.1:12345","remote":"127.0.0.1:1","transport":"tcp"}]"#);
+        fixture.write("active_fangs.json", br#"["old"]"#);
+        fixture.write(".interrupted.tmp", b"{partial");
+        let mut state = DaemonState::default();
+        load_startup_state(&fixture.1, &mut state).unwrap();
+        let state = std::sync::Arc::new(tokio::sync::Mutex::new(state));
+        let response = crate::open_fang_from_parts(
+            "test".into(),
+            state.clone(),
+            "removed".into(),
+            "127.0.0.1:12345".into(),
+            "127.0.0.1:1".into(),
+            "tcp".into(),
+        )
+        .await;
+        assert!(!response.ok);
+        assert_eq!(response.error.unwrap().code, "FANG_UNKNOWN_PEER");
+        assert!(state.lock().await.fang_registry.is_empty());
     }
 
     #[test]

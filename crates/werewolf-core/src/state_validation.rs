@@ -107,7 +107,9 @@ pub fn profiles(profiles: &[FangProfile], peers: &[PeerRecord]) -> io::Result<()
     Ok(())
 }
 
-pub(crate) fn profile_document(profiles: &[FangProfile]) -> io::Result<()> {
+/// Validate stored profile syntax independently of current Pack membership.
+/// A removed peer leaves an inert profile; opening still requires current authority.
+pub fn profile_document(profiles: &[FangProfile]) -> io::Result<()> {
     if profiles.len() > 512 {
         return Err(invalid());
     }

@@ -801,10 +801,8 @@ async fn actual_daemon_restart_crash_and_pelt_regeneration() {
     let result = d.control_failure("pelt.init").await;
     assert_eq!(result["ok"], false);
     assert_eq!(result["error"]["code"], "ALREADY_INITIALIZED");
-    assert_eq!(
-        std::fs::read(d.home.join("pelt.json")).unwrap(),
-        original_identity
-    );
+    // Do not render serialized private identity bytes if this assertion fails.
+    assert!(std::fs::read(d.home.join("pelt.json")).unwrap() == original_identity);
     let persisted: PeltIdentity =
         serde_json::from_slice(&std::fs::read(d.home.join("pelt.json")).unwrap()).unwrap();
     werewolf_core::state_validation::identity(&persisted).unwrap();

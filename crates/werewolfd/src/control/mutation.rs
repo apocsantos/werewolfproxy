@@ -171,6 +171,9 @@ pub(super) async fn handle(
         return error(&req.id, "FANG_PROFILE_ACTIVE");
     }
     let status = if req.cmd == "fang.profile.add" {
+        if !peers.iter().any(|peer| peer.name == arg(&req, "peer")) {
+            return error(&req.id, "FANG_UNKNOWN_PEER");
+        }
         candidate.push(FangProfile {
             name: name.clone(),
             peer: arg(&req, "peer"),
@@ -187,7 +190,7 @@ pub(super) async fn handle(
         }
         "profile_removed"
     };
-    if state_validation::profiles(&candidate, &peers).is_err() {
+    if state_validation::profile_document(&candidate).is_err() {
         return error(&req.id, "FANG_PROFILE_INVALID");
     }
     if durable(&home, "fangs.json", &candidate, false, &state)
