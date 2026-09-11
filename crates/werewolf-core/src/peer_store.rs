@@ -2,7 +2,6 @@ use crate::nodeid::NodeId;
 use crate::peer::Peer;
 use crate::routing::RoutingTable;
 
-use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -63,17 +62,11 @@ impl PeerStore {
     }
 
     pub fn load(path: impl AsRef<Path>) -> io::Result<Self> {
-        let data = fs::read_to_string(path)?;
-        let store = serde_json::from_str(&data)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-
-        Ok(store)
+        crate::state_file::read(path.as_ref())?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "peer store missing"))
     }
 
     pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
-        let data = serde_json::to_string_pretty(self)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-
-        fs::write(path, data)
+        crate::state_file::write(path.as_ref(), self, false)
     }
 }

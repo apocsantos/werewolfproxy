@@ -97,6 +97,17 @@ pub fn pack(peers: &[PeerRecord]) -> io::Result<()> {
     Ok(())
 }
 pub fn profiles(profiles: &[FangProfile], peers: &[PeerRecord]) -> io::Result<()> {
+    profile_document(profiles)?;
+    if profiles
+        .iter()
+        .any(|p| !peers.iter().any(|peer| peer.name == p.peer))
+    {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+pub(crate) fn profile_document(profiles: &[FangProfile]) -> io::Result<()> {
     if profiles.len() > 512 {
         return Err(invalid());
     }
@@ -104,7 +115,7 @@ pub fn profiles(profiles: &[FangProfile], peers: &[PeerRecord]) -> io::Result<()
     for p in profiles {
         if !name(&p.name)
             || !names.insert(&p.name)
-            || !peers.iter().any(|peer| peer.name == p.peer)
+            || !name(&p.peer)
             || p.local.parse::<std::net::SocketAddr>().is_err()
             || !endpoint(&p.remote)
             || !matches!(p.transport.as_str(), "quic" | "tcp" | "tcp-plain")

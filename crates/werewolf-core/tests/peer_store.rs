@@ -15,6 +15,8 @@ fn peer_store_roundtrip_preserves_peers() {
     let store = PeerStore::from_routing_table(&table);
 
     let dir = tempfile::tempdir().expect("tempdir");
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let path = dir.path().join("peers.json");
 
     store.save(&path).expect("save");

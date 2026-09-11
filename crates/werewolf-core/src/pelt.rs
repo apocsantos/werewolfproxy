@@ -3,7 +3,7 @@ use blake3::Hasher;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
-use std::{fs, io, path::Path};
+use std::{io, path::Path};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,35 +42,18 @@ pub fn generate_identity() -> PeltIdentity {
     }
 }
 
+/// Initialization only. Existing identity state is never replaced.
 pub fn save_identity(path: &Path, identity: &PeltIdentity) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let data = serde_json::to_string_pretty(identity)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-
-    fs::write(path, data)?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    }
-
-    Ok(())
+    crate::state_validation::identity(identity)?;
+    crate::state_file::write(path, identity, true)
 }
 
 pub fn load_identity(path: &Path) -> io::Result<Option<PeltIdentity>> {
-    if !path.exists() {
-        return Ok(None);
+    let identity = crate::state_file::read(path)?;
+    if let Some(identity) = &identity {
+        crate::state_validation::identity(identity)?;
     }
-
-    let data = fs::read_to_string(path)?;
-    let identity: PeltIdentity = serde_json::from_str(&data)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-
-    Ok(Some(identity))
+    Ok(identity)
 }
 
 pub fn sign_message(identity: &PeltIdentity, message: &[u8]) -> Result<String, String> {
