@@ -12,14 +12,12 @@ use tokio::{
     sync::{Mutex, Semaphore},
 };
 use werewolf_core::{
-    fang_profile::{save_fang_profiles, FangProfile},
-    pack::{save_pack, PeerRecord, TrustLevel},
-    pelt::{generate_identity, save_identity},
     protocol::{ControlRequest, ControlResponse},
     state::WolfMode,
 };
 
 mod limits;
+mod mutation;
 mod socket;
 pub(crate) use socket::bind as bind_socket;
 
@@ -111,6 +109,12 @@ async fn handle_request(
     state: Arc<Mutex<DaemonState>>,
     home: PathBuf,
 ) -> ControlResponse {
+    if limits::mutates(&req.cmd) && state.lock().await.storage_degraded {
+        return ControlResponse::err(req.id, "STORAGE_DEGRADED", "operator intervention required");
+    }
+    if mutation::handles(&req.cmd) {
+        return mutation::handle(req, state, home).await;
+    }
     match req.cmd.as_str() {
         "den.info" => {
             let st = state.lock().await;
@@ -121,6 +125,7 @@ async fn handle_request(
                     "home": st.den_home,
                     "listen": st.den_listen,
                     "quic_listen": st.den_quic_listen,
+                    "storage_degraded": st.storage_degraded,
                     "mode": st.status.mode,
                     "pelt_ready": st.status.pelt_ready,
                     "packmates": st.peers.len(),
@@ -140,6 +145,7 @@ async fn handle_request(
             ControlResponse::ok(
                 req.id,
                 json!({
+                    "storage_degraded": st.storage_degraded,
                     "mode": st.status.mode,
                     "pelt_ready": st.status.pelt_ready,
                     "packmates": st.peers.len(),
@@ -151,27 +157,6 @@ async fn handle_request(
                     "quic_listen": st.den_quic_listen
                 }),
             )
-        }
-
-        "pelt.init" => {
-            let mut st = state.lock().await;
-            let identity = generate_identity();
-            let pelt_path = home.join("pelt.json");
-
-            match save_identity(&pelt_path, &identity) {
-                Ok(_) => {
-                    st.status.pelt_ready = true;
-                    st.pelt = Some(identity.clone());
-                    ControlResponse::ok(
-                        req.id,
-                        json!({
-                            "fingerprint": identity.fingerprint,
-                            "saved_to": pelt_path
-                        }),
-                    )
-                }
-                Err(e) => ControlResponse::err(req.id, "PELT_SAVE_FAILED", e.to_string()),
-            }
         }
 
         "pelt.fingerprint" => {
@@ -191,198 +176,9 @@ async fn handle_request(
             }
         }
 
-        "pack.add" => {
-            let mut st = state.lock().await;
-
-            let name = req.args["name"].as_str().unwrap_or("").trim().to_string();
-            let fingerprint = req.args["fingerprint"]
-                .as_str()
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            let address = req.args["address"]
-                .as_str()
-                .unwrap_or("")
-                .trim()
-                .to_string();
-
-            if name.is_empty() || fingerprint.is_empty() || address.is_empty() {
-                return ControlResponse::err(
-                    req.id,
-                    "PACK_INVALID",
-                    "name, fingerprint and address are required",
-                );
-            }
-
-            if st.peers.iter().any(|p| p.name == name) {
-                return ControlResponse::err(
-                    req.id,
-                    "PACK_DUP_NAME",
-                    format!("Peer name already exists: {}", name),
-                );
-            }
-
-            if st.peers.iter().any(|p| p.fingerprint == fingerprint) {
-                return ControlResponse::err(
-                    req.id,
-                    "PACK_DUP_FINGERPRINT",
-                    format!("Fingerprint already exists: {}", fingerprint),
-                );
-            }
-
-            if !fingerprint.starts_with("wwp1:") {
-                return ControlResponse::err(
-                    req.id,
-                    "PACK_BAD_FINGERPRINT",
-                    "fingerprint must start with wwp1:",
-                );
-            }
-
-            let peer = PeerRecord {
-                name,
-                fingerprint,
-                address,
-                trust: TrustLevel::Packmate,
-                public_key_b64: None,
-            };
-
-            st.peers.push(peer);
-
-            let path = home.join("pack.json");
-
-            match save_pack(&path, &st.peers) {
-                Ok(_) => ControlResponse::ok(
-                    req.id,
-                    json!({
-                        "status": "added",
-                        "packmates": st.peers.len()
-                    }),
-                ),
-                Err(e) => ControlResponse::err(req.id, "PACK_SAVE_FAILED", e.to_string()),
-            }
-        }
-
-        "pack.set_address" => {
-            let mut st = state.lock().await;
-
-            let name = req.args["name"].as_str().unwrap_or("").trim().to_string();
-            let address = req.args["address"]
-                .as_str()
-                .unwrap_or("")
-                .trim()
-                .to_string();
-
-            if name.is_empty() || address.is_empty() {
-                return ControlResponse::err(
-                    req.id,
-                    "PACK_INVALID",
-                    "name and address are required",
-                );
-            }
-
-            let peer = match st.peers.iter_mut().find(|p| p.name == name) {
-                Some(p) => p,
-                None => {
-                    return ControlResponse::err(
-                        req.id,
-                        "PACK_NOT_FOUND",
-                        format!("Peer not found: {}", name),
-                    )
-                }
-            };
-
-            peer.address = address.clone();
-
-            let path = home.join("pack.json");
-
-            match save_pack(&path, &st.peers) {
-                Ok(_) => ControlResponse::ok(
-                    req.id,
-                    json!({
-                        "status": "address_updated",
-                        "name": name,
-                        "address": address
-                    }),
-                ),
-                Err(e) => ControlResponse::err(req.id, "PACK_SAVE_FAILED", e.to_string()),
-            }
-        }
-
         "pack.list" => {
             let st = state.lock().await;
             ControlResponse::ok(req.id, json!(st.peers))
-        }
-
-        "pack.revoke" => {
-            let mut st = state.lock().await;
-
-            let name = req.args["name"].as_str().unwrap_or("").trim().to_string();
-
-            if name.is_empty() {
-                return ControlResponse::err(req.id, "PACK_INVALID", "name is required");
-            }
-
-            let before = st.peers.len();
-
-            let closed_fangs = st.fang_registry.terminate_peer(&name);
-
-            st.peers.retain(|p| p.name != name);
-
-            if st.peers.len() == before {
-                return ControlResponse::err(
-                    req.id,
-                    "PACK_NOT_FOUND",
-                    format!("Peer not found: {}", name),
-                );
-            }
-
-            let path = home.join("pack.json");
-
-            match save_pack(&path, &st.peers) {
-                Ok(_) => ControlResponse::ok(
-                    req.id,
-                    json!({
-                        "status": "revoked",
-                        "peer": name,
-                        "closed_fangs": closed_fangs,
-                        "packmates": st.peers.len()
-                    }),
-                ),
-                Err(e) => ControlResponse::err(req.id, "PACK_SAVE_FAILED", e.to_string()),
-            }
-        }
-
-        "pack.remove" => {
-            let mut st = state.lock().await;
-            let name = req.args["name"].as_str().unwrap_or("").trim().to_string();
-
-            if name.is_empty() {
-                return ControlResponse::err(req.id, "PACK_INVALID", "name is required");
-            }
-
-            let before = st.peers.len();
-            st.peers.retain(|p| p.name != name);
-
-            if st.peers.len() == before {
-                return ControlResponse::err(
-                    req.id,
-                    "PACK_NOT_FOUND",
-                    format!("Peer not found: {}", name),
-                );
-            }
-
-            let path = home.join("pack.json");
-
-            match save_pack(&path, &st.peers) {
-                Ok(_) => ControlResponse::ok(
-                    req.id,
-                    json!({
-                        "status": "removed",
-                        "packmates": st.peers.len()
-                    }),
-                ),
-                Err(e) => ControlResponse::err(req.id, "PACK_SAVE_FAILED", e.to_string()),
-            }
         }
 
         "fang.open" => {
@@ -395,91 +191,9 @@ async fn handle_request(
             open_fang_from_parts(req.id, state.clone(), peer, local, remote, transport).await
         }
 
-        "fang.profile.add" => {
-            let mut st = state.lock().await;
-
-            let name = req.args["name"].as_str().unwrap_or("").trim().to_string();
-            let peer = req.args["peer"].as_str().unwrap_or("").trim().to_string();
-            let local = req.args["local"].as_str().unwrap_or("").trim().to_string();
-            let remote = req.args["remote"].as_str().unwrap_or("").trim().to_string();
-
-            if name.is_empty() || peer.is_empty() || local.is_empty() || remote.is_empty() {
-                return ControlResponse::err(
-                    req.id,
-                    "FANG_PROFILE_INVALID",
-                    "name, peer, local and remote are required",
-                );
-            }
-
-            if st.fang_profiles.iter().any(|p| p.name == name) {
-                return ControlResponse::err(
-                    req.id,
-                    "FANG_PROFILE_DUP_NAME",
-                    format!("Fang profile already exists: {}", name),
-                );
-            }
-
-            let transport = requested_transport(req.args["transport"].as_str());
-
-            st.fang_profiles.push(FangProfile {
-                name: name.clone(),
-                peer,
-                local,
-                remote,
-                transport,
-            });
-
-            let path = home.join("fangs.json");
-
-            match save_fang_profiles(&path, &st.fang_profiles) {
-                Ok(_) => ControlResponse::ok(
-                    req.id,
-                    json!({
-                        "status": "profile_added",
-                        "name": name,
-                        "profiles": st.fang_profiles.len()
-                    }),
-                ),
-                Err(e) => ControlResponse::err(req.id, "FANG_PROFILE_SAVE_FAILED", e.to_string()),
-            }
-        }
-
         "fang.profile.list" => {
             let st = state.lock().await;
             ControlResponse::ok(req.id, json!(st.fang_profiles))
-        }
-
-        "fang.profile.remove" => {
-            let mut st = state.lock().await;
-            let name = req.args["name"].as_str().unwrap_or("").trim().to_string();
-
-            if name.is_empty() {
-                return ControlResponse::err(req.id, "FANG_PROFILE_INVALID", "name is required");
-            }
-
-            let before = st.fang_profiles.len();
-            st.fang_profiles.retain(|p| p.name != name);
-
-            if st.fang_profiles.len() == before {
-                return ControlResponse::err(
-                    req.id,
-                    "FANG_PROFILE_NOT_FOUND",
-                    format!("Fang profile not found: {}", name),
-                );
-            }
-
-            let path = home.join("fangs.json");
-
-            match save_fang_profiles(&path, &st.fang_profiles) {
-                Ok(_) => ControlResponse::ok(
-                    req.id,
-                    json!({
-                        "status": "profile_removed",
-                        "profiles": st.fang_profiles.len()
-                    }),
-                ),
-                Err(e) => ControlResponse::err(req.id, "FANG_PROFILE_SAVE_FAILED", e.to_string()),
-            }
         }
 
         "fang.open_profile" => {
@@ -682,6 +396,7 @@ async fn handle_request(
 mod characterization_tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    use werewolf_core::pelt::generate_identity;
 
     struct Fixture(PathBuf);
     impl Fixture {
@@ -867,7 +582,7 @@ mod characterization_tests {
         assert!(result.is_err());
     }
     #[tokio::test]
-    async fn failed_pack_save_currently_leaves_memory_mutated() {
+    async fn failed_pack_save_preserves_live_memory() {
         let fixture = Fixture::new();
         std::fs::create_dir(fixture.0.join("pack.json")).unwrap();
         let state = Arc::new(Mutex::new(DaemonState::default()));
@@ -877,7 +592,53 @@ mod characterization_tests {
             args: json!({"name":"fixture", "fingerprint":identity.fingerprint, "address":"tcp://127.0.0.1:1"})
         }, state.clone(), fixture.0.clone()).await;
         assert!(!response.ok);
-        assert_eq!(state.lock().await.peers.len(), 1);
+        assert_eq!(state.lock().await.peers.len(), 0);
         assert!(fixture.0.join("pack.json").is_dir());
+    }
+    #[tokio::test]
+    async fn accepted_mutation_survives_client_task_cancellation() {
+        use tokio::io::AsyncWriteExt;
+        let fixture = Fixture::new();
+        let state = Arc::new(Mutex::new(DaemonState::default()));
+        let guard = state.lock().await;
+        let mutations = Arc::new(limits::Mutations::default());
+        let (mut client, server) = UnixStream::pair().unwrap();
+        let task = tokio::spawn(handle_control_client(
+            server,
+            state.clone(),
+            fixture.0.clone(),
+            mutations.clone(),
+            tokio::time::Instant::now() + limits::LIFETIME,
+        ));
+        client
+            .write_all(b"{\"id\":\"test\",\"cmd\":\"pelt.init\"}\n")
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while mutations.active_permits() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        task.abort();
+        let _ = task.await;
+        drop(client);
+        drop(guard);
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if let Some(identity) = &state.lock().await.pelt {
+                    let saved: serde_json::Value = serde_json::from_slice(
+                        &std::fs::read(fixture.0.join("pelt.json")).unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(saved["fingerprint"], identity.fingerprint);
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
     }
 }

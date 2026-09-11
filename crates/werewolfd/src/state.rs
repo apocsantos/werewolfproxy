@@ -6,6 +6,7 @@ use werewolf_core::{
 
 #[derive(Default)]
 pub(super) struct DaemonState {
+    pub(super) storage_degraded: bool,
     pub(super) peers: Vec<PeerRecord>,
     pub(super) fang_registry: FangRegistry,
     pub(super) fang_profiles: Vec<FangProfile>,

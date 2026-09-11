@@ -241,6 +241,11 @@ impl Default for Mutations {
     }
 }
 impl Mutations {
+    #[cfg(test)]
+    pub(super) fn active_permits(&self) -> usize {
+        self.active.available_permits()
+    }
+
     pub(super) async fn admit(&self) -> io::Result<OwnedSemaphorePermit> {
         if let Ok(permit) = self.active.clone().try_acquire_owned() {
             return Ok(permit);
