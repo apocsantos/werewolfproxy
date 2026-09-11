@@ -7,9 +7,9 @@ use crate::{
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 use tokio::{
-    io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{self, BufReader},
     net::UnixStream,
-    sync::Mutex,
+    sync::{Mutex, Semaphore},
 };
 use werewolf_core::{
     fang_profile::{save_fang_profiles, FangProfile},
@@ -19,6 +19,7 @@ use werewolf_core::{
     state::WolfMode,
 };
 
+mod limits;
 mod socket;
 pub(crate) use socket::bind as bind_socket;
 
@@ -27,6 +28,8 @@ pub(super) async fn serve(
     state: Arc<Mutex<DaemonState>>,
     home: PathBuf,
 ) -> io::Result<()> {
+    let clients = Arc::new(Semaphore::new(limits::CLIENTS));
+    let mutations = Arc::new(limits::Mutations::default());
     loop {
         let stream = listener.accept().await?;
         // No parsing, administrative response or task dispatch before credentials.
@@ -34,13 +37,23 @@ pub(super) async fn serve(
             drop(stream);
             continue;
         }
+        let Ok(permit) = clients.clone().try_acquire_owned() else {
+            continue;
+        };
         let state = state.clone();
         let home = home.clone();
+        let mutations = mutations.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = handle_control_client(stream, state, home).await {
-                eprintln!("control client error: {}", e);
-            }
+            let _permit = permit;
+            let end = tokio::time::Instant::now() + limits::LIFETIME;
+            // Accepted mutations run in an independent task holding their permit;
+            // expiration/disconnection of this client cannot cancel publication.
+            let _ = tokio::time::timeout_at(
+                end,
+                handle_control_client(stream, state, home, mutations, end),
+            )
+            .await;
         });
     }
 }
@@ -49,21 +62,47 @@ async fn handle_control_client(
     stream: UnixStream,
     state: Arc<Mutex<DaemonState>>,
     home: PathBuf,
+    mutations: Arc<limits::Mutations>,
+    end: tokio::time::Instant,
 ) -> io::Result<()> {
     let (reader, mut writer) = stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
-
-    while let Some(line) = lines.next_line().await? {
-        let response = match serde_json::from_str::<ControlRequest>(&line) {
-            Ok(req) => handle_request(req, state.clone(), home.clone()).await,
-            Err(e) => ControlResponse::err("unknown", "BAD_JSON", e.to_string()),
+    let mut reader = BufReader::new(reader);
+    for _ in 0..limits::REQUESTS {
+        let Some(line) = limits::read_request(&mut reader, end).await? else {
+            return Ok(());
         };
-
-        let encoded = serde_json::to_string(&response).unwrap();
-        writer.write_all(encoded.as_bytes()).await?;
-        writer.write_all(b"\n").await?;
+        let req = match limits::parse(&line) {
+            Ok(req) => req,
+            Err(_) => {
+                limits::write_response(
+                    &mut writer,
+                    &ControlResponse::err("unknown", "BAD_REQUEST", "invalid control request"),
+                    end,
+                )
+                .await?;
+                return Ok(());
+            }
+        };
+        let response = if limits::mutates(&req.cmd) {
+            let permit = mutations.admit().await?;
+            let state = state.clone();
+            let home = home.clone();
+            tokio::spawn(async move {
+                let _permit = permit;
+                handle_request(req, state, home).await
+            })
+            .await
+            .map_err(|_| io::Error::other("control operation failed"))?
+        } else {
+            tokio::time::timeout(
+                limits::ADMISSION_WINDOW,
+                handle_request(req, state.clone(), home.clone()),
+            )
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "control operation timeout"))?
+        };
+        limits::write_response(&mut writer, &response, end).await?;
     }
-
     Ok(())
 }
 
@@ -724,5 +763,107 @@ mod characterization_tests {
             .await
             .is_err());
         assert!(!fixture.0.join("other.sock").exists());
+    }
+    #[tokio::test]
+    async fn live_control_client_quota_and_release() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+        let fixture = Fixture::new();
+        let path = fixture.0.join("control.sock");
+        let listener = bind_socket(path.to_str().unwrap()).await.unwrap();
+        let server = tokio::spawn(serve(
+            listener,
+            Arc::new(Mutex::new(DaemonState::default())),
+            fixture.0.clone(),
+        ));
+        let mut clients = Vec::new();
+        for _ in 0..limits::CLIENTS {
+            let stream = UnixStream::connect(&path).await.unwrap();
+            let mut stream = BufReader::new(stream);
+            stream
+                .get_mut()
+                .write_all(b"{\"id\":\"1\",\"cmd\":\"status\",\"args\":{}}\n")
+                .await
+                .unwrap();
+            let mut response = String::new();
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                stream.read_line(&mut response),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert!(
+                serde_json::from_str::<serde_json::Value>(&response).unwrap()["ok"]
+                    .as_bool()
+                    .unwrap()
+            );
+            clients.push(stream);
+        }
+        let mut excess = UnixStream::connect(&path).await.unwrap();
+        let mut byte = [0u8];
+        let read = tokio::time::timeout(std::time::Duration::from_secs(1), excess.read(&mut byte))
+            .await
+            .unwrap();
+        assert!(matches!(read, Ok(0)) || read.is_err());
+        drop(clients.pop());
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        let mut replacement = BufReader::new(UnixStream::connect(&path).await.unwrap());
+        replacement
+            .get_mut()
+            .write_all(b"{\"id\":\"1\",\"cmd\":\"status\"}\n")
+            .await
+            .unwrap();
+        let mut response = String::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            replacement.read_line(&mut response),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(response.contains("true"));
+        drop(clients);
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn control_request_count_and_lifetime_bounds() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        let fixture = Fixture::new();
+        let (client, server) = UnixStream::pair().unwrap();
+        let state = Arc::new(Mutex::new(DaemonState::default()));
+        let home = fixture.0.clone();
+        let task = tokio::spawn(handle_control_client(
+            server,
+            state,
+            home,
+            Arc::new(limits::Mutations::default()),
+            tokio::time::Instant::now() + limits::LIFETIME,
+        ));
+        let mut client = BufReader::new(client);
+        for _ in 0..limits::REQUESTS {
+            client
+                .get_mut()
+                .write_all(b"{\"id\":\"1\",\"cmd\":\"status\"}\n")
+                .await
+                .unwrap();
+            let mut response = String::new();
+            client.read_line(&mut response).await.unwrap();
+            assert!(response.contains("true"));
+        }
+        task.await.unwrap().unwrap();
+        let mut end = String::new();
+        assert_eq!(client.read_line(&mut end).await.unwrap(), 0);
+        let (_client, server) = UnixStream::pair().unwrap();
+        let result = handle_control_client(
+            server,
+            Arc::new(Mutex::new(DaemonState::default())),
+            fixture.0.clone(),
+            Arc::new(limits::Mutations::default()),
+            tokio::time::Instant::now() + std::time::Duration::from_millis(20),
+        )
+        .await;
+        assert!(result.is_err());
     }
 }
