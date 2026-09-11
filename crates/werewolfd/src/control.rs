@@ -7,9 +7,8 @@ use crate::{
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 use tokio::{
-    fs,
     io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{UnixListener, UnixStream},
+    net::UnixStream,
     sync::Mutex,
 };
 use werewolf_core::{
@@ -20,19 +19,21 @@ use werewolf_core::{
     state::WolfMode,
 };
 
-pub(super) async fn bind_socket(socket: &str) -> io::Result<UnixListener> {
-    let _ = fs::remove_file(socket).await;
-    let listener = UnixListener::bind(socket)?;
-    Ok(listener)
-}
+mod socket;
+pub(crate) use socket::bind as bind_socket;
 
 pub(super) async fn serve(
-    listener: UnixListener,
+    listener: socket::ControlListener,
     state: Arc<Mutex<DaemonState>>,
     home: PathBuf,
 ) -> io::Result<()> {
     loop {
-        let (stream, _) = listener.accept().await?;
+        let stream = listener.accept().await?;
+        // No parsing, administrative response or task dispatch before credentials.
+        if !socket::authorized(&stream) {
+            drop(stream);
+            continue;
+        }
         let state = state.clone();
         let home = home.clone();
 
@@ -641,7 +642,7 @@ async fn handle_request(
 #[cfg(test)]
 mod characterization_tests {
     use super::*;
-    use std::os::unix::fs::FileTypeExt;
+    use std::os::unix::fs::PermissionsExt;
 
     struct Fixture(PathBuf);
     impl Fixture {
@@ -652,6 +653,7 @@ mod characterization_tests {
                 crate::handshake::hex(&crate::handshake::random::<16>().unwrap())
             ));
             std::fs::create_dir(&path).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
             Self(path)
         }
     }
@@ -661,32 +663,66 @@ mod characterization_tests {
         }
     }
 
-    // Freeze the observed unsafe behavior before replacing socket lifecycle.
     #[tokio::test]
-    async fn existing_regular_file_is_currently_replaced() {
+    async fn existing_regular_file_is_preserved() {
         let fixture = Fixture::new();
         let path = fixture.0.join("control.sock");
         std::fs::write(&path, b"isolated collision victim").unwrap();
-        let listener = bind_socket(path.to_str().unwrap()).await.unwrap();
-        assert!(std::fs::symlink_metadata(&path)
-            .unwrap()
-            .file_type()
-            .is_socket());
-        drop(listener);
+        assert!(bind_socket(path.to_str().unwrap()).await.is_err());
+        assert_eq!(std::fs::read(path).unwrap(), b"isolated collision victim");
     }
 
     #[tokio::test]
-    async fn active_socket_is_currently_unlinked_and_rebound() {
+    async fn active_socket_is_preserved_and_same_uid_authorized() {
         let fixture = Fixture::new();
         let path = fixture.0.join("control.sock");
         let first = bind_socket(path.to_str().unwrap()).await.unwrap();
-        let second = bind_socket(path.to_str().unwrap()).await.unwrap();
-        let client = UnixStream::connect(&path).await.unwrap();
-        let (accepted, _) = second.accept().await.unwrap();
+        assert!(bind_socket(path.to_str().unwrap()).await.is_err());
         assert_eq!(
-            accepted.peer_cred().unwrap().uid(),
-            client.peer_cred().unwrap().uid()
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777,
+            0o600
         );
-        drop((first, second, client, accepted));
+        let client = UnixStream::connect(&path).await.unwrap();
+        let accepted = first.accept().await.unwrap();
+        assert!(socket::authorized(&accepted));
+        drop((first, client, accepted));
+    }
+
+    #[tokio::test]
+    async fn stale_socket_is_replaced_but_unlocked_active_socket_is_preserved() {
+        use std::os::unix::fs::MetadataExt;
+        let fixture = Fixture::new();
+        let path = fixture.0.join("control.sock");
+        let old = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let inode = std::fs::metadata(&path).unwrap().ino();
+        assert!(bind_socket(path.to_str().unwrap()).await.is_err());
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), inode);
+        drop(old);
+        let new = bind_socket(path.to_str().unwrap()).await.unwrap();
+        let client = UnixStream::connect(&path).await.unwrap();
+        let accepted = new.accept().await.unwrap();
+        assert!(socket::authorized(&accepted));
+        drop((new, client, accepted));
+    }
+
+    #[tokio::test]
+    async fn unsafe_runtime_and_symlink_fail_before_listener_creation() {
+        use std::os::unix::fs::symlink;
+        let fixture = Fixture::new();
+        let victim = fixture.0.join("victim");
+        std::fs::write(&victim, b"untouched").unwrap();
+        let path = fixture.0.join("control.sock");
+        symlink(&victim, &path).unwrap();
+        assert!(bind_socket(path.to_str().unwrap()).await.is_err());
+        assert!(std::fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read(&victim).unwrap(), b"untouched");
+        std::fs::set_permissions(&fixture.0, std::fs::Permissions::from_mode(0o770)).unwrap();
+        assert!(bind_socket(fixture.0.join("other.sock").to_str().unwrap())
+            .await
+            .is_err());
+        assert!(!fixture.0.join("other.sock").exists());
     }
 }

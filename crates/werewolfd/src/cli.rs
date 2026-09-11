@@ -3,7 +3,7 @@ use clap::Parser;
 #[derive(Parser, Debug, Clone)]
 #[command(name = "werewolfd")]
 pub(super) struct Args {
-    #[arg(long, default_value = "/tmp/werewolf.sock")]
+    #[arg(long, default_value = "")]
     pub(super) socket: String,
 
     #[arg(long, default_value = "~/.config/werewolf")]

@@ -1,3 +1,5 @@
+#[cfg(not(target_os = "linux"))]
+compile_error!("secure local control currently requires Linux");
 use clap::{Parser, Subcommand};
 use serde_json::json;
 use tokio::{
@@ -10,7 +12,7 @@ use werewolf_core::protocol::{ControlRequest, ControlResponse};
 #[command(name = "werewolfctl")]
 #[command(about = "WerewolfProxy control tool")]
 struct Cli {
-    #[arg(long, default_value = "/tmp/werewolf.sock")]
+    #[arg(long, default_value = "")]
     socket: String,
 
     #[command(subcommand)]
@@ -240,7 +242,17 @@ async fn main() -> std::io::Result<()> {
         },
     };
 
-    let response = send_request(&cli.socket, &cmd, args).await?;
+    let socket = if cli.socket.is_empty() {
+        werewolf_core::local_fs::default_control_socket()?
+            .into_os_string()
+            .into_string()
+            .map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-UTF-8 control path")
+            })?
+    } else {
+        cli.socket
+    };
+    let response = send_request(&socket, &cmd, args).await?;
     print_response(
         if original_cmd.is_empty() {
             &cmd

@@ -1,3 +1,5 @@
+#[cfg(not(target_os = "linux"))]
+compile_error!("secure local control currently requires Linux");
 mod admission;
 mod control;
 mod fang_registry;
@@ -51,7 +53,15 @@ use persistence::{load_active_fang_profiles, load_startup_state};
 async fn main() -> anyhow_free::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let args = Args::parse();
+    let mut args = Args::parse();
+    if args.socket.is_empty() {
+        args.socket = werewolf_core::local_fs::default_control_socket()?
+            .into_os_string()
+            .into_string()
+            .map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-UTF-8 control path")
+            })?;
+    }
 
     ww_info!(
         "SYSTEM",
@@ -70,6 +80,8 @@ async fn main() -> anyhow_free::Result<()> {
     validate_startup_config(&initial_state);
 
     let state = Arc::new(Mutex::new(initial_state));
+
+    let listener = control::bind_socket(&args.socket).await?;
 
     let active_fangs_path = home.join("active_fangs.json");
     let active_profiles = load_active_fang_profiles(&active_fangs_path);
@@ -137,8 +149,6 @@ async fn main() -> anyhow_free::Result<()> {
             eprintln!("⚡ QUIC Fang listener error: {}", e);
         }
     });
-
-    let listener = control::bind_socket(&args.socket).await?;
 
     ww_info!(
         "CONTROL",
