@@ -16,3 +16,6 @@ pub fn default_control_socket() -> std::io::Result<std::path::PathBuf> {
     let _validated = PrivateDirectory::open(&runtime, false)?;
     Ok(runtime.join("werewolf").join("control.sock"))
 }
+
+mod atomic;
+pub use atomic::CommitOutcome;

@@ -54,9 +54,9 @@ fn private(s: &Stat, uid: u32, gid: u32) -> io::Result<()> {
 /// A validated private leaf pinned by an owned descriptor. Operations accept a
 /// single filename; callers cannot escape through a relative path or symlink.
 pub struct PrivateDirectory {
-    fd: OwnedFd,
-    uid: u32,
-    gid: u32,
+    pub(super) fd: OwnedFd,
+    pub(super) uid: u32,
+    pub(super) gid: u32,
 }
 
 impl PrivateDirectory {
@@ -100,7 +100,7 @@ impl PrivateDirectory {
         Ok(Self { fd, uid, gid })
     }
 
-    fn name(name: &OsStr) -> io::Result<()> {
+    pub(super) fn name(name: &OsStr) -> io::Result<()> {
         let mut parts = Path::new(name).components();
         if !matches!(parts.next(), Some(Component::Normal(_))) || parts.next().is_some() {
             return Err(invalid());
@@ -108,7 +108,7 @@ impl PrivateDirectory {
         Ok(())
     }
 
-    fn revalidate(&self) -> io::Result<()> {
+    pub(super) fn revalidate(&self) -> io::Result<()> {
         private(&fs::fstat(&self.fd)?, self.uid, self.gid)
     }
 
