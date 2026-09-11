@@ -641,4 +641,62 @@ mod characterization_tests {
         .await
         .unwrap();
     }
+    #[tokio::test]
+    async fn concurrent_identity_initialization_has_one_durable_winner() {
+        let fixture = Fixture::new();
+        let state = Arc::new(Mutex::new(DaemonState::default()));
+        let request = || ControlRequest {
+            id: "test".into(),
+            cmd: "pelt.init".into(),
+            args: json!({}),
+        };
+        // Bypass admission deliberately: no-replace persistence must protect
+        // initial publication even when two candidates are prepared concurrently.
+        let (first, second) = tokio::join!(
+            handle_request(request(), state.clone(), fixture.0.clone()),
+            handle_request(request(), state.clone(), fixture.0.clone()),
+        );
+        assert_ne!(first.ok, second.ok);
+        let bytes = std::fs::read(fixture.0.join("pelt.json")).unwrap();
+        let persisted: werewolf_core::pelt::PeltIdentity = serde_json::from_slice(&bytes).unwrap();
+        werewolf_core::state_validation::identity(&persisted).unwrap();
+        let live = state.lock().await;
+        let identity = live.pelt.as_ref().unwrap();
+        assert_eq!(persisted.fingerprint, identity.fingerprint);
+        assert_eq!(persisted.public_key_b64, identity.public_key_b64);
+        assert!(!live.storage_degraded);
+    }
+
+    #[tokio::test]
+    async fn identity_initialization_never_replaces_existing_state() {
+        let fixture = Fixture::new();
+        let state = Arc::new(Mutex::new(DaemonState::default()));
+        let request = || ControlRequest {
+            id: "test".into(),
+            cmd: "pelt.init".into(),
+            args: json!({}),
+        };
+        assert!(
+            handle_request(request(), state.clone(), fixture.0.clone())
+                .await
+                .ok
+        );
+        let before = std::fs::read(fixture.0.join("pelt.json")).unwrap();
+        let response = handle_request(request(), state, fixture.0.clone()).await;
+        assert!(!response.ok);
+        assert_eq!(response.error.unwrap().code, "ALREADY_INITIALIZED");
+        assert!(std::fs::read(fixture.0.join("pelt.json")).unwrap() == before);
+        std::fs::write(fixture.0.join("pelt.json"), b"invalid existing identity").unwrap();
+        let state = Arc::new(Mutex::new(DaemonState::default()));
+        assert!(
+            !handle_request(request(), state.clone(), fixture.0.clone())
+                .await
+                .ok
+        );
+        assert!(state.lock().await.pelt.is_none());
+        assert_eq!(
+            std::fs::read(fixture.0.join("pelt.json")).unwrap(),
+            b"invalid existing identity"
+        );
+    }
 }

@@ -83,11 +83,14 @@ pub(super) async fn handle(
     home: PathBuf,
 ) -> ControlResponse {
     if req.cmd == "pelt.init" {
+        if state.lock().await.pelt.is_some() {
+            return error(&req.id, "ALREADY_INITIALIZED");
+        }
         let identity = generate_identity();
         if state_validation::identity(&identity).is_err() {
             return error(&req.id, "PELT_INVALID");
         }
-        if durable(&home, "pelt.json", &identity, false, &state)
+        if durable(&home, "pelt.json", &identity, true, &state)
             .await
             .is_err()
         {

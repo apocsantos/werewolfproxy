@@ -655,6 +655,12 @@ impl Daemon {
         child.wait().unwrap();
     }
     async fn control(&self, cmd: &str) -> serde_json::Value {
+        self.control_expect(cmd, true).await
+    }
+    async fn control_failure(&self, cmd: &str) -> serde_json::Value {
+        self.control_expect(cmd, false).await
+    }
+    async fn control_expect(&self, cmd: &str, expected_ok: bool) -> serde_json::Value {
         let mut stream = tokio::net::UnixStream::connect(self.home.join("control.sock"))
             .await
             .unwrap();
@@ -668,7 +674,8 @@ impl Daemon {
         .await
         .unwrap();
         let response: serde_json::Value = hs::read(&mut stream, 4096, deadline).await.unwrap();
-        assert_eq!(response["ok"], true);
+        assert_eq!(response["id"], "stage10");
+        assert_eq!(response["ok"], expected_ok);
         response
     }
 }
@@ -790,8 +797,19 @@ async fn actual_daemon_restart_crash_and_pelt_regeneration() {
         eprintln!("V3 PROCESS restart crash={crash}: captured TCP/QUIC denied with zero target attempts; fresh requests passed");
     }
     let (mut tcp, open) = tcp_open(d.tcp, &d.sender, &target.address.to_string()).await;
-    let result = d.control("pelt.init").await;
-    assert_ne!(result["result"]["fingerprint"], open.receiver_fingerprint);
+    let original_identity = std::fs::read(d.home.join("pelt.json")).unwrap();
+    let result = d.control_failure("pelt.init").await;
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["error"]["code"], "ALREADY_INITIALIZED");
+    assert_eq!(
+        std::fs::read(d.home.join("pelt.json")).unwrap(),
+        original_identity
+    );
+    let persisted: PeltIdentity =
+        serde_json::from_slice(&std::fs::read(d.home.join("pelt.json")).unwrap()).unwrap();
+    werewolf_core::state_validation::identity(&persisted).unwrap();
+    assert_eq!(persisted.fingerprint, d.receiver.fingerprint);
+    assert_eq!(persisted.public_key_b64, d.receiver.public_key_b64);
     let ack = tcp_send(&mut tcp, &open).await.unwrap();
     assert_eq!(ack.receiver_fingerprint, d.receiver.fingerprint);
     hs::verify(
@@ -801,7 +819,7 @@ async fn actual_daemon_restart_crash_and_pelt_regeneration() {
     )
     .unwrap();
     target.expect(expected + 1).await;
-    eprintln!("V3 PROCESS pelt.init after challenge: ACK verified under frozen receiver identity");
+    eprintln!("V3 PROCESS replacement init rejected without file change; ACK verified under frozen receiver identity");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
