@@ -13,7 +13,7 @@ use std::{
 use tokio::sync::Mutex;
 use werewolf_core::{
     fang_profile::FangProfile,
-    local_fs::{CommitOutcome, PrivateDirectory},
+    local_fs::CommitOutcome,
     pack::{PeerRecord, TrustLevel},
     pelt::generate_identity,
     protocol::{ControlRequest, ControlResponse},
@@ -40,7 +40,7 @@ fn arg(req: &ControlRequest, field: &str) -> String {
 }
 
 async fn durable<T: Serialize + Sync>(
-    home: &Path,
+    _home: &Path,
     file: &'static str,
     candidate: &T,
     create_only: bool,
@@ -48,12 +48,13 @@ async fn durable<T: Serialize + Sync>(
 ) -> io::Result<()> {
     let bytes = serde_json::to_vec_pretty(candidate)
         .map_err(|_| io::Error::other("state serialization failed"))?;
-    let home = home.to_owned();
+    let directory = state
+        .lock()
+        .await
+        .den
+        .clone()
+        .ok_or_else(|| io::Error::other("Den not initialized"))?;
     let outcome = tokio::task::spawn_blocking(move || {
-        let directory = match PrivateDirectory::open(&home, false) {
-            Ok(d) => d,
-            Err(e) => return CommitOutcome::NotCommitted(e),
-        };
         directory.replace(OsStr::new(file), &bytes, create_only)
     })
     .await

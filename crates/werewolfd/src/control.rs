@@ -400,6 +400,16 @@ mod characterization_tests {
             Self(path)
         }
     }
+    impl Fixture {
+        fn state(&self) -> DaemonState {
+            DaemonState {
+                den: Some(Arc::new(
+                    werewolf_core::local_fs::PrivateDirectory::open(&self.0, false).unwrap(),
+                )),
+                ..DaemonState::default()
+            }
+        }
+    }
     impl Drop for Fixture {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
@@ -476,7 +486,7 @@ mod characterization_tests {
         let listener = bind_socket(path.to_str().unwrap()).await.unwrap();
         let server = tokio::spawn(serve(
             listener,
-            Arc::new(Mutex::new(DaemonState::default())),
+            Arc::new(Mutex::new(fixture.state())),
             fixture.0.clone(),
         ));
         let mut clients = Vec::new();
@@ -536,7 +546,7 @@ mod characterization_tests {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
         let fixture = Fixture::new();
         let (client, server) = UnixStream::pair().unwrap();
-        let state = Arc::new(Mutex::new(DaemonState::default()));
+        let state = Arc::new(Mutex::new(fixture.state()));
         let home = fixture.0.clone();
         let task = tokio::spawn(handle_control_client(
             server,
@@ -562,7 +572,7 @@ mod characterization_tests {
         let (_client, server) = UnixStream::pair().unwrap();
         let result = handle_control_client(
             server,
-            Arc::new(Mutex::new(DaemonState::default())),
+            Arc::new(Mutex::new(fixture.state())),
             fixture.0.clone(),
             Arc::new(limits::Mutations::default()),
             tokio::time::Instant::now() + std::time::Duration::from_millis(20),
@@ -574,7 +584,7 @@ mod characterization_tests {
     async fn failed_pack_save_preserves_live_memory() {
         let fixture = Fixture::new();
         std::fs::create_dir(fixture.0.join("pack.json")).unwrap();
-        let state = Arc::new(Mutex::new(DaemonState::default()));
+        let state = Arc::new(Mutex::new(fixture.state()));
         let identity = generate_identity();
         let response = handle_request(ControlRequest {
             id: "fixture".into(), cmd: "pack.add".into(),
@@ -588,7 +598,7 @@ mod characterization_tests {
     async fn accepted_mutation_survives_client_task_cancellation() {
         use tokio::io::AsyncWriteExt;
         let fixture = Fixture::new();
-        let state = Arc::new(Mutex::new(DaemonState::default()));
+        let state = Arc::new(Mutex::new(fixture.state()));
         let guard = state.lock().await;
         let mutations = Arc::new(limits::Mutations::default());
         let (mut client, server) = UnixStream::pair().unwrap();
@@ -631,6 +641,39 @@ mod characterization_tests {
         .unwrap();
     }
     #[tokio::test]
+    async fn mutation_keeps_the_startup_den_descriptor_after_path_replacement() {
+        let outer = Fixture::new();
+        let original = outer.0.join("den");
+        let directory = werewolf_core::local_fs::PrivateDirectory::open(&original, true).unwrap();
+        let state = Arc::new(Mutex::new(DaemonState {
+            den: Some(Arc::new(directory)),
+            ..DaemonState::default()
+        }));
+        let moved = outer.0.join("moved");
+        std::fs::rename(&original, &moved).unwrap();
+        let _replacement =
+            werewolf_core::local_fs::PrivateDirectory::open(&original, true).unwrap();
+        let response = handle_request(
+            ControlRequest {
+                id: "test".into(),
+                cmd: "pelt.init".into(),
+                args: json!({}),
+            },
+            state.clone(),
+            original.clone(),
+        )
+        .await;
+        assert!(response.ok);
+        assert!(!original.join("pelt.json").exists());
+        let saved: werewolf_core::pelt::PeltIdentity =
+            serde_json::from_slice(&std::fs::read(moved.join("pelt.json")).unwrap()).unwrap();
+        assert_eq!(
+            saved.fingerprint,
+            state.lock().await.pelt.as_ref().unwrap().fingerprint
+        );
+    }
+
+    #[tokio::test]
     async fn profile_intent_failure_preserves_registry_and_close_resources() {
         let fixture = Fixture::new();
         let identity = generate_identity();
@@ -654,7 +697,7 @@ mod characterization_tests {
             pelt: Some(identity),
             peers: vec![peer],
             fang_profiles: vec![profile],
-            ..DaemonState::default()
+            ..fixture.state()
         }));
         let open = || ControlRequest {
             id: "test".into(),
@@ -728,7 +771,7 @@ mod characterization_tests {
     #[tokio::test]
     async fn concurrent_identity_initialization_has_one_durable_winner() {
         let fixture = Fixture::new();
-        let state = Arc::new(Mutex::new(DaemonState::default()));
+        let state = Arc::new(Mutex::new(fixture.state()));
         let request = || ControlRequest {
             id: "test".into(),
             cmd: "pelt.init".into(),
@@ -754,7 +797,7 @@ mod characterization_tests {
     #[tokio::test]
     async fn identity_initialization_never_replaces_existing_state() {
         let fixture = Fixture::new();
-        let state = Arc::new(Mutex::new(DaemonState::default()));
+        let state = Arc::new(Mutex::new(fixture.state()));
         let request = || ControlRequest {
             id: "test".into(),
             cmd: "pelt.init".into(),
@@ -771,7 +814,7 @@ mod characterization_tests {
         assert_eq!(response.error.unwrap().code, "ALREADY_INITIALIZED");
         assert!(std::fs::read(fixture.0.join("pelt.json")).unwrap() == before);
         std::fs::write(fixture.0.join("pelt.json"), b"invalid existing identity").unwrap();
-        let state = Arc::new(Mutex::new(DaemonState::default()));
+        let state = Arc::new(Mutex::new(fixture.state()));
         assert!(
             !handle_request(request(), state.clone(), fixture.0.clone())
                 .await

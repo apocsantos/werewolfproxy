@@ -85,6 +85,8 @@ impl PrivateDirectory {
                 Ok(next) => next,
                 Err(rustix::io::Errno::NOENT) if leaf && create_leaf => {
                     fs::mkdirat(&fd, name, Mode::from_raw_mode(0o700))?;
+                    // A new secure leaf must survive before any state is published inside it.
+                    fs::fsync(&fd)?;
                     fs::openat(&fd, name, flags, Mode::empty())?
                 }
                 Err(e) => return Err(e.into()),

@@ -75,9 +75,12 @@ async fn main() -> anyhow_free::Result<()> {
     let mut initial_state = DaemonState::default();
     configure_den(&mut initial_state, &args, &home);
 
-    let den = werewolf_core::local_fs::PrivateDirectory::open(&home, true)?;
+    let den = Arc::new(werewolf_core::local_fs::PrivateDirectory::open(
+        &home, true,
+    )?);
     let _den_lock = den.lock(std::ffi::OsStr::new(".den.lock"))?;
     load_startup_state(&den, &mut initial_state)?;
+    initial_state.den = Some(den.clone());
 
     validate_startup_config(&initial_state);
 
