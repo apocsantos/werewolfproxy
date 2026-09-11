@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required for local control}"
 set -euo pipefail
 
 export PATH="$HOME/.local/bin:$PATH"
@@ -42,8 +43,8 @@ systemctl --user is-active --quiet werewolf-b && pass "werewolf-b active" || fai
 
 echo
 echo "🧰 Control sockets"
-[[ -S /tmp/wolf-a.sock ]] && pass "wolf-a socket present" || fail "wolf-a socket missing"
-[[ -S /tmp/wolf-b.sock ]] && pass "wolf-b socket present" || fail "wolf-b socket missing"
+[[ -S "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/werewolf-a/control.sock" ]] && pass "wolf-a socket present" || fail "wolf-a socket missing"
+[[ -S "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/werewolf-b/control.sock" ]] && pass "wolf-b socket present" || fail "wolf-b socket missing"
 
 echo
 echo "🌐 Target"

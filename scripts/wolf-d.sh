@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-exec werewolfctl --socket /tmp/wolf-d.sock "$@"
+exec werewolfctl --socket "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/werewolf-d/control.sock" "$@"

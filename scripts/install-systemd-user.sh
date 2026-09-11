@@ -19,8 +19,11 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStartPre=/usr/bin/rm -f /tmp/wolf-a.sock
-ExecStart=$BIN_DIR/werewolfd --socket /tmp/wolf-a.sock --home %h/.config/wolf-a --listen 127.0.0.1:8443 --quic-listen 127.0.0.1:9560
+RuntimeDirectory=werewolf-a
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ExecStart=$BIN_DIR/werewolfd --socket %t/werewolf-a/control.sock --home %h/.config/wolf-a --listen 127.0.0.1:8443 --quic-listen 127.0.0.1:9560
 Restart=on-failure
 RestartSec=2
 KillMode=control-group
@@ -37,8 +40,11 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStartPre=/usr/bin/rm -f /tmp/wolf-b.sock
-ExecStart=$BIN_DIR/werewolfd --socket /tmp/wolf-b.sock --home %h/.config/wolf-b --listen 127.0.0.1:9443 --quic-listen 127.0.0.1:9561
+RuntimeDirectory=werewolf-b
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ExecStart=$BIN_DIR/werewolfd --socket %t/werewolf-b/control.sock --home %h/.config/wolf-b --listen 127.0.0.1:9443 --quic-listen 127.0.0.1:9561
 Restart=on-failure
 RestartSec=2
 KillMode=control-group

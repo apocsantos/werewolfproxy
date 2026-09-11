@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SOCKET="/tmp/wolf-b.sock"
+SOCKET="${XDG_RUNTIME_DIR:+$XDG_RUNTIME_DIR/werewolf-b/control.sock}"
 SERVICE="werewolf-b"
 
 TARGET_URL="${WEREWOLF_TARGET_URL:-http://127.0.0.1:8080}"
@@ -1035,10 +1035,10 @@ if [[ "${1:-}" == "doctor" ]]; then
     fi
   }
 
-  check_cmd "wolf-b daemon reachable" bash -lc 'systemctl --user is-active --quiet werewolf-b.service || test -S /tmp/wolf-b.sock'
-  check_cmd "wolf-a daemon reachable" bash -lc 'systemctl --user is-active --quiet werewolf-a.service || test -S /tmp/wolf-a.sock'
-  check_cmd "wolf-b socket exists" test -S /tmp/wolf-b.sock
-  check_cmd "wolf-a socket exists" test -S /tmp/wolf-a.sock
+  check_cmd "wolf-b daemon reachable" bash -lc 'systemctl --user is-active --quiet werewolf-b.service || test -S "${XDG_RUNTIME_DIR:?}/werewolf-b/control.sock"'
+  check_cmd "wolf-a daemon reachable" bash -lc 'systemctl --user is-active --quiet werewolf-a.service || test -S "${XDG_RUNTIME_DIR:?}/werewolf-a/control.sock"'
+  check_cmd "wolf-b socket exists" test -S "${XDG_RUNTIME_DIR:?}/werewolf-b/control.sock"
+  check_cmd "wolf-a socket exists" test -S "${XDG_RUNTIME_DIR:?}/werewolf-a/control.sock"
 
   check_cmd "transport health json valid" bash -lc "$0 transport-health-json | jq -e '.transports' >/dev/null"
   check_cmd "benchmark json valid" bash -lc "$0 benchmark --json | jq -e '.transports' >/dev/null"
@@ -1407,4 +1407,5 @@ if [[ "${1:-}" == "watchdog-status" ]]; then
   exit 0
 fi
 
+: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required for local control}"
 exec werewolfctl --socket "$SOCKET" "$@"

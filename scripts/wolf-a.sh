@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-SOCKET="/tmp/wolf-a.sock"
+SOCKET="${XDG_RUNTIME_DIR:+$XDG_RUNTIME_DIR/werewolf-a/control.sock}"
 SERVICE="werewolf-a"
 TARGET_URL="${WEREWOLF_TARGET_URL:-http://127.0.0.1:8080}"
 TCP_LISTEN="${WEREWOLF_A_TCP_LISTEN:-127.0.0.1:8443}"
@@ -111,4 +111,5 @@ if [[ "${1:-}" == "benchmark" ]]; then
   exit 0
 fi
 
+: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required for local control}"
 exec werewolfctl --socket "$SOCKET" "$@"
