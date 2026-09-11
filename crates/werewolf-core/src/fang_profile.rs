@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs, io, path::Path};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FangProfile {
     pub name: String,
     pub peer: String,

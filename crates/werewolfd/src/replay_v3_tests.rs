@@ -578,6 +578,11 @@ impl Daemon {
         werewolf_core::pelt::save_identity(&home.join("pelt.json"), &receiver).unwrap();
         werewolf_core::pack::save_pack(&home.join("pack.json"), &[peer(&sender)]).unwrap();
         std::fs::write(home.join("target_policy.json"),serde_json::json!({"mode":"deny-by-default","peers":{sender.fingerprint.clone():{"targets":[{"address":target.ip().to_string(),"port":target.port()}]}}}).to_string()).unwrap();
+        std::fs::set_permissions(
+            home.join("target_policy.json"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
         let mut d = Self {
             home,
             binary: if legacy {

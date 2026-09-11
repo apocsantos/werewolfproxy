@@ -31,7 +31,8 @@ def digest(path):
 
 
 def write_json(path, value):
-    path.write_text(json.dumps(value, indent=2) + '\n')
+    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as out:
+        out.write(json.dumps(value, indent=2) + '\n')
 
 
 def snapshot():
@@ -290,8 +291,25 @@ class Lab:
                       'selector_sha256': digest(ROOT / 'scripts/wolf-b.sh')}
         write_json(self.base / 'provenance.json', provenance)
         self.provenance = provenance
-        for key in ('a_tcp', 'b_tcp', 'a_quic', 'b_quic', 'quic', 'encrypted', 'plain', 'large', 'raw'):
-            self.reserve(key, key in ('a_quic', 'b_quic'))
+        # One Pack identity has one address. Reserve both protocol sockets at
+        # the same numeric port instead of aliasing an identity in the Pack.
+        for wolf in ('a', 'b'):
+            for _ in range(128):
+                self.reserve(wolf + '_tcp')
+                udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                try:
+                    udp.bind(('127.0.0.1', self.ports[wolf + '_tcp']))
+                except OSError:
+                    udp.close()
+                    self.release(wolf + '_tcp')
+                    continue
+                self.ports[wolf + '_quic'] = self.ports[wolf + '_tcp']
+                self.reservations[wolf + '_quic'] = udp
+                break
+            else:
+                raise RuntimeError('cannot reserve paired isolated TCP/UDP port')
+        for key in ('quic', 'encrypted', 'plain', 'large', 'raw'):
+            self.reserve(key)
         target_dir = self.base / 'targets'
         target_dir.mkdir()
         (target_dir / 'baseline.txt').write_bytes(MARKER)
@@ -317,7 +335,7 @@ class Lab:
             return dict(name=name, trust='Packmate', **identities[wolf],
                         address=f'{protocol}://{self.address(wolf + ("_quic" if protocol == "quic" else "_tcp"))}')
         packs = {'a': [peer('wolf-b', 'b', 'quic')],
-                 'b': [peer('wolf-a', 'a', 'quic'), peer('wolf-a-tcp', 'a', 'tcp')]}
+                 'b': [peer('wolf-a', 'a', 'quic')]}
         for wolf, pack in packs.items():
             write_json(self.base / wolf / 'pack.json', pack)
         write_json(self.base / 'a' / 'target_policy.json', {
@@ -338,7 +356,7 @@ class Lab:
                                      ('quic', 'home-web-quic', 'quic'),
                                      ('encrypted', 'home-web-tcp-encrypted-v2', 'tcp'),
                                      ('plain', 'home-web-tcp', 'tcp-plain')]:
-            profile = dict(name=name, peer='wolf-a' if key == 'quic' else 'wolf-a-tcp',
+            profile = dict(name=name, peer='wolf-a',
                            local=self.address(key), remote=self.address('target'), transport=transport)
             self.profiles[key] = profile
             self.control('b', 'fang.profile.add', profile)
@@ -381,7 +399,7 @@ class Lab:
         # Extra raw binary application check, transient Fang closed before persistence assertions.
         self.release('raw')
         for transport in ('quic', 'tcp', 'tcp-plain'):
-            self.control('b', 'fang.open', dict(peer='wolf-a' if transport == 'quic' else 'wolf-a-tcp',
+            self.control('b', 'fang.open', dict(peer='wolf-a',
                                               local=self.address('raw'), remote=self.address('echo'),
                                               transport=transport))
             self.wait_for(lambda: self.listener('raw'), 'raw Fang', self.wolves[1])

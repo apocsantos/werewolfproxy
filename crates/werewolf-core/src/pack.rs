@@ -10,6 +10,7 @@ pub enum TrustLevel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PeerRecord {
     pub name: String,
     pub fingerprint: String,

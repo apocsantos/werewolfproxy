@@ -81,7 +81,7 @@ pub(super) fn load(path: &Path) -> TargetPolicy {
     parse(&data)
 }
 
-fn parse(data: &str) -> TargetPolicy {
+pub(super) fn parse(data: &str) -> TargetPolicy {
     let parsed: PolicyFile = match serde_json::from_str(data) {
         Ok(value) => value,
         Err(_) => return TargetPolicy::Invalid,

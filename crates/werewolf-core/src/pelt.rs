@@ -5,11 +5,20 @@ use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use std::{fs, io, path::Path};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PeltIdentity {
     pub public_key_b64: String,
     pub secret_key_b64: String,
     pub fingerprint: String,
+}
+
+impl std::fmt::Debug for PeltIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PeltIdentity")
+            .field("fingerprint", &self.fingerprint)
+            .finish_non_exhaustive()
+    }
 }
 
 pub fn generate_identity() -> PeltIdentity {
