@@ -29,6 +29,11 @@ pub(super) fn load_startup_state(
         state_validation::profiles(&profiles, &initial_state.peers)?;
         initial_state.fang_profiles = profiles;
     }
+    if let Some(data) = den.read(OsStr::new("active_fangs.json"), 1024 * 1024)? {
+        let active = serde_json::from_slice::<Vec<String>>(&data).map_err(|_| invalid())?;
+        state_validation::active(&active, &initial_state.fang_profiles)?;
+        initial_state.active_profiles = active;
+    }
     Ok(())
 }
 
@@ -37,51 +42,6 @@ fn invalid() -> io::Error {
         io::ErrorKind::InvalidData,
         "invalid persistent security state",
     )
-}
-
-pub(super) fn load_active_fang_profiles(path: &std::path::Path) -> Vec<String> {
-    match std::fs::read_to_string(path) {
-        Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
-        Err(_) => Vec::new(),
-    }
-}
-
-fn save_active_fang_profiles(path: &std::path::Path, profiles: &[String]) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    let data = serde_json::to_string_pretty(profiles)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-
-    std::fs::write(path, data)
-}
-
-pub(super) fn remember_active_fang_profile(home: &std::path::Path, profile_name: &str) {
-    let path = home.join("active_fangs.json");
-    let mut profiles = load_active_fang_profiles(&path);
-
-    if !profiles.iter().any(|p| p == profile_name) {
-        profiles.push(profile_name.to_string());
-    }
-
-    if let Err(e) = save_active_fang_profiles(&path, &profiles) {
-        eprintln!(
-            "⚠️ Failed to persist active Fang profile {}: {}",
-            profile_name, e
-        );
-    }
-}
-
-pub(super) fn forget_active_fang_profile(home: &std::path::Path, profile_name: &str) {
-    let path = home.join("active_fangs.json");
-    let mut profiles = load_active_fang_profiles(&path);
-
-    profiles.retain(|p| p != profile_name);
-
-    if let Err(e) = save_active_fang_profiles(&path, &profiles) {
-        eprintln!("⚠️ Failed to update active Fang profiles: {}", e);
-    }
 }
 
 #[cfg(test)]

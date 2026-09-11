@@ -30,6 +30,9 @@ pub async fn open_quic_fang(
             }
         };
         let _ = ready.send(Ok(()));
+        if cancellation.await_activation().await.is_err() {
+            return;
+        }
 
         println!(
             "[INFO][QUIC][FANG_OPEN] 🐺 QUIC Fang listening on {} → {} target {}",

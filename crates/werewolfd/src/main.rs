@@ -47,7 +47,7 @@ use config::{configure_den, expand_home, validate_startup_config};
 use policy::{is_plain_tcp, select_peer_transport, ExpectedPeerIdentity, TransportPolicyError};
 
 mod persistence;
-use persistence::{load_active_fang_profiles, load_startup_state};
+use persistence::load_startup_state;
 
 #[tokio::main]
 async fn main() -> anyhow_free::Result<()> {
@@ -85,8 +85,7 @@ async fn main() -> anyhow_free::Result<()> {
 
     let listener = control::bind_socket(&args.socket).await?;
 
-    let active_fangs_path = home.join("active_fangs.json");
-    let active_profiles = load_active_fang_profiles(&active_fangs_path);
+    let active_profiles = state.lock().await.active_profiles.clone();
 
     if !active_profiles.is_empty() {
         ww_info!(
@@ -204,7 +203,19 @@ async fn open_fang_from_parts(
     remote: String,
     transport: String,
 ) -> ControlResponse {
-    let mut st = state.lock().await;
+    open_fang_with_profile(req_id, state, peer, local, remote, transport, None).await
+}
+
+async fn open_fang_with_profile(
+    req_id: String,
+    state: Arc<Mutex<DaemonState>>,
+    peer: String,
+    local: String,
+    remote: String,
+    transport: String,
+    activation: Option<(std::path::PathBuf, String)>,
+) -> ControlResponse {
+    let st = state.lock().await;
 
     if matches!(st.status.mode, WolfMode::Silver) {
         return ControlResponse::err(
@@ -253,7 +264,7 @@ async fn open_fang_from_parts(
         Ok(transport::FangTransport::Quic(a)) => {
             let fang_id = generate_fang_id(&peer, &local, &remote, st.fang_registry.len());
 
-            let cancellation = FangCancellation::default();
+            let (cancellation, release) = FangCancellation::prepared();
             let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
             let handle = match open_quic_fang(
                 local.clone(),
@@ -288,6 +299,13 @@ async fn open_fang_from_parts(
                 }
             }
 
+            drop(st);
+            if persist_activation(&activation, &state).await.is_err() {
+                handle.abort();
+                return ControlResponse::err(req_id, "ACTIVE_SAVE_FAILED", "activation rejected");
+            }
+            let mut st = state.lock().await;
+
             let fang = FangRecord {
                 id: fang_id.clone(),
                 peer: peer.clone(),
@@ -305,6 +323,15 @@ async fn open_fang_from_parts(
 
             st.status.active_fangs = st.fang_registry.len();
             st.status.mode = WolfMode::Wolf;
+
+            if release.send(true).is_err() {
+                st.storage_degraded = true;
+                return ControlResponse::err(
+                    req_id,
+                    "STORAGE_DEGRADED",
+                    "activation publication failed",
+                );
+            }
 
             return ControlResponse::ok(
                 req_id,
@@ -342,18 +369,13 @@ async fn open_fang_from_parts(
         state: FangState::Active,
     };
 
-    st.fang_registry.push(fang);
-
-    st.status.active_fangs = st.fang_registry.len();
-    st.status.mode = WolfMode::Wolf;
-
     let task_fang_id = fang_id.clone();
     let task_local = local.clone();
     let task_peer_addr = peer_addr.clone();
     let task_remote = remote.clone();
     let task_identity = identity.clone();
     let task_transport = transport.clone();
-    let cancellation = FangCancellation::default();
+    let (cancellation, release) = FangCancellation::prepared();
     let task_cancellation = cancellation.clone();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let task_expected_peer = expected_peer_identity;
@@ -381,14 +403,10 @@ async fn open_fang_from_parts(
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
             handle.abort();
-            st.fang_registry.retain_records(|f| f.id != fang_id);
-            st.status.active_fangs = st.fang_registry.len();
             return ControlResponse::err(req_id, "FANG_LISTENER_FAILED", error.to_string());
         }
         Err(_) => {
             handle.abort();
-            st.fang_registry.retain_records(|f| f.id != fang_id);
-            st.status.active_fangs = st.fang_registry.len();
             return ControlResponse::err(
                 req_id,
                 "FANG_LISTENER_FAILED",
@@ -397,11 +415,26 @@ async fn open_fang_from_parts(
         }
     }
 
+    drop(st);
+    if persist_activation(&activation, &state).await.is_err() {
+        handle.abort();
+        return ControlResponse::err(req_id, "ACTIVE_SAVE_FAILED", "activation rejected");
+    }
+    let mut st = state.lock().await;
+    st.fang_registry.push(fang);
+    st.status.active_fangs = st.fang_registry.len();
+    st.status.mode = WolfMode::Wolf;
+
     st.fang_registry.insert_task(fang_id.clone(), handle);
     st.fang_registry
         .insert_cancellation(fang_id.clone(), cancellation);
     st.fang_registry
         .insert_started(fang_id.clone(), std::time::Instant::now());
+
+    if release.send(true).is_err() {
+        st.storage_degraded = true;
+        return ControlResponse::err(req_id, "STORAGE_DEGRADED", "activation publication failed");
+    }
 
     ControlResponse::ok(
         req_id,
@@ -415,6 +448,20 @@ async fn open_fang_from_parts(
             "peer_addr": peer_addr
         }),
     )
+}
+
+async fn persist_activation(
+    activation: &Option<(std::path::PathBuf, String)>,
+    state: &Arc<Mutex<DaemonState>>,
+) -> std::io::Result<()> {
+    if let Some((home, name)) = activation {
+        let mut candidate = state.lock().await.active_profiles.clone();
+        if !candidate.contains(name) {
+            candidate.push(name.clone());
+        }
+        control::persist_active(home, candidate, state).await?;
+    }
+    Ok(())
 }
 
 mod anyhow_free {

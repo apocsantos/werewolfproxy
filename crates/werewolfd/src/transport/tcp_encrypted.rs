@@ -133,6 +133,7 @@ pub(super) async fn run_local_fang_forwarder(
             return Err(error);
         }
     };
+    cancellation.await_activation().await?;
     println!("🦷 {} listening locally on {}", fang_id, local);
 
     loop {

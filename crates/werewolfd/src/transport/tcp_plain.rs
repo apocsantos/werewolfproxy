@@ -21,6 +21,7 @@ pub(super) async fn run_plain_tcp_forwarder(
             return Err(error);
         }
     };
+    cancellation.await_activation().await?;
     println!("🦷 {} plain TCP listening locally on {}", fang_id, local);
 
     loop {

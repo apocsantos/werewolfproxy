@@ -1,9 +1,4 @@
-use crate::{
-    open_fang_from_parts,
-    persistence::{forget_active_fang_profile, remember_active_fang_profile},
-    policy::requested_transport,
-    state::DaemonState,
-};
+use crate::{open_fang_from_parts, policy::requested_transport, state::DaemonState};
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 use tokio::{
@@ -19,6 +14,7 @@ use werewolf_core::{
 mod limits;
 mod mutation;
 mod socket;
+pub(crate) use mutation::persist_active;
 pub(crate) use socket::bind as bind_socket;
 
 pub(super) async fn serve(
@@ -217,21 +213,16 @@ async fn handle_request(
                 }
             };
 
-            let response = open_fang_from_parts(
+            crate::open_fang_with_profile(
                 req.id,
                 state.clone(),
                 profile.peer,
                 profile.local,
                 profile.remote,
                 profile.transport,
+                Some((home, profile_name)),
             )
-            .await;
-
-            if response.ok {
-                remember_active_fang_profile(&home, &profile_name);
-            }
-
-            response
+            .await
         }
 
         "silver.trigger" => {
@@ -326,7 +317,7 @@ async fn handle_request(
         }
 
         "fang.close" => {
-            let mut st = state.lock().await;
+            let st = state.lock().await;
             let fang_id = req.args["fang_id"]
                 .as_str()
                 .unwrap_or("")
@@ -337,18 +328,25 @@ async fn handle_request(
                 return ControlResponse::err(req.id, "FANG_INVALID", "fang_id is required");
             }
 
-            let closed_fang = st.fang_registry.find_id(&fang_id).cloned();
-
-            let before = st.fang_registry.len();
-            st.fang_registry.retain_records(|f| f.id != fang_id);
-
-            if st.fang_registry.len() == before {
-                return ControlResponse::err(
-                    req.id,
-                    "FANG_NOT_FOUND",
-                    format!("Fang not found: {}", fang_id),
-                );
+            let Some(closed_fang) = st.fang_registry.find_id(&fang_id).cloned() else {
+                return ControlResponse::err(req.id, "FANG_NOT_FOUND", "Fang not found");
+            };
+            let mut candidate = st.active_profiles.clone();
+            candidate.retain(|name| {
+                !st.fang_profiles.iter().any(|profile| {
+                    profile.name == *name
+                        && profile.peer == closed_fang.peer
+                        && profile.local == closed_fang.local
+                        && profile.remote == closed_fang.remote
+                })
+            });
+            let changed = candidate != st.active_profiles;
+            drop(st);
+            if changed && persist_active(&home, candidate, &state).await.is_err() {
+                return ControlResponse::err(req.id, "ACTIVE_SAVE_FAILED", "close rejected");
             }
+            let mut st = state.lock().await;
+            st.fang_registry.retain_records(|f| f.id != fang_id);
 
             if let Some(handle) = st.fang_registry.remove_task(&fang_id) {
                 handle.abort();
@@ -359,15 +357,6 @@ async fn handle_request(
             }
 
             st.fang_registry.remove_started(&fang_id);
-
-            if let Some(fang) = closed_fang {
-                if let Some(profile) = st.fang_profiles.iter().find(|p| {
-                    p.peer == fang.peer && p.local == fang.local && p.remote == fang.remote
-                }) {
-                    forget_active_fang_profile(&home, &profile.name);
-                    println!("🦷 Forgot active Fang profile: {}", profile.name);
-                }
-            }
 
             st.status.active_fangs = st.fang_registry.len();
 
@@ -641,6 +630,101 @@ mod characterization_tests {
         .await
         .unwrap();
     }
+    #[tokio::test]
+    async fn profile_intent_failure_preserves_registry_and_close_resources() {
+        let fixture = Fixture::new();
+        let identity = generate_identity();
+        let reservation = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local = reservation.local_addr().unwrap().to_string();
+        drop(reservation);
+        let peer = serde_json::from_value(json!({
+            "name":"peer", "fingerprint":identity.fingerprint,
+            "public_key_b64":identity.public_key_b64,
+            "address":"tcp://127.0.0.1:1", "trust":"Packmate"
+        }))
+        .unwrap();
+        let profile = werewolf_core::fang_profile::FangProfile {
+            name: "profile".into(),
+            peer: "peer".into(),
+            local: local.clone(),
+            remote: "127.0.0.1:1".into(),
+            transport: "tcp-plain".into(),
+        };
+        let state = Arc::new(Mutex::new(DaemonState {
+            pelt: Some(identity),
+            peers: vec![peer],
+            fang_profiles: vec![profile],
+            ..DaemonState::default()
+        }));
+        let open = || ControlRequest {
+            id: "test".into(),
+            cmd: "fang.open_profile".into(),
+            args: json!({"name":"profile"}),
+        };
+        std::fs::create_dir(fixture.0.join("active_fangs.json")).unwrap();
+        let rejected = handle_request(open(), state.clone(), fixture.0.clone()).await;
+        assert!(!rejected.ok);
+        assert!(state.lock().await.fang_registry.is_empty());
+        assert!(state.lock().await.active_profiles.is_empty());
+        // Failed preparation must release its listener before a retry can bind.
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if tokio::net::TcpListener::bind(&local).await.is_ok() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        std::fs::remove_dir(fixture.0.join("active_fangs.json")).unwrap();
+        let opened = handle_request(open(), state.clone(), fixture.0.clone()).await;
+        assert!(opened.ok);
+        let id = state.lock().await.fang_registry.records()[0].id.clone();
+        assert_eq!(state.lock().await.active_profiles, vec!["profile"]);
+        assert_eq!(
+            serde_json::from_slice::<Vec<String>>(
+                &std::fs::read(fixture.0.join("active_fangs.json")).unwrap()
+            )
+            .unwrap(),
+            vec!["profile"]
+        );
+        let close = || ControlRequest {
+            id: "test".into(),
+            cmd: "fang.close".into(),
+            args: json!({"fang_id":id}),
+        };
+        std::fs::set_permissions(
+            fixture.0.join("active_fangs.json"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        assert!(
+            !handle_request(close(), state.clone(), fixture.0.clone())
+                .await
+                .ok
+        );
+        assert_eq!(state.lock().await.fang_registry.len(), 1);
+        assert_eq!(state.lock().await.active_profiles, vec!["profile"]);
+        std::fs::set_permissions(
+            fixture.0.join("active_fangs.json"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        assert!(
+            handle_request(close(), state.clone(), fixture.0.clone())
+                .await
+                .ok
+        );
+        assert!(state.lock().await.fang_registry.is_empty());
+        assert!(state.lock().await.active_profiles.is_empty());
+        assert!(serde_json::from_slice::<Vec<String>>(
+            &std::fs::read(fixture.0.join("active_fangs.json")).unwrap()
+        )
+        .unwrap()
+        .is_empty());
+    }
+
     #[tokio::test]
     async fn concurrent_identity_initialization_has_one_durable_winner() {
         let fixture = Fixture::new();

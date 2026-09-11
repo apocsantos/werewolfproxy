@@ -166,6 +166,9 @@ pub(super) async fn handle(
         (live.fang_profiles.clone(), live.peers.clone())
     };
     let name = arg(&req, "name");
+    if req.cmd == "fang.profile.remove" && state.lock().await.active_profiles.contains(&name) {
+        return error(&req.id, "FANG_PROFILE_ACTIVE");
+    }
     let status = if req.cmd == "fang.profile.add" {
         candidate.push(FangProfile {
             name: name.clone(),
@@ -198,6 +201,25 @@ pub(super) async fn handle(
         req.id,
         json!({"status":status,"name":name,"profiles":live.fang_profiles.len()}),
     )
+}
+
+// Called only under the mutation coordinator (startup restoration does not write).
+// The caller publishes registry changes immediately after this durable intent.
+pub(crate) async fn persist_active(
+    home: &Path,
+    candidate: Vec<String>,
+    state: &Arc<Mutex<DaemonState>>,
+) -> io::Result<()> {
+    {
+        let live = state.lock().await;
+        if live.storage_degraded {
+            return Err(io::Error::other("storage degraded"));
+        }
+        state_validation::active(&candidate, &live.fang_profiles)?;
+    }
+    durable(home, "active_fangs.json", &candidate, false, state).await?;
+    state.lock().await.active_profiles = candidate;
+    Ok(())
 }
 
 #[cfg(test)]

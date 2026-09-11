@@ -10,6 +10,7 @@ pub(super) struct DaemonState {
     pub(super) peers: Vec<PeerRecord>,
     pub(super) fang_registry: FangRegistry,
     pub(super) fang_profiles: Vec<FangProfile>,
+    pub(super) active_profiles: Vec<String>,
     pub(super) admission: std::sync::Arc<crate::admission::Admission>,
     pub(super) status: Status,
     pub(super) pelt: Option<PeltIdentity>,

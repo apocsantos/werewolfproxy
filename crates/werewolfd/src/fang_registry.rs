@@ -9,9 +9,31 @@ use werewolf_core::fang::FangRecord;
 #[derive(Clone, Default)]
 pub(super) struct FangCancellation {
     children: Arc<Mutex<Vec<AbortHandle>>>,
+    activation: Option<tokio::sync::watch::Receiver<bool>>,
 }
 
 impl FangCancellation {
+    pub(super) fn prepared() -> (Self, tokio::sync::watch::Sender<bool>) {
+        let (release, activation) = tokio::sync::watch::channel(false);
+        (
+            Self {
+                activation: Some(activation),
+                ..Self::default()
+            },
+            release,
+        )
+    }
+
+    pub(super) async fn await_activation(&self) -> std::io::Result<()> {
+        if let Some(mut activation) = self.activation.clone() {
+            activation
+                .wait_for(|released| *released)
+                .await
+                .map_err(|_| std::io::Error::other("listener preparation cancelled"))?;
+        }
+        Ok(())
+    }
+
     pub(super) fn track(&self, handle: &JoinHandle<()>) {
         self.children.lock().unwrap().push(handle.abort_handle());
     }
@@ -128,5 +150,29 @@ impl FangRegistry {
     }
     pub(super) fn clear_records(&mut self) {
         self.fangs.clear();
+    }
+}
+
+#[cfg(test)]
+mod activation_tests {
+    use super::*;
+    #[tokio::test]
+    async fn preparation_waits_for_publication_and_fails_on_abandonment() {
+        let (prepared, release) = FangCancellation::prepared();
+        assert!(tokio::time::timeout(
+            std::time::Duration::from_millis(20),
+            prepared.await_activation()
+        )
+        .await
+        .is_err());
+        release.send(true).unwrap();
+        prepared.await_activation().await.unwrap();
+        let (abandoned, release) = FangCancellation::prepared();
+        drop(release);
+        assert!(abandoned.await_activation().await.is_err());
+        FangCancellation::default()
+            .await_activation()
+            .await
+            .unwrap();
     }
 }
