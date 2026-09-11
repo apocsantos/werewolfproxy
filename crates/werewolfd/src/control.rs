@@ -866,4 +866,18 @@ mod characterization_tests {
         .await;
         assert!(result.is_err());
     }
+    #[tokio::test]
+    async fn failed_pack_save_currently_leaves_memory_mutated() {
+        let fixture = Fixture::new();
+        std::fs::create_dir(fixture.0.join("pack.json")).unwrap();
+        let state = Arc::new(Mutex::new(DaemonState::default()));
+        let identity = generate_identity();
+        let response = handle_request(ControlRequest {
+            id: "fixture".into(), cmd: "pack.add".into(),
+            args: json!({"name":"fixture", "fingerprint":identity.fingerprint, "address":"tcp://127.0.0.1:1"})
+        }, state.clone(), fixture.0.clone()).await;
+        assert!(!response.ok);
+        assert_eq!(state.lock().await.peers.len(), 1);
+        assert!(fixture.0.join("pack.json").is_dir());
+    }
 }
