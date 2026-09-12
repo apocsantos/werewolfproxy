@@ -195,4 +195,24 @@ mod tests {
             b"untouched"
         );
     }
+
+    #[test]
+    fn silver_latch_is_strict_and_missing_or_deleted_is_locked() {
+        let fixture = Fixture::new();
+        // Fixture starts explicitly open; startup must reflect the persisted latch.
+        let mut state = DaemonState::default();
+        load_startup_state(&fixture.1, &mut state).unwrap();
+        assert!(!state.inbound_authority.is_locked());
+        assert_eq!(state.status.silver, "armed");
+        fixture.write("silver.json", br#"{"version":1,"mode":"locked"}"#);
+        load_startup_state(&fixture.1, &mut state).unwrap();
+        assert!(state.inbound_authority.is_locked());
+        assert_eq!(state.status.silver, "active");
+        fixture.write("silver.json", br#"{"version":1,"mode":"unknown"}"#);
+        assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+        std::fs::remove_file(fixture.0.join("silver.json")).unwrap();
+        load_startup_state(&fixture.1, &mut state).unwrap();
+        assert!(state.inbound_authority.is_locked());
+        assert_eq!(state.status.silver, "active");
+    }
 }

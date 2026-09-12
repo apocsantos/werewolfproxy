@@ -239,9 +239,9 @@ async fn handle_request(
                     )
                 }
             };
-            let (den, home) = {
+            let den = {
                 let st = state.lock().await;
-                (st.den.clone(), home.clone())
+                st.den.clone()
             };
             let Some(den) = den else {
                 return ControlResponse::err(
