@@ -1,4 +1,4 @@
-use crate::{state::DaemonState, target_policy};
+use crate::{authority::Authority, state::DaemonState, target_policy};
 use std::{ffi::OsStr, io};
 use werewolf_core::{local_fs::PrivateDirectory, state_validation};
 
@@ -6,6 +6,37 @@ pub(super) fn load_startup_state(
     den: &PrivateDirectory,
     initial_state: &mut DaemonState,
 ) -> io::Result<()> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Silver {
+        version: u8,
+        mode: String,
+    }
+    let silver_locked = match den.read(OsStr::new("silver.json"), 1024)? {
+        None => true,
+        Some(data) => {
+            let value: Silver = serde_json::from_slice(&data).map_err(|_| invalid())?;
+            if value.version != 1 {
+                return Err(invalid());
+            }
+            match value.mode.as_str() {
+                "locked" => true,
+                "open" => false,
+                _ => return Err(invalid()),
+            }
+        }
+    };
+    initial_state.inbound_authority = Authority::new(silver_locked);
+    initial_state.status.silver = if silver_locked {
+        "active".into()
+    } else {
+        "armed".into()
+    };
+    initial_state.status.mode = if silver_locked {
+        werewolf_core::state::WolfMode::Silver
+    } else {
+        werewolf_core::state::WolfMode::Human
+    };
     initial_state.target_policy = match den.read(OsStr::new("target_policy.json"), 1024 * 1024)? {
         None => target_policy::TargetPolicy::Deny,
         Some(data) => match std::str::from_utf8(&data) {
@@ -60,6 +91,14 @@ mod tests {
                 crate::handshake::hex(&crate::handshake::random::<16>().unwrap())
             ));
             let directory = PrivateDirectory::open(&path, true).unwrap();
+            assert!(matches!(
+                directory.replace(
+                    OsStr::new("silver.json"),
+                    br#"{"version":1,"mode":"open"}"#,
+                    false
+                ),
+                CommitOutcome::DurablyCommitted
+            ));
             Self(path, directory)
         }
         fn write(&self, name: &str, data: &[u8]) {

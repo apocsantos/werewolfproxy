@@ -573,6 +573,12 @@ impl Daemon {
         ));
         std::fs::create_dir(&home).unwrap();
         std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::write(home.join("silver.json"), br#"{"version":1,"mode":"open"}"#).unwrap();
+        std::fs::set_permissions(
+            home.join("silver.json"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
         let sender = generate_identity();
         let receiver = generate_identity();
         werewolf_core::pelt::save_identity(&home.join("pelt.json"), &receiver).unwrap();

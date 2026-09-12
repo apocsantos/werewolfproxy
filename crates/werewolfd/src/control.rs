@@ -228,8 +228,44 @@ async fn handle_request(
         }
 
         "silver.trigger" => {
+            let authority = state.lock().await.inbound_authority.clone();
+            let epoch = match authority.lock() {
+                Ok(e) => e,
+                Err(_) => {
+                    return ControlResponse::err(
+                        req.id,
+                        "SILVER_FAILED",
+                        "local state mutation rejected",
+                    )
+                }
+            };
+            let (den, home) = {
+                let st = state.lock().await;
+                (st.den.clone(), home.clone())
+            };
+            let Some(den) = den else {
+                return ControlResponse::err(
+                    req.id,
+                    "SILVER_FAILED",
+                    "local state mutation rejected",
+                );
+            };
+            let bytes = br#"{"version":1,"mode":"locked"}"#;
+            let outcome = tokio::task::spawn_blocking(move || {
+                den.replace(std::ffi::OsStr::new("silver.json"), bytes, false)
+            })
+            .await;
+            if !matches!(
+                outcome,
+                Ok(werewolf_core::local_fs::CommitOutcome::DurablyCommitted)
+            ) {
+                return ControlResponse::err(
+                    req.id,
+                    "SILVER_SAVE_FAILED",
+                    "local state mutation rejected",
+                );
+            }
             let mut st = state.lock().await;
-
             st.fang_registry.abort_all();
             st.fang_registry.clear_started();
 
@@ -238,6 +274,7 @@ async fn handle_request(
             st.status.mode = WolfMode::Silver;
             st.status.silver = "active".to_string();
 
+            let _ = epoch;
             ControlResponse::ok(
                 req.id,
                 json!({
@@ -248,6 +285,41 @@ async fn handle_request(
         }
 
         "silver.reset" => {
+            let authority = state.lock().await.inbound_authority.clone();
+            let expected = authority.epoch().unwrap_or(0);
+            let den = state.lock().await.den.clone();
+            let Some(den) = den else {
+                return ControlResponse::err(
+                    req.id,
+                    "SILVER_FAILED",
+                    "local state mutation rejected",
+                );
+            };
+            let outcome = tokio::task::spawn_blocking(move || {
+                den.replace(
+                    std::ffi::OsStr::new("silver.json"),
+                    br#"{"version":1,"mode":"open"}"#,
+                    false,
+                )
+            })
+            .await;
+            if !matches!(
+                outcome,
+                Ok(werewolf_core::local_fs::CommitOutcome::DurablyCommitted)
+            ) {
+                return ControlResponse::err(
+                    req.id,
+                    "SILVER_SAVE_FAILED",
+                    "local state mutation rejected",
+                );
+            }
+            if authority.open_after_durable(expected).is_err() {
+                return ControlResponse::err(
+                    req.id,
+                    "SILVER_SUPERSEDED",
+                    "local state mutation rejected",
+                );
+            }
             let mut st = state.lock().await;
             st.status.mode = WolfMode::Human;
             st.status.silver = "armed".to_string();

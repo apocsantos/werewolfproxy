@@ -192,6 +192,10 @@ class Lab:
         for wolf in ('a', 'b'):
             den = self.base / wolf
             den.mkdir(mode=0o700, exist_ok=True)
+            # The daemon defaults missing Silver state to fail-closed LOCKED.
+            # Lab traffic fixtures explicitly opt into OPEN for this run.
+            write_json(den / 'silver.json', {'version': 1, 'mode': 'open'})
+            os.chmod(den / 'silver.json', 0o600)
             self.release(wolf + '_tcp')
             self.release(wolf + '_quic')
             process, _ = self.spawn([self.binary, '--home', den, '--socket',
