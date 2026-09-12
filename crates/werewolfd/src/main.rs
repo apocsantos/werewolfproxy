@@ -476,3 +476,5 @@ mod replay_v3_tests;
 
 #[cfg(test)]
 mod authority_tests;
+
+mod authority;
