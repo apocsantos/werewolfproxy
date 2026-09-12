@@ -52,11 +52,10 @@ application bytes, and requires the receiver fingerprint to equal the selected
 Pack peer. Legacy QUIC peers therefore fail closed when speaking to a v2 peer;
 there is no implicit downgrade.
 
-`SkipServerVerification` remains enabled in the QUIC client endpoint. The QUIC
-lab creates self-signed endpoint certificates at startup, so certificates are
-ephemeral rather than stable Pack identities. Application-level Pelt/Pack
-authentication now supplies the intended Werewolf peer binding, while TLS
-certificate verification would additionally authenticate the endpoint and
-protect against transport-level impersonation. Replacing the current setting
-would require deployment-compatible certificate provisioning and is deferred
-for separate review.
+Stage 12D.2 resolves the production transport gap described above. The daemon
+derives one in-memory runtime certificate from its existing Pelt and the QUIC
+client verifies the exact selected Pack peer SPKI plus TLS 1.3
+CertificateVerify before opening a stream. The Stage 10 OPEN/ACK wire format is
+unchanged. `SkipServerVerification` remains only in explicitly isolated lab and
+debug-binary helpers; the production daemon does not compile or call that
+helper.
