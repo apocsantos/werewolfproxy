@@ -122,6 +122,7 @@ async fn handle_request(
                     "listen": st.den_listen,
                     "quic_listen": st.den_quic_listen,
                     "storage_degraded": st.storage_degraded,
+                    "inbound_authority": st.inbound_authority.summary(),
                     "mode": st.status.mode,
                     "pelt_ready": st.status.pelt_ready,
                     "packmates": st.peers.len(),
@@ -142,6 +143,7 @@ async fn handle_request(
                 req.id,
                 json!({
                     "storage_degraded": st.storage_degraded,
+                    "inbound_authority": st.inbound_authority.summary(),
                     "mode": st.status.mode,
                     "pelt_ready": st.status.pelt_ready,
                     "packmates": st.peers.len(),
@@ -386,6 +388,90 @@ mod characterization_tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
     use werewolf_core::pelt::generate_identity;
+
+    #[tokio::test]
+    async fn remove_and_revoke_retain_runtime_denial_when_pack_commit_fails() {
+        use crate::authority::{PeerAuthority, Transport};
+        for command in ["pack.revoke", "pack.remove"] {
+            let fixture = Fixture::new();
+            let identity = generate_identity();
+            let peer = serde_json::from_value(json!({
+                "name":"peer", "fingerprint":identity.fingerprint,
+                "public_key_b64":identity.public_key_b64,
+                "address":"tcp://127.0.0.1:1", "trust":"Packmate"
+            }))
+            .unwrap();
+            let state = Arc::new(Mutex::new(DaemonState {
+                peers: vec![peer],
+                ..fixture.state()
+            }));
+            let authority = state.lock().await.inbound_authority.clone();
+            let ticket = authority.ticket(&identity.fingerprint).unwrap();
+            let lease = authority.reserve(ticket, Transport::Tcp).unwrap();
+            lease.publish().unwrap();
+            let cancelled = tokio::spawn(async move {
+                lease.cancelled().await;
+                drop(lease);
+            });
+            let path = fixture.0.join("pack.json");
+            werewolf_core::pack::save_pack(&path, &state.lock().await.peers).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            // Unsafe destination produces NotCommitted without replacing it.
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+            let request = || ControlRequest {
+                id: "test".into(),
+                cmd: command.into(),
+                args: json!({"name":"peer"}),
+            };
+            let response = handle_request(request(), state.clone(), fixture.0.clone()).await;
+            assert!(!response.ok);
+            assert_eq!(
+                response.error.unwrap().code,
+                "PACK_SAVE_FAILED_RUNTIME_DENIED"
+            );
+            tokio::time::timeout(std::time::Duration::from_secs(2), cancelled)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(state.lock().await.peers.len(), 1);
+            assert!(!state.lock().await.storage_degraded);
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert_eq!(
+                authority.peer_state(&identity.fingerprint, true).unwrap(),
+                PeerAuthority::RuntimeDeniedPendingDurability
+            );
+            assert!(authority.reserve(ticket, Transport::Tcp).is_err());
+            assert_eq!(
+                authority.summary()["pending_durability"],
+                json!([identity.fingerprint])
+            );
+            // Explicit fixture/operator repair permits a durable retry; no
+            // production validation path silently repairs the unsafe mode.
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            assert!(
+                handle_request(request(), state.clone(), fixture.0.clone())
+                    .await
+                    .ok
+            );
+            assert!(state.lock().await.peers.is_empty());
+            assert!(werewolf_core::pack::load_pack(&path).unwrap().is_empty());
+            assert_eq!(
+                authority.peer_state(&identity.fingerprint, false).unwrap(),
+                PeerAuthority::Revoked
+            );
+            assert!(authority.reserve(ticket, Transport::Tcp).is_err());
+            let committed = std::fs::read(&path).unwrap();
+            // A repeated name removal reports absence, with idempotent state:
+            // it cannot re-authorize, write another document, or revive a lease.
+            assert!(
+                !handle_request(request(), state.clone(), fixture.0.clone())
+                    .await
+                    .ok
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), committed);
+            authority.cleanup(None).await.unwrap();
+        }
+    }
 
     struct Fixture(PathBuf);
     impl Fixture {

@@ -110,6 +110,14 @@ pub(super) async fn handle(
         let mut candidate = state.lock().await.peers.clone();
         let name = arg(&req, "name");
         let before = candidate.len();
+        let revoked_fingerprint = if matches!(req.cmd.as_str(), "pack.remove" | "pack.revoke") {
+            candidate
+                .iter()
+                .find(|p| p.name == name)
+                .map(|p| p.fingerprint.clone())
+        } else {
+            None
+        };
         let status = match req.cmd.as_str() {
             "pack.add" => {
                 candidate.push(PeerRecord {
@@ -144,22 +152,59 @@ pub(super) async fn handle(
         if state_validation::pack(&candidate).is_err() {
             return error(&req.id, "PACK_INVALID");
         }
+        let (authority, closed) = {
+            let mut live = state.lock().await;
+            let authority = live.inbound_authority.clone();
+            let closed = if let Some(peer) = &revoked_fingerprint {
+                // Authority linearizes before filesystem work. The coordinator
+                // owns this operation after acceptance, not the client's socket.
+                if authority.deny_peer(peer).is_err() {
+                    return error(&req.id, "AUTHORITY_UNAVAILABLE");
+                }
+                let closed = live.fang_registry.terminate_peer(&name);
+                live.status.active_fangs = live.fang_registry.len();
+                closed
+            } else {
+                0
+            };
+            (authority, closed)
+        };
         if durable(&home, "pack.json", &candidate, false, &state)
             .await
             .is_err()
         {
-            return error(&req.id, "PACK_SAVE_FAILED");
+            // NotCommitted leaves Pack memory/disk unchanged but never restores
+            // runtime authority. Indeterminate also retains the deny fence and
+            // durable() enters the existing storage-degraded path.
+            return error(
+                &req.id,
+                if revoked_fingerprint.is_some() {
+                    "PACK_SAVE_FAILED_RUNTIME_DENIED"
+                } else {
+                    "PACK_SAVE_FAILED"
+                },
+            );
         }
         let mut live = state.lock().await;
         live.peers = candidate;
-        let closed = if req.cmd == "pack.revoke" {
-            live.fang_registry.terminate_peer(&name)
-        } else {
-            0
-        };
+        if let Some(peer) = &revoked_fingerprint {
+            if authority.removed(peer).is_err() {
+                // Disk is committed; never pretend rollback or return success
+                // when matching authority publication cannot be established.
+                live.storage_degraded = true;
+                return error(&req.id, "AUTHORITY_PUBLICATION_FAILED");
+            }
+        }
+        let packmates = live.peers.len();
+        drop(live);
+        if let Some(peer) = &revoked_fingerprint {
+            if authority.cleanup(Some(peer)).await.is_err() {
+                return error(&req.id, "AUTHORITY_CLEANUP_TIMEOUT");
+            }
+        }
         return ControlResponse::ok(
             req.id,
-            json!({"status":status,"name":name,"peer":name,"address":req.args["address"],"closed_fangs":closed,"packmates":live.peers.len()}),
+            json!({"status":status,"name":name,"peer":name,"address":req.args["address"],"closed_fangs":closed,"packmates":packmates}),
         );
     }
     let (mut candidate, peers) = {

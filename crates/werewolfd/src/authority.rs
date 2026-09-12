@@ -92,6 +92,33 @@ impl Authority {
     pub(crate) fn silver_watch(&self) -> watch::Receiver<u64> {
         self.silver.subscribe()
     }
+    // ADMIN-local status only. No registry details are included in Fang data.
+    pub(crate) fn summary(&self) -> serde_json::Value {
+        let Ok(gate) = self.gate() else {
+            return serde_json::json!({"healthy":false,"locked":true});
+        };
+        let mut pending: Vec<String> = gate
+            .peers
+            .iter()
+            .filter(|(_, g)| g.state == PeerAuthority::RuntimeDeniedPendingDurability)
+            .map(|(peer, _)| {
+                format!(
+                    "wwp1:{}",
+                    peer.iter()
+                        .map(|b| format!("{b:02X}"))
+                        .collect::<Vec<_>>()
+                        .join("-")
+                )
+            })
+            .collect();
+        pending.sort();
+        serde_json::json!({
+            "healthy":true,"locked":gate.locked,"epoch":gate.epoch,
+            "establishing":gate.sessions.values().filter(|e| !e.active).count(),
+            "active":gate.sessions.values().filter(|e| e.active).count(),
+            "pending_durability":pending,
+        })
+    }
     pub(crate) fn connection(&self) -> io::Result<ConnectionId> {
         Ok(ConnectionId(self.gate()?.allocate()?))
     }
@@ -296,6 +323,17 @@ struct LeaseOwner {
     id: u64,
 }
 impl SessionLease {
+    pub(crate) fn is_current(&self) -> bool {
+        self.0
+            .authority
+            .gate()
+            .map(|g| {
+                g.sessions
+                    .get(&self.0.id)
+                    .is_some_and(|e| g.current(e.ticket))
+            })
+            .unwrap_or(false)
+    }
     /// Callers pass only TcpStream::connect over the already-authorized numeric
     /// SocketAddr slice. One poll may initiate a nonblocking connect; it never
     /// resolves a hostname or acquires daemon state. A SYN already submitted
