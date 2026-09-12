@@ -2,7 +2,7 @@
 //! The short synchronous mutex is the publication/submission linearization gate.
 //! Never acquire daemon state, perform filesystem I/O, or await while holding it.
 mod writer;
-pub(crate) use writer::AuthorityWriter;
+pub(crate) use writer::{AuthorityTcpStream, AuthorityWriter};
 
 use crate::handshake::{fingerprint, rejected, require};
 use std::{

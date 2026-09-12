@@ -1,4 +1,4 @@
-use crate::authority::{AuthorityWriter, SessionLease, Transport};
+use crate::authority::{AuthorityTcpStream, AuthorityWriter, SessionLease, Transport};
 use crate::{admission::HandshakePermit, handshake as hs, state::DaemonState};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chacha20poly1305::{
@@ -6,24 +6,38 @@ use chacha20poly1305::{
     ChaCha20Poly1305, Key, Nonce,
 };
 use rand_core::{OsRng, RngCore};
+use rustls::pki_types::ServerName;
 use std::{sync::Arc, time::Duration};
 use tokio::{
-    io::{self, AsyncReadExt, AsyncWriteExt},
+    io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::Mutex,
+};
+use tokio_rustls::{
+    client::TlsStream as ClientTlsStream, server::TlsStream as ServerTlsStream, TlsAcceptor,
+    TlsConnector,
 };
 use werewolf_core::pelt::PeltIdentity;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
 #[cfg(test)]
 mod authority_tests;
+#[cfg(test)]
+mod receiver_auth_tests;
 
 pub(super) async fn run_fang_listener(
     listen_addr: &str,
     state: Arc<Mutex<DaemonState>>,
 ) -> io::Result<()> {
+    let (admission, runtime_tls_identity) = {
+        let state = state.lock().await;
+        (state.admission.clone(), state.runtime_tls_identity.clone())
+    };
+    let runtime_tls_identity = runtime_tls_identity.ok_or_else(hs::rejected)?;
+    let tls_config =
+        crate::tls_identity::server_config(&runtime_tls_identity).map_err(|_| hs::rejected())?;
+    let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
     let listener = TcpListener::bind(listen_addr).await?;
-    let admission = state.lock().await.admission.clone();
     let mut tasks = tokio::task::JoinSet::new();
 
     loop {
@@ -39,9 +53,20 @@ pub(super) async fn run_fang_listener(
             continue;
         };
         let state_for_client = state.clone();
+        let tls_acceptor = tls_acceptor.clone();
 
         tasks.spawn(async move {
-            if let Err(e) = handle_fang_pipe(stream, state_for_client, permit, started).await {
+            let stream = AuthorityTcpStream::new(stream);
+            let tls_stream =
+                tokio::time::timeout_at(started + hs::READ_WINDOW, tls_acceptor.accept(stream))
+                    .await
+                    .map_err(|_| hs::rejected())
+                    .and_then(|result| result.map_err(|_| hs::rejected()));
+            let result = match tls_stream {
+                Ok(stream) => handle_fang_pipe(stream, state_for_client, permit, started).await,
+                Err(error) => Err(error),
+            };
+            if let Err(e) = result {
                 eprintln!("fang pipe from {} error: {}", peer_addr, e);
             }
         });
@@ -49,7 +74,7 @@ pub(super) async fn run_fang_listener(
 }
 
 async fn handle_fang_pipe(
-    mut stream: TcpStream,
+    mut stream: ServerTlsStream<AuthorityTcpStream>,
     state: Arc<Mutex<DaemonState>>,
     permit: HandshakePermit,
     started: tokio::time::Instant,
@@ -64,7 +89,7 @@ async fn handle_fang_pipe(
 }
 
 async fn server_handshake(
-    stream: &mut TcpStream,
+    stream: &mut ServerTlsStream<AuthorityTcpStream>,
     state: Arc<Mutex<DaemonState>>,
     mut permit: HandshakePermit,
     started: tokio::time::Instant,
@@ -97,6 +122,9 @@ async fn server_handshake(
     context.consume(&open)?;
     let ticket = authority.ticket(&open.sender_fingerprint)?;
     let lease = authority.reserve(ticket, Transport::Tcp)?;
+    // Place the sender authority gate beneath rustls before target admission or
+    // ACK. Buffered TLS ciphertext can therefore never bypass a later revoke.
+    stream.get_mut().0.authorize(lease.clone())?;
 
     tokio::select! {
         biased;
@@ -129,8 +157,7 @@ async fn server_handshake(
         &context.receiver,
         server_public.as_bytes(),
     )?;
-    let mut writer = AuthorityWriter::new(stream, lease.clone());
-    hs::write(&mut writer, &ack, hs::MESSAGE_LIMIT, started + hs::SERVER_WINDOW).await?;
+    hs::write(stream, &ack, hs::MESSAGE_LIMIT, started + hs::SERVER_WINDOW).await?;
     Ok((remote, key, lease.clone()))
         } => result,
     }
@@ -145,7 +172,7 @@ pub(super) async fn run_local_fang_forwarder(
     identity: PeltIdentity,
     cancellation: crate::fang_registry::FangCancellation,
     ready: tokio::sync::oneshot::Sender<io::Result<()>>,
-    _expected_peer: crate::policy::ExpectedPeerIdentity,
+    expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> io::Result<()> {
     let listener = match TcpListener::bind(local).await {
         Ok(listener) => {
@@ -166,7 +193,7 @@ pub(super) async fn run_local_fang_forwarder(
         let remote = remote.to_string();
         let fang_id = fang_id.to_string();
         let identity = identity.clone();
-        let expected_peer = _expected_peer.clone();
+        let expected_peer = expected_peer.clone();
 
         let handle = tokio::spawn(async move {
             if let Err(e) =
@@ -187,9 +214,7 @@ async fn pipe_one_fang_connection(
     identity: PeltIdentity,
     expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> io::Result<()> {
-    let mut outbound = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(peer_addr))
-        .await
-        .map_err(|_| hs::rejected())??;
+    let mut outbound = connect_authenticated_tcp(peer_addr, &expected_peer).await?;
     let deadline = tokio::time::Instant::now() + hs::CLIENT_WINDOW;
     let key = tokio::time::timeout_at(deadline, async {
         let challenge: hs::TcpChallenge = hs::read(
@@ -219,13 +244,38 @@ async fn pipe_one_fang_connection(
     secure_copy_client_side(inbound, outbound, key).await
 }
 
-async fn secure_copy_client_side(
+pub(crate) async fn connect_authenticated_tcp(
+    peer_addr: &str,
+    expected_peer: &crate::policy::ExpectedPeerIdentity,
+) -> io::Result<ClientTlsStream<TcpStream>> {
+    // Validate and construct exact selected-peer trust before opening a TCP
+    // socket. Historical fingerprint-only Pack entries therefore fail closed
+    // without sending transport or application bytes.
+    let config = crate::tls_identity::client_config_for_selected_peer_key(
+        expected_peer.public_key_b64.as_deref(),
+    )
+    .map_err(|_| hs::rejected())?;
+    let connector = TlsConnector::from(Arc::new(config));
+    let stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(peer_addr))
+        .await
+        .map_err(|_| hs::rejected())??;
+    let server_name = ServerName::from(stream.peer_addr()?.ip());
+    tokio::time::timeout(hs::READ_WINDOW, connector.connect(server_name, stream))
+        .await
+        .map_err(|_| hs::rejected())?
+        .map_err(|_| hs::rejected())
+}
+
+async fn secure_copy_client_side<S>(
     inbound: &mut TcpStream,
-    outbound: TcpStream,
+    outbound: S,
     key: [u8; 32],
-) -> io::Result<()> {
+) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let (mut in_r, mut in_w) = inbound.split();
-    let (mut out_r, mut out_w) = outbound.into_split();
+    let (mut out_r, mut out_w) = tokio::io::split(outbound);
 
     let client_to_server = async {
         let mut buf = vec![0u8; 1400];
@@ -284,14 +334,14 @@ async fn secure_copy_client_side(
 }
 
 async fn secure_copy_server_side(
-    stream: TcpStream,
+    stream: ServerTlsStream<AuthorityTcpStream>,
     remote_stream: TcpStream,
     key: [u8; 32],
     lease: SessionLease,
 ) -> io::Result<()> {
-    let (mut fang_r, fang_w) = stream.into_split();
+    let (mut fang_r, fang_w) = tokio::io::split(stream);
     let (mut remote_r, remote_w) = remote_stream.into_split();
-    let mut fang_w = AuthorityWriter::new(fang_w, lease.clone());
+    let mut fang_w = fang_w;
     let mut remote_w = AuthorityWriter::new(remote_w, lease.clone());
 
     let client_to_remote = async {

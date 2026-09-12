@@ -6,7 +6,93 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tokio::io::AsyncWrite;
+use tokio::{
+    io::{AsyncRead, AsyncWrite, ReadBuf},
+    net::TcpStream,
+};
+
+/// A raw TCP stream whose writes become authority-gated after sender
+/// authentication. TLS is layered above this type so rustls cannot flush
+/// buffered ciphertext after the associated Pack authority is revoked.
+pub(crate) struct AuthorityTcpStream {
+    inner: TcpStream,
+    lease: Option<SessionLease>,
+}
+
+impl AuthorityTcpStream {
+    pub(crate) fn new(inner: TcpStream) -> Self {
+        Self { inner, lease: None }
+    }
+
+    /// Install the authenticated sender's lease exactly once. Handshake and
+    /// challenge writes precede this transition; ACK and forwarding writes do
+    /// not.
+    pub(crate) fn authorize(&mut self, lease: SessionLease) -> io::Result<()> {
+        if self.lease.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "TCP authority is already installed",
+            ));
+        }
+        self.lease = Some(lease);
+        Ok(())
+    }
+}
+
+impl AsyncRead for AuthorityTcpStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for AuthorityTcpStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        let mut poll = || Pin::new(&mut this.inner).poll_write(cx, bytes);
+        let result = match &this.lease {
+            Some(lease) => lease.submit(poll),
+            None => Ok(poll()),
+        };
+        match result {
+            Ok(result) => result,
+            Err(error) => Poll::Ready(Err(error)),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let mut poll = || Pin::new(&mut this.inner).poll_flush(cx);
+        let result = match &this.lease {
+            Some(lease) => lease.submit(poll),
+            None => Ok(poll()),
+        };
+        match result {
+            Ok(result) => result,
+            Err(error) => Poll::Ready(Err(error)),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let mut poll = || Pin::new(&mut this.inner).poll_shutdown(cx);
+        let result = match &this.lease {
+            Some(lease) => lease.submit(poll),
+            None => Ok(poll()),
+        };
+        match result {
+            Ok(result) => result,
+            Err(error) => Poll::Ready(Err(error)),
+        }
+    }
+}
 
 mod sealed {
     pub trait Raw {}
