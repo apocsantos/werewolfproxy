@@ -16,6 +16,8 @@ pub(super) struct DaemonState {
     pub(super) admission: std::sync::Arc<crate::admission::Admission>,
     pub(super) status: Status,
     pub(super) pelt: Option<PeltIdentity>,
+    pub(super) runtime_tls_identity:
+        Option<std::sync::Arc<crate::tls_identity::RuntimeTlsIdentity>>,
     pub(super) den_socket: String,
     pub(super) den_home: String,
     pub(super) den_listen: String,

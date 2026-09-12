@@ -9,6 +9,9 @@ mod state;
 #[cfg(test)]
 mod target_authorization_tests;
 mod target_policy;
+// Shared TLS plumbing is staged before either production transport adopts it.
+#[allow(dead_code)]
+mod tls_identity;
 mod transport;
 use fang_registry::FangCancellation;
 use state::DaemonState;
@@ -81,6 +84,15 @@ async fn main() -> anyhow_free::Result<()> {
     let _den_lock = den.lock(std::ffi::OsStr::new(".den.lock"))?;
     load_startup_state(&den, &mut initial_state)?;
     initial_state.den = Some(den.clone());
+
+    // Build one ephemeral TLS representation of the existing Pelt per process
+    // startup. It remains in memory for later transport integration.
+    initial_state.runtime_tls_identity = initial_state
+        .pelt
+        .as_ref()
+        .map(tls_identity::RuntimeTlsIdentity::from_pelt)
+        .transpose()?
+        .map(Arc::new);
 
     validate_startup_config(&initial_state);
 
