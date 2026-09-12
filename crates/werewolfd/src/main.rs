@@ -473,3 +473,6 @@ mod anyhow_free {
 
 #[cfg(test)]
 mod replay_v3_tests;
+
+#[cfg(test)]
+mod authority_tests;
