@@ -139,8 +139,14 @@ impl Fixture {
             _tasks: vec![a, b],
         }
     }
-    async fn tcp_open(&self) -> (TcpStream, hs::TcpOpen) {
-        tcp_open(self.tcp, &self.sender, &self.target.address.to_string()).await
+    async fn tcp_open(&self) -> (tokio_rustls::client::TlsStream<TcpStream>, hs::TcpOpen) {
+        tcp_open(
+            self.tcp,
+            &self.sender,
+            &self.receiver,
+            &self.target.address.to_string(),
+        )
+        .await
     }
     async fn quic_connection(&self) -> quinn::Connection {
         quic_connection(self.quic).await
@@ -149,16 +155,27 @@ impl Fixture {
 async fn tcp_open(
     address: SocketAddr,
     sender: &PeltIdentity,
+    receiver: &PeltIdentity,
     remote: &str,
-) -> (TcpStream, hs::TcpOpen) {
-    let mut stream = TcpStream::connect(address).await.unwrap();
+) -> (tokio_rustls::client::TlsStream<TcpStream>, hs::TcpOpen) {
+    let selected = crate::policy::ExpectedPeerIdentity {
+        fingerprint: receiver.fingerprint.clone(),
+        public_key_b64: Some(receiver.public_key_b64.clone()),
+    };
+    let mut stream =
+        crate::transport::tcp_encrypted::connect_authenticated_tcp(&address.to_string(), &selected)
+            .await
+            .unwrap();
     let challenge: hs::TcpChallenge = hs::read(&mut stream, 512, Instant::now() + hs::READ_WINDOW)
         .await
         .unwrap();
     let open = hs::TcpOpen::new(sender, &challenge, remote, &[7; 32]).unwrap();
     (stream, open)
 }
-async fn tcp_send(stream: &mut TcpStream, open: &hs::TcpOpen) -> Option<hs::TcpAck> {
+async fn tcp_send(
+    stream: &mut tokio_rustls::client::TlsStream<TcpStream>,
+    open: &hs::TcpOpen,
+) -> Option<hs::TcpAck> {
     hs::write(stream, open, 4096, Instant::now() + hs::READ_WINDOW)
         .await
         .unwrap();
@@ -774,7 +791,8 @@ async fn actual_daemon_restart_crash_and_pelt_regeneration() {
     let mut d = Daemon::new(false, target.address).await;
     let before: [Vec<u8>; 3] = ["pelt.json", "pack.json", "target_policy.json"]
         .map(|name| std::fs::read(d.home.join(name)).unwrap());
-    let (mut tcp, open_tcp) = tcp_open(d.tcp, &d.sender, &target.address.to_string()).await;
+    let (mut tcp, open_tcp) =
+        tcp_open(d.tcp, &d.sender, &d.receiver, &target.address.to_string()).await;
     assert!(tcp_send(&mut tcp, &open_tcp).await.is_some());
     drop(tcp);
     let quic = quic_connection(d.quic).await;
@@ -798,14 +816,16 @@ async fn actual_daemon_restart_crash_and_pelt_regeneration() {
             ["pelt.json", "pack.json", "target_policy.json"]
                 .map(|name| std::fs::read(d.home.join(name)).unwrap())
         );
-        let (mut tcp, fresh) = tcp_open(d.tcp, &d.sender, &target.address.to_string()).await;
+        let (mut tcp, fresh) =
+            tcp_open(d.tcp, &d.sender, &d.receiver, &target.address.to_string()).await;
         assert_ne!(open_tcp.challenge, fresh.challenge);
         assert!(tcp_send(&mut tcp, &open_tcp).await.is_none());
         let connection = quic_connection(d.quic).await;
         assert_ne!(old_binding, hs::quic_binding(&connection).unwrap());
         assert!(quic_send(&connection, &open_quic).await.is_none());
         target.expect(expected).await;
-        let (mut tcp, fresh) = tcp_open(d.tcp, &d.sender, &target.address.to_string()).await;
+        let (mut tcp, fresh) =
+            tcp_open(d.tcp, &d.sender, &d.receiver, &target.address.to_string()).await;
         assert!(tcp_send(&mut tcp, &fresh).await.is_some());
         let fresh = hs::QuicOpen::new(
             &d.sender,
@@ -820,7 +840,8 @@ async fn actual_daemon_restart_crash_and_pelt_regeneration() {
         target.expect(expected).await;
         eprintln!("V3 PROCESS restart crash={crash}: captured TCP/QUIC denied with zero target attempts; fresh requests passed");
     }
-    let (mut tcp, open) = tcp_open(d.tcp, &d.sender, &target.address.to_string()).await;
+    let (mut tcp, open) =
+        tcp_open(d.tcp, &d.sender, &d.receiver, &target.address.to_string()).await;
     let original_identity = std::fs::read(d.home.join("pelt.json")).unwrap();
     let result = d.control_failure("pelt.init").await;
     assert_eq!(result["ok"], false);
@@ -905,7 +926,13 @@ async fn legacy_interoperability_matrix() {
     .unwrap()
     .is_err());
     target.expect(2).await;
-    let (mut stream, open) = tcp_open(new.tcp, &new.sender, &target.address.to_string()).await;
+    let (mut stream, open) = tcp_open(
+        new.tcp,
+        &new.sender,
+        &new.receiver,
+        &target.address.to_string(),
+    )
+    .await;
     assert!(tcp_send(&mut stream, &open).await.is_some());
     let connection = quic_connection(new.quic).await;
     let open = hs::QuicOpen::new(

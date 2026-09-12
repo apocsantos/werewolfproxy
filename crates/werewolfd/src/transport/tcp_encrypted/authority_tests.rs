@@ -14,7 +14,7 @@ impl Drop for Task {
 }
 
 struct Session {
-    peer: TcpStream,
+    peer: ClientTlsStream<TcpStream>,
     target: TcpStream,
     key: [u8; 32],
     worker: Task,
@@ -30,15 +30,26 @@ async fn establish(state: Arc<Mutex<DaemonState>>, sender: &PeltIdentity) -> Ses
         grants.insert(sender.fingerprint.clone(), [target_address].into());
     }
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let mut peer = TcpStream::connect(listener.local_addr().unwrap())
-        .await
-        .unwrap();
-    let (accepted, _) = listener.accept().await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let receiver = state.lock().await.pelt.clone().unwrap();
+    let expected = crate::policy::ExpectedPeerIdentity {
+        fingerprint: receiver.fingerprint,
+        public_key_b64: Some(receiver.public_key_b64),
+    };
+    let identity = state.lock().await.runtime_tls_identity.clone().unwrap();
+    let acceptor = TlsAcceptor::from(Arc::new(
+        crate::tls_identity::server_config(&identity).unwrap(),
+    ));
     let permit = state.lock().await.admission.handshake().unwrap();
     let started = tokio::time::Instant::now();
-    let worker = Task(tokio::spawn(handle_fang_pipe(
-        accepted, state, permit, started,
-    )));
+    let worker = Task(tokio::spawn(async move {
+        let (accepted, _) = listener.accept().await?;
+        let tls = acceptor.accept(AuthorityTcpStream::new(accepted)).await?;
+        handle_fang_pipe(tls, state, permit, started).await
+    }));
+    let mut peer = connect_authenticated_tcp(&address.to_string(), &expected)
+        .await
+        .unwrap();
     let deadline = started + Duration::from_secs(5);
     let challenge: hs::TcpChallenge = hs::read(&mut peer, hs::CHALLENGE_LIMIT, deadline)
         .await
@@ -75,9 +86,13 @@ async fn establish(state: Arc<Mutex<DaemonState>>, sender: &PeltIdentity) -> Ses
     }
 }
 fn fixture(senders: &[&PeltIdentity]) -> Arc<Mutex<DaemonState>> {
+    let receiver = generate_identity();
+    let runtime_tls_identity =
+        Arc::new(crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap());
     Arc::new(Mutex::new(DaemonState {
         inbound_authority: Authority::new(false),
-        pelt: Some(generate_identity()),
+        pelt: Some(receiver),
+        runtime_tls_identity: Some(runtime_tls_identity),
         peers: senders
             .iter()
             .map(|sender| PeerRecord {

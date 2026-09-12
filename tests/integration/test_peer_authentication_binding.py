@@ -11,13 +11,19 @@ class PeerAuthenticationBinding(unittest.TestCase):
     def setUpClass(cls):
         cls.data = json.loads((ROOT / "tests/fixtures/peer_authentication_binding.json").read_text())
 
-    def test_encrypted_tcp_validates_ack_but_not_selected_peer(self):
+    def test_encrypted_tcp_authenticates_selected_receiver_before_open(self):
         tcp = self.data["encrypted_tcp_v2"]
-        self.assertFalse(tcp["expected_peer_carried_to_client"])
+        self.assertTrue(tcp["expected_peer_carried_to_client"])
+        self.assertEqual(
+            tcp["receiver_identity_proof"],
+            "TLS1.3 CertificateVerify over exact selected-peer Pelt SPKI",
+        )
+        self.assertFalse(tcp["stage10_application_wire_format_changed"])
+        self.assertFalse(tcp["fingerprint_only_fallback"])
         self.assertTrue(tcp["ack_receiver_signature_verified"])
         self.assertTrue(tcp["ack_receiver_fingerprint_matches_key"])
-        self.assertFalse(tcp["ack_receiver_matches_selected_pack_peer"])
-        self.assertTrue(tcp["valid_wrong_pack_peer_can_pass"])
+        self.assertTrue(tcp["ack_receiver_matches_selected_pack_peer"])
+        self.assertFalse(tcp["valid_wrong_pack_peer_can_pass"])
 
     def test_existing_negative_checks_are_frozen(self):
         tcp = self.data["encrypted_tcp_v2"]

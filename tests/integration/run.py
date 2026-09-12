@@ -205,7 +205,11 @@ class Lab:
                                     f'{wolf}-{self.generation}')
             self.wolves.append(process)
             self.wait_for(lambda: self.control(wolf, 'status'), f'{wolf} control', process)
-            self.wait_for(lambda: self.listener(wolf + '_tcp'), f'{wolf} TCP', process)
+            # Secure listeners require the process-lifetime Pelt TLS identity.
+            # On the first boot this lab initializes Pelt through control and
+            # restarts before exercising either network transport.
+            if (den / 'pelt.json').exists():
+                self.wait_for(lambda: self.listener(wolf + '_tcp'), f'{wolf} TCP', process)
             exe = pathlib.Path(f'/proc/{process.pid}/exe')
             require(exe.resolve() == self.binary.resolve(), 'daemon is not checkout binary')
             require(digest(exe) == self.binary_hash, 'running executable hash mismatch')

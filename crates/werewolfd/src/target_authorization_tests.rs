@@ -41,10 +41,18 @@ fn grant(fp: &str, address: std::net::SocketAddr) -> String {
 async fn tcp_request(
     address: std::net::SocketAddr,
     sender: &PeltIdentity,
+    receiver: &PeltIdentity,
     remote: &str,
     nonce: &str,
 ) -> Vec<u8> {
-    let mut stream = TcpStream::connect(address).await.unwrap();
+    let selected = crate::policy::ExpectedPeerIdentity {
+        fingerprint: receiver.fingerprint.clone(),
+        public_key_b64: Some(receiver.public_key_b64.clone()),
+    };
+    let mut stream =
+        crate::transport::tcp_encrypted::connect_authenticated_tcp(&address.to_string(), &selected)
+            .await
+            .unwrap();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let challenge: crate::handshake::TcpChallenge =
         crate::handshake::read(&mut stream, 512, deadline)
@@ -254,7 +262,7 @@ async fn receiver_matrix(quic: bool) {
                         quic_request(connection, identity, &receiver.fingerprint, &remote, &nonce)
                             .await
                     }
-                    None => tcp_request(address, identity, &remote, &nonce).await,
+                    None => tcp_request(address, identity, &receiver, &remote, &nonce).await,
                 }
             })
             .await
