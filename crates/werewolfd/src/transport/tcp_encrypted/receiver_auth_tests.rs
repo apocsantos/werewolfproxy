@@ -208,27 +208,39 @@ async fn authenticated_tcp_wire_hides_application_and_pelt_certificate_bytes() {
         let to_server = TcpStream::connect(upstream_address).await.unwrap();
         let (mut client_r, mut client_w) = from_client.into_split();
         let (mut server_r, mut server_w) = to_server.into_split();
-        let mut raw = Vec::new();
-        let (client_to_server, server_to_client) = tokio::join!(
+        let (mut client_to_server, server_to_client) = tokio::join!(
             async {
+                let mut captured = Vec::new();
                 let mut buf = [0; 4096];
                 loop {
                     let n = client_r.read(&mut buf).await.unwrap();
                     if n == 0 {
                         break;
                     }
-                    raw.extend_from_slice(&buf[..n]);
+                    captured.extend_from_slice(&buf[..n]);
                     server_w.write_all(&buf[..n]).await.unwrap();
                 }
                 server_w.shutdown().await.unwrap();
+                captured
             },
             async {
-                io::copy(&mut server_r, &mut client_w).await.unwrap();
+                let mut captured = Vec::new();
+                let mut buf = [0; 4096];
+                loop {
+                    let n = server_r.read(&mut buf).await.unwrap();
+                    if n == 0 {
+                        break;
+                    }
+                    captured.extend_from_slice(&buf[..n]);
+                    client_w.write_all(&buf[..n]).await.unwrap();
+                }
                 client_w.shutdown().await.unwrap();
+                captured
             }
         );
-        let _ = (client_to_server, server_to_client);
-        raw
+        assert!(!client_to_server.is_empty() && !server_to_client.is_empty());
+        client_to_server.extend_from_slice(&server_to_client);
+        client_to_server
     });
     let mut client = connect_authenticated_tcp(&relay_address.to_string(), &selected(&expected))
         .await
