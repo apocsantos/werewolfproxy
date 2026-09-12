@@ -114,8 +114,21 @@ pub(super) async fn run_quic_fang_listener(
                                         }=>result,
                                     };
                                     if result.is_err() {
-                                        let _=send.reset(hs::V3_REJECT_CODE.into());
-                                        let _=recv.stop(hs::V3_REJECT_CODE.into());
+                                        if lease.is_current() {
+                                            // The authenticated ACK has already been
+                                            // submitted. A forwarding/target error is
+                                            // an established-session close, not a
+                                            // handshake rejection; reset() could drop
+                                            // the queued ACK. Finish the send direction
+                                            // and stop only receive-side input.
+                                            let _ = send.finish();
+                                            let _ = recv.stop(hs::V3_REJECT_CODE.into());
+                                        } else {
+                                            // Revocation/Silver is intentionally
+                                            // abortive and may discard in-flight data.
+                                            let _=send.reset(hs::V3_REJECT_CODE.into());
+                                            let _=recv.stop(hs::V3_REJECT_CODE.into());
+                                        }
                                     }
                                 }
                                 _=>{
