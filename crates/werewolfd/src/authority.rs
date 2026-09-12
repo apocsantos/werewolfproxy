@@ -67,8 +67,11 @@ pub(crate) struct Authority {
 }
 impl Authority {
     pub(crate) fn new(locked: bool) -> Arc<Self> {
+        Arc::new(Self::initial(locked))
+    }
+    fn initial(locked: bool) -> Self {
         let (silver, _) = watch::channel(1);
-        Arc::new(Self {
+        Self {
             gate: Mutex::new(Gate {
                 epoch: 1,
                 locked,
@@ -78,7 +81,7 @@ impl Authority {
             }),
             changed: Notify::new(),
             silver,
-        })
+        }
     }
     fn gate(&self) -> io::Result<MutexGuard<'_, Gate>> {
         self.gate.lock().map_err(|_| rejected())
@@ -265,6 +268,13 @@ impl Authority {
         .map_err(|_| rejected())?
     }
 }
+// Preserve baseline startup behavior during transport integration. The Silver
+// persistence step will supply fail-closed startup mode explicitly.
+impl Default for Authority {
+    fn default() -> Self {
+        Self::initial(false)
+    }
+}
 impl Gate {
     fn allocate(&mut self) -> io::Result<u64> {
         let id = self.next;
@@ -286,6 +296,26 @@ struct LeaseOwner {
     id: u64,
 }
 impl SessionLease {
+    /// Callers pass only TcpStream::connect over the already-authorized numeric
+    /// SocketAddr slice. One poll may initiate a nonblocking connect; it never
+    /// resolves a hostname or acquires daemon state. A SYN already submitted
+    /// before revocation cannot be recalled.
+    pub(crate) async fn connect_poll<F>(&self, connect: F) -> io::Result<tokio::net::TcpStream>
+    where
+        F: std::future::Future<Output = io::Result<tokio::net::TcpStream>>,
+    {
+        tokio::pin!(connect);
+        let operation =
+            std::future::poll_fn(|cx| match self.submit(|| connect.as_mut().poll(cx)) {
+                Ok(result) => result,
+                Err(error) => std::task::Poll::Ready(Err(error)),
+            });
+        tokio::select! {
+            biased;
+            _ = self.cancelled() => Err(rejected()),
+            result = operation => result,
+        }
+    }
     pub(crate) fn publish(&self) -> io::Result<()> {
         let mut gate = self.0.authority.gate()?;
         let entry = gate.sessions.get(&self.0.id).ok_or_else(rejected)?;

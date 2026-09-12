@@ -1,3 +1,4 @@
+use crate::authority::{AuthorityWriter, SessionLease, Transport};
 use crate::{admission::HandshakePermit, handshake as hs, state::DaemonState};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chacha20poly1305::{
@@ -14,22 +15,32 @@ use tokio::{
 use werewolf_core::pelt::PeltIdentity;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
+#[cfg(test)]
+mod authority_tests;
+
 pub(super) async fn run_fang_listener(
     listen_addr: &str,
     state: Arc<Mutex<DaemonState>>,
 ) -> io::Result<()> {
     let listener = TcpListener::bind(listen_addr).await?;
     let admission = state.lock().await.admission.clone();
+    let mut tasks = tokio::task::JoinSet::new();
 
     loop {
-        let (stream, peer_addr) = listener.accept().await?;
+        // Reap ready children before admitting more. Dropping the listener
+        // supervisor aborts all owned children; no inbound task is detached.
+        let (stream, peer_addr) = tokio::select! {
+            biased;
+            Some(_) = tasks.join_next(), if !tasks.is_empty() => continue,
+            accepted = listener.accept() => accepted?,
+        };
         let started = tokio::time::Instant::now();
         let Ok(permit) = admission.handshake() else {
             continue;
         };
         let state_for_client = state.clone();
 
-        tokio::spawn(async move {
+        tasks.spawn(async move {
             if let Err(e) = handle_fang_pipe(stream, state_for_client, permit, started).await {
                 eprintln!("fang pipe from {} error: {}", peer_addr, e);
             }
@@ -43,13 +54,13 @@ async fn handle_fang_pipe(
     permit: HandshakePermit,
     started: tokio::time::Instant,
 ) -> io::Result<()> {
-    let (remote, key) = tokio::time::timeout_at(
+    let (remote, key, lease) = tokio::time::timeout_at(
         started + hs::SERVER_WINDOW,
         server_handshake(&mut stream, state, permit, started),
     )
     .await
     .map_err(|_| hs::rejected())??;
-    secure_copy_server_side(stream, remote, key).await
+    secure_copy_server_side(stream, remote, key, lease).await
 }
 
 async fn server_handshake(
@@ -57,7 +68,7 @@ async fn server_handshake(
     state: Arc<Mutex<DaemonState>>,
     mut permit: HandshakePermit,
     started: tokio::time::Instant,
-) -> io::Result<(TcpStream, [u8; 32])> {
+) -> io::Result<(TcpStream, [u8; 32], SessionLease)> {
     let receiver = state.lock().await.pelt.clone().ok_or_else(hs::rejected)?;
     // The identity and key snapshot travel with this challenge through ACK signing.
     let mut context = hs::TcpChallengeContext::new(receiver)?;
@@ -71,19 +82,28 @@ async fn server_handshake(
     .await?;
     let open: hs::TcpOpen = hs::read(stream, hs::MESSAGE_LIMIT, context.deadline).await?;
     let retained = open.transcript()?;
-    {
+    let (authority, ticket) = {
         let st = state.lock().await;
         hs::require(
             st.peers
                 .iter()
                 .any(|p| p.fingerprint == open.sender_fingerprint),
         )?;
-    }
+        (
+            st.inbound_authority.clone(),
+            st.inbound_authority.ticket(&open.sender_fingerprint)?,
+        )
+    };
     context.check(&open)?;
     hs::verify(&open.sender_pubkey, &retained, &open.signature)?;
     permit.authenticated(&open.sender_fingerprint)?;
     context.consume(&open)?;
+    let lease = authority.reserve(ticket, Transport::Tcp)?;
 
+    tokio::select! {
+        biased;
+        _ = lease.cancelled() => Err(hs::rejected()),
+        result = async {
     let server_secret = StaticSecret::from(hs::random::<32>()?);
     let server_public = X25519PublicKey::from(&server_secret);
     let key = derive_shared_key(&server_secret, &open.client_x25519)?;
@@ -98,18 +118,24 @@ async fn server_handshake(
     .map_err(|_| hs::rejected())?;
     let remote = tokio::time::timeout_at(
         target_deadline,
-        TcpStream::connect(authorized_targets.as_slice()),
+        lease.connect_poll(TcpStream::connect(authorized_targets.as_slice())),
     )
     .await
     .map_err(|_| hs::rejected())??;
+    // Publication and every subsequent submission share the authority gate.
+    // A target connected before a concurrent revoke is closed without an ACK.
+    lease.publish()?;
     let ack = hs::TcpAck::new(
         &open,
         &retained,
         &context.receiver,
         server_public.as_bytes(),
     )?;
-    hs::write(stream, &ack, hs::MESSAGE_LIMIT, started + hs::SERVER_WINDOW).await?;
-    Ok((remote, key))
+    let mut writer = AuthorityWriter::new(stream, lease.clone());
+    hs::write(&mut writer, &ack, hs::MESSAGE_LIMIT, started + hs::SERVER_WINDOW).await?;
+    Ok((remote, key, lease.clone()))
+        } => result,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -263,9 +289,12 @@ async fn secure_copy_server_side(
     stream: TcpStream,
     remote_stream: TcpStream,
     key: [u8; 32],
+    lease: SessionLease,
 ) -> io::Result<()> {
-    let (mut fang_r, mut fang_w) = stream.into_split();
-    let (mut remote_r, mut remote_w) = remote_stream.into_split();
+    let (mut fang_r, fang_w) = stream.into_split();
+    let (mut remote_r, remote_w) = remote_stream.into_split();
+    let mut fang_w = AuthorityWriter::new(fang_w, lease.clone());
+    let mut remote_w = AuthorityWriter::new(remote_w, lease.clone());
 
     let client_to_remote = async {
         let mut counter = 0u64;
@@ -319,8 +348,11 @@ async fn secure_copy_server_side(
         }
     };
 
-    let _ = tokio::join!(client_to_remote, remote_to_client);
-    Ok(())
+    tokio::select! {
+        biased;
+        _ = lease.cancelled() => Err(hs::rejected()),
+        result = async { tokio::try_join!(client_to_remote, remote_to_client).map(|_| ()) } => result,
+    }
 }
 
 async fn write_encrypted_frame<W: AsyncWriteExt + Unpin>(

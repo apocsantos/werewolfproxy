@@ -6,6 +6,7 @@ use werewolf_core::{
 
 #[derive(Default)]
 pub(super) struct DaemonState {
+    pub(super) inbound_authority: std::sync::Arc<crate::authority::Authority>,
     pub(super) storage_degraded: bool,
     pub(super) den: Option<std::sync::Arc<werewolf_core::local_fs::PrivateDirectory>>,
     pub(super) peers: Vec<PeerRecord>,
