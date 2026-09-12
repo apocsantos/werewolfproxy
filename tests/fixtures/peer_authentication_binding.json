@@ -10,9 +10,13 @@
     "nonce_mismatch_rejected": true
   },
   "quic": {
-    "authenticated_side": "sender",
-    "receiver_identity_proof": "none",
-    "selected_peer_receiver_binding": false,
-    "wire_format_change_required_for_equivalent_receiver_binding": true
+    "authenticated_sides": [
+      "receiver_transport",
+      "sender_application"
+    ],
+    "receiver_identity_proof": "TLS1.3 CertificateVerify over exact selected-peer Pelt SPKI",
+    "selected_peer_receiver_binding": true,
+    "stage10_application_wire_format_changed": false,
+    "fingerprint_only_fallback": false
   }
 }

@@ -148,3 +148,6 @@ async fn proxy_streams(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
