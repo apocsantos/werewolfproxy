@@ -163,7 +163,7 @@ async fn server_handshake(
 ) -> io::Result<(tokio::net::TcpStream, SessionLease)> {
     let open: hs::QuicOpen = hs::read(recv, hs::MESSAGE_LIMIT, started + hs::READ_WINDOW).await?;
     let retained = open.transcript(binding)?;
-    let (sender_key, receiver, policy, authority, ticket) = {
+    let (sender_key, receiver, policy, authority) = {
         let st = state.lock().await;
         let key = st
             .peers
@@ -176,13 +176,13 @@ async fn server_handshake(
             st.pelt.clone().ok_or_else(hs::rejected)?,
             st.target_policy.clone(),
             st.inbound_authority.clone(),
-            st.inbound_authority.ticket(&open.sender_fingerprint)?,
         )
     };
     hs::require(open.receiver_fingerprint == receiver.fingerprint)?;
     hs::verify(&sender_key, &retained, &open.signature)?;
     hs::require(Instant::now() < started + hs::READ_WINDOW)?;
     permit.authenticated(&open.sender_fingerprint)?;
+    let ticket = authority.ticket(&open.sender_fingerprint)?;
     replay.reserve(&open.sender_fingerprint, &open.nonce)?;
     let lease = authority.reserve(ticket, Transport::Quic(connection_id))?;
     tokio::select! {

@@ -82,22 +82,20 @@ async fn server_handshake(
     .await?;
     let open: hs::TcpOpen = hs::read(stream, hs::MESSAGE_LIMIT, context.deadline).await?;
     let retained = open.transcript()?;
-    let (authority, ticket) = {
+    let authority = {
         let st = state.lock().await;
         hs::require(
             st.peers
                 .iter()
                 .any(|p| p.fingerprint == open.sender_fingerprint),
         )?;
-        (
-            st.inbound_authority.clone(),
-            st.inbound_authority.ticket(&open.sender_fingerprint)?,
-        )
+        st.inbound_authority.clone()
     };
     context.check(&open)?;
     hs::verify(&open.sender_pubkey, &retained, &open.signature)?;
     permit.authenticated(&open.sender_fingerprint)?;
     context.consume(&open)?;
+    let ticket = authority.ticket(&open.sender_fingerprint)?;
     let lease = authority.reserve(ticket, Transport::Tcp)?;
 
     tokio::select! {
