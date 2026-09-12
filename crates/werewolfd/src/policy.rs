@@ -4,6 +4,7 @@ use crate::transport::FangTransport;
 #[derive(Clone)]
 pub(super) struct ExpectedPeerIdentity {
     pub(super) fingerprint: String,
+    pub(super) public_key_b64: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -2,7 +2,6 @@ use crate::{
     admission::{HandshakePermit, QuicReplayV3},
     authority::{AuthorityWriter, ConnectionId, SessionLease, Transport},
     handshake as hs,
-    quic_lab::make_server_endpoint,
     state::DaemonState,
 };
 
@@ -29,11 +28,21 @@ pub(super) async fn run_quic_fang_listener(
     state: Arc<Mutex<DaemonState>>,
 ) -> io::Result<()> {
     let addr = listen_addr.parse().map_err(|_| hs::rejected())?;
-    let endpoint = make_server_endpoint(addr).map_err(|_| hs::rejected())?;
-    let (admission, authority) = {
+    let (admission, authority, runtime_tls_identity) = {
         let state = state.lock().await;
-        (state.admission.clone(), state.inbound_authority.clone())
+        (
+            state.admission.clone(),
+            state.inbound_authority.clone(),
+            state.runtime_tls_identity.clone(),
+        )
     };
+    let runtime_tls_identity = runtime_tls_identity.ok_or_else(hs::rejected)?;
+    let crypto =
+        crate::tls_identity::server_config(&runtime_tls_identity).map_err(|_| hs::rejected())?;
+    let quic_crypto =
+        quinn::crypto::rustls::QuicServerConfig::try_from(crypto).map_err(|_| hs::rejected())?;
+    let server_config = quinn::ServerConfig::with_crypto(Arc::new(quic_crypto));
+    let endpoint = quinn::Endpoint::server(server_config, addr).map_err(|_| hs::rejected())?;
     let mut connections = tokio::task::JoinSet::new();
     loop {
         let incoming = tokio::select! {

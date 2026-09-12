@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 
 use crate::handshake as hs;
-use crate::quic_lab::make_client_endpoint;
-use quinn::{RecvStream, SendStream};
+use crate::policy::ExpectedPeerIdentity;
+use quinn::{ClientConfig, Endpoint, RecvStream, SendStream};
+use std::sync::Arc;
 use std::{error::Error, net::SocketAddr};
 use tokio::{
     io::copy,
@@ -62,13 +63,7 @@ pub async fn open_quic_fang(
                     }
                 };
 
-                let result = connect_v3(
-                    server_addr,
-                    &remote_addr,
-                    &identity,
-                    &expected_peer.fingerprint,
-                )
-                .await;
+                let result = connect_v3(server_addr, &remote_addr, &identity, &expected_peer).await;
                 let Ok((_connection, send, recv)) = result else {
                     eprintln!("QUIC v3 handshake rejected");
                     return;
@@ -86,11 +81,26 @@ pub(super) async fn connect_v3(
     address: SocketAddr,
     remote: &str,
     identity: &PeltIdentity,
-    receiver: &str,
+    expected_peer: &ExpectedPeerIdentity,
 ) -> std::io::Result<(quinn::Connection, SendStream, RecvStream)> {
-    let endpoint = make_client_endpoint().map_err(|_| hs::rejected())?;
+    // A selected peer's full Pack key is required before creating an endpoint
+    // or emitting a QUIC datagram. Fingerprints remain transcript identifiers,
+    // not TLS trust material.
+    let crypto = crate::tls_identity::client_config_for_selected_peer_key(
+        expected_peer.public_key_b64.as_deref(),
+    )
+    .map_err(|_| hs::rejected())?;
+    let quic_crypto =
+        quinn::crypto::rustls::QuicClientConfig::try_from(crypto).map_err(|_| hs::rejected())?;
+    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().map_err(|_| hs::rejected())?)
+        .map_err(|_| hs::rejected())?;
+    endpoint.set_default_client_config(ClientConfig::new(Arc::new(quic_crypto)));
+
+    // Quinn parses this textual IP as ServerName::IpAddress, which suppresses
+    // SNI. No synthetic DNS identity is introduced.
+    let server_name = address.ip().to_string();
     let connecting = endpoint
-        .connect(address, "localhost")
+        .connect(address, &server_name)
         .map_err(|_| hs::rejected())?;
     let connection = tokio::time::timeout(hs::READ_WINDOW, connecting)
         .await
@@ -100,11 +110,11 @@ pub(super) async fn connect_v3(
     let result = tokio::time::timeout_at(deadline, async {
         let binding = hs::quic_binding(&connection)?;
         let (mut send, mut recv) = connection.open_bi().await.map_err(|_| hs::rejected())?;
-        let open = hs::QuicOpen::new(identity, receiver, remote, &binding)?;
+        let open = hs::QuicOpen::new(identity, &expected_peer.fingerprint, remote, &binding)?;
         let retained = open.transcript(&binding)?;
         hs::write(&mut send, &open, hs::MESSAGE_LIMIT, deadline).await?;
         let ack: hs::QuicAck = hs::read(&mut recv, hs::MESSAGE_LIMIT, deadline).await?;
-        hs::require(ack.receiver_fingerprint == receiver)?;
+        hs::require(ack.receiver_fingerprint == expected_peer.fingerprint)?;
         hs::verify(
             &ack.receiver_pubkey,
             &ack.transcript(&open, &retained)?,

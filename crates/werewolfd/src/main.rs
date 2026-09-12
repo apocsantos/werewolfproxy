@@ -19,6 +19,7 @@ mod cli;
 use cli::Args;
 mod quic_fang;
 use crate::quic_fang::open_quic_fang;
+#[cfg(test)]
 mod quic_lab;
 use clap::Parser;
 use rand_core::{OsRng, RngCore};
@@ -273,6 +274,7 @@ async fn open_fang_with_profile(
     };
     let expected_peer_identity = ExpectedPeerIdentity {
         fingerprint: peer_record.fingerprint.clone(),
+        public_key_b64: peer_record.public_key_b64.clone(),
     };
 
     let peer_addr = match select_peer_transport(&transport, &peer_record.address) {

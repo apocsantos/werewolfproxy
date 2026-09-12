@@ -237,7 +237,16 @@ fn provider() -> Arc<CryptoProvider> {
 }
 
 pub(crate) fn client_config_for_peer(peer: &PeerRecord) -> Result<ClientConfig, TlsIdentityError> {
-    let expected_spki = expected_spki_for_peer(peer)?;
+    client_config_for_selected_peer_key(peer.public_key_b64.as_deref())
+}
+
+/// Build client trust for the one Pack peer selected by the caller. Historical
+/// fingerprint-only records fail closed before any transport connection starts.
+pub(crate) fn client_config_for_selected_peer_key(
+    public_key_b64: Option<&str>,
+) -> Result<ClientConfig, TlsIdentityError> {
+    let public_key = public_key_b64.ok_or(TlsIdentityError::MissingPeerPublicKey)?;
+    let expected_spki = canonical_spki_from_public_key_b64(public_key)?;
     client_config_for_spki(expected_spki)
 }
 

@@ -102,8 +102,11 @@ impl Fixture {
         let sender = generate_identity();
         let receiver = generate_identity();
         let target = Target::new().await;
+        let runtime_tls_identity =
+            Arc::new(crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap());
         let state = Arc::new(Mutex::new(DaemonState {
             pelt: Some(receiver.clone()),
+            runtime_tls_identity: Some(runtime_tls_identity),
             peers: vec![peer(&sender)],
             target_policy: TargetPolicy::Grants(HashMap::from([(
                 sender.fingerprint.clone(),
@@ -384,6 +387,15 @@ async fn exporter_equality_separation_and_ack_substitution() {
     b.close(0u32.into(), b"");
     let sender = generate_identity();
     let receiver = generate_identity();
+    let runtime_tls_identity =
+        crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap();
+    let crypto = crate::tls_identity::server_config(&runtime_tls_identity).unwrap();
+    let crypto = quinn::crypto::rustls::QuicServerConfig::try_from(crypto).unwrap();
+    let server = quinn::Endpoint::server(
+        quinn::ServerConfig::with_crypto(Arc::new(crypto)),
+        "127.0.0.1:0".parse().unwrap(),
+    )
+    .unwrap();
     let addr = server.local_addr().unwrap();
     let receiver_for_server = receiver.clone();
     let fake = tokio::spawn(async move {
@@ -403,11 +415,17 @@ async fn exporter_equality_separation_and_ack_substitution() {
             .unwrap();
         let _ = timeout(Duration::from_secs(2), c.closed()).await;
     });
-    assert!(
-        crate::quic_fang::connect_v3(addr, "127.0.0.1:1", &sender, &receiver.fingerprint)
-            .await
-            .is_err()
-    );
+    assert!(crate::quic_fang::connect_v3(
+        addr,
+        "127.0.0.1:1",
+        &sender,
+        &crate::policy::ExpectedPeerIdentity {
+            fingerprint: receiver.fingerprint.clone(),
+            public_key_b64: Some(receiver.public_key_b64.clone()),
+        },
+    )
+    .await
+    .is_err());
     fake.await.unwrap();
 }
 
@@ -843,6 +861,7 @@ async fn legacy_interoperability_matrix() {
     let sender = old.sender.clone();
     let expected = crate::policy::ExpectedPeerIdentity {
         fingerprint: old.receiver.fingerprint.clone(),
+        public_key_b64: Some(old.receiver.public_key_b64.clone()),
     };
     let cancellation = crate::fang_registry::FangCancellation::default();
     let cancel = cancellation.clone();
@@ -876,7 +895,10 @@ async fn legacy_interoperability_matrix() {
             old.quic,
             &target.address.to_string(),
             &old.sender,
-            &old.receiver.fingerprint
+            &crate::policy::ExpectedPeerIdentity {
+                fingerprint: old.receiver.fingerprint.clone(),
+                public_key_b64: Some(old.receiver.public_key_b64.clone()),
+            }
         )
     )
     .await

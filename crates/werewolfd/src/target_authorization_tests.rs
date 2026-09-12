@@ -106,8 +106,11 @@ async fn receiver_matrix(quic: bool) {
     let sender = generate_identity();
     let other = generate_identity();
     let receiver = generate_identity();
+    let runtime_tls_identity =
+        Arc::new(crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap());
     let state = Arc::new(Mutex::new(DaemonState {
         pelt: Some(receiver.clone()),
+        runtime_tls_identity: Some(runtime_tls_identity),
         peers: [&sender, &other]
             .into_iter()
             .map(|p| PeerRecord {

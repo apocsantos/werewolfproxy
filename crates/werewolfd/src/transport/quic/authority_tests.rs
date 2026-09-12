@@ -63,10 +63,14 @@ async fn multiplexed_peer_revoke_preserves_other_stream_and_silver_closes_connec
     timeout(Duration::from_secs(15), async {
         let a = generate_identity();
         let b = generate_identity();
+        let receiver = generate_identity();
         let authority = Authority::new(false);
+        let runtime_tls_identity =
+            Arc::new(crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap());
         let state = Arc::new(Mutex::new(DaemonState {
             inbound_authority: authority.clone(),
-            pelt: Some(generate_identity()),
+            pelt: Some(receiver),
+            runtime_tls_identity: Some(runtime_tls_identity),
             peers: [&a, &b]
                 .into_iter()
                 .map(|p| PeerRecord {
