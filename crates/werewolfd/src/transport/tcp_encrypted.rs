@@ -23,6 +23,8 @@ use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 #[cfg(test)]
 mod authority_tests;
 #[cfg(test)]
+mod frame_write_tests;
+#[cfg(test)]
 mod receiver_auth_tests;
 
 pub(super) async fn run_fang_listener(

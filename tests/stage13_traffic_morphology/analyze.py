@@ -48,6 +48,22 @@ def median(values):
     return round(statistics.median(values), 3) if values else None
 
 
+def histogram_median(counts):
+    total = sum(counts.values())
+    if not total:
+        return None
+    positions = ((total - 1) // 2, total // 2)
+    seen = 0
+    selected = []
+    for value, count in sorted(counts.items()):
+        if seen <= positions[0] < seen + count:
+            selected.append(value)
+        if seen <= positions[1] < seen + count:
+            selected.append(value)
+        seen += count
+    return sum(selected) / 2
+
+
 def percentile(values, percent):
     if not values:
         return None
@@ -190,7 +206,7 @@ def public_fingerprint(rows, field):
 
 def summarize(rows):
     per_transport = {}
-    for transport in ("tcp", "quic"):
+    for transport in sorted({row["transport"] for row in rows}):
         subset = [r for r in rows if r["transport"] == transport]
         by_workload = {}
         for workload in WORKLOAD_CLASS:
@@ -272,6 +288,7 @@ def verify_and_summarize_unit_files(rows, directory, transports, burst_gap_ms):
     unit_lengths = collections.defaultdict(collections.Counter)
     record_lengths = collections.defaultdict(collections.Counter)
     record_types = collections.defaultdict(collections.Counter)
+    application_record_lengths = collections.defaultdict(collections.Counter)
     prefix_records = collections.defaultdict(collections.Counter)
     for row in rows:
         path = directory / f"{row['id']}.units.csv"
@@ -308,6 +325,8 @@ def verify_and_summarize_unit_files(rows, directory, transports, burst_gap_ms):
         for length, kind in records:
             record_lengths[key][length] += 1
             record_types[key][kind] += 1
+            if kind == 23:
+                application_record_lengths[key][length] += 1
             if length == 26 and kind == 23:
                 prefix_records[key]["26_byte_application_records"] += 1
     for transport in transports:
@@ -325,6 +344,15 @@ def verify_and_summarize_unit_files(rows, directory, transports, burst_gap_ms):
                 "tls_record_content_type_counts": dict(record_types[key]),
                 "tls_26_byte_application_record_count": prefix_records[key][
                     "26_byte_application_records"],
+                "tls_application_record_count": sum(application_record_lengths[key].values()),
+                "tls_application_record_median_size": histogram_median(
+                    application_record_lengths[key]),
+                "tls_application_record_at_most_32_count": sum(
+                    count for length, count in application_record_lengths[key].items()
+                    if length <= 32),
+                "tls_application_record_at_most_32_histogram": [
+                    [length, count] for length, count in
+                    sorted(application_record_lengths[key].items()) if length <= 32],
             }
         transports[transport]["full_unit_metadata"] = per_workload
         transports[transport]["all_unit_count"] = sum(
@@ -332,15 +360,36 @@ def verify_and_summarize_unit_files(rows, directory, transports, burst_gap_ms):
             if row["transport"] == transport)
         transports[transport]["all_tls_record_count"] = sum(
             row["tls_record_count"] for row in rows if row["transport"] == transport)
+        transports[transport]["all_tls_application_record_count"] = sum(
+            sum(application_record_lengths[(transport, workload)].values())
+            for workload in WORKLOAD_CLASS)
+        transports[transport]["all_tls_26_byte_application_record_count"] = sum(
+            prefix_records[(transport, workload)]["26_byte_application_records"]
+            for workload in WORKLOAD_CLASS)
+        transports[transport]["all_tls_application_record_at_most_32_count"] = sum(
+            count for workload in WORKLOAD_CLASS
+            for length, count in application_record_lengths[(transport, workload)].items()
+            if length <= 32)
+        transports[transport]["all_tls_application_record_at_most_32_histogram"] = [
+            [length, count] for length, count in sorted(sum(
+                (application_record_lengths[(transport, workload)]
+                 for workload in WORKLOAD_CLASS), collections.Counter()).items())
+            if length <= 32]
+        transports[transport]["all_tls_application_record_length_top_ten"] = sum(
+            (application_record_lengths[(transport, workload)]
+             for workload in WORKLOAD_CLASS), collections.Counter()).most_common(10)
 
 
 def main(args):
     source = pathlib.Path(args.input)
     data = json.loads(source.read_text())
     rows = data["rows"]
-    assert len(rows) == 2 * (9 * data["sample_counts"]["regular_per_workload_per_transport"] +
-                             data["sample_counts"]["bulk_per_transport"])
-    assert {r["transport"] for r in rows} == {"tcp", "quic"}
+    expected_transports = ({"tcp", "quic"} if data.get("transport_selection", "both") == "both"
+                           else {"tcp"})
+    assert len(rows) == len(expected_transports) * (
+        9 * data["sample_counts"]["regular_per_workload_per_transport"] +
+        data["sample_counts"]["bulk_per_transport"])
+    assert {r["transport"] for r in rows} == expected_transports
     for row in rows:
         assert all(row["first_16"]) and row["count_c2s"] and row["count_s2c"]
     output = pathlib.Path(args.output_dir)

@@ -644,12 +644,15 @@ def run(args):
             require(prior["sample_counts"] == {
                 "regular_per_workload_per_transport": args.samples,
                 "bulk_per_transport": args.bulk_samples}, "resume sample counts differ")
+            require(prior.get("transport_selection", "both") == args.transport,
+                    "resume transport selection differs")
             rows = prior["rows"]
         completed = {row["id"] for row in rows}
 
         def checkpoint():
             value = {
                 "schema": 1, "source_head": source_head, "lock_sha256": lock_sha,
+                "transport_selection": args.transport,
                 "burst_gap_ms": BURST_GAP_MS, "capture_unit": {
                     "tcp": "transparent relay recv calls; TLS record lengths parsed from byte stream",
                     "quic": "transparent UDP relay datagrams",
@@ -662,7 +665,7 @@ def run(args):
             write_json(pending, value)
             pending.replace(output)
 
-        for transport in ("tcp", "quic"):
+        for transport in (("tcp", "quic") if args.transport == "both" else ("tcp",)):
             for workload_index, workload in enumerate(WORKLOADS):
                 if transport == "quic" and workload_index > 0:
                     restart_secure_daemons(lab, target)
@@ -708,5 +711,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--samples", type=int, default=30)
     parser.add_argument("--bulk-samples", type=int, default=5)
+    parser.add_argument("--transport", choices=("both", "tcp"), default="both")
     parser.add_argument("--output", default="tests/stage13_traffic_morphology/captures.json")
     run(parser.parse_args())
