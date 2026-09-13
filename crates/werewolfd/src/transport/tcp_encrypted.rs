@@ -443,9 +443,13 @@ async fn write_encrypted_frame<W: AsyncWriteExt + Unpin>(
         .encrypt(Nonce::from_slice(&nonce_bytes), padded_plaintext.as_ref())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "encrypt failed"))?;
 
-    let len = ciphertext.len() as u32;
-    writer.write_all(&len.to_be_bytes()).await?;
-    writer.write_all(&ciphertext).await?;
+    // Keep the Stage10 byte stream unchanged while submitting this bounded
+    // inner frame to outer TLS in one write. Do not queue across frames: the
+    // authority gate below rustls must still check each submission poll.
+    let mut frame = Vec::with_capacity(4 + ciphertext.len());
+    frame.extend_from_slice(&(ciphertext.len() as u32).to_be_bytes());
+    frame.extend_from_slice(&ciphertext);
+    writer.write_all(&frame).await?;
     writer.flush().await?;
 
     Ok(())
