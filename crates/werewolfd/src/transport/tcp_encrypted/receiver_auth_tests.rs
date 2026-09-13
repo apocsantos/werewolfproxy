@@ -167,6 +167,40 @@ async fn invalid_selected_pack_key_fails_before_tcp_connect() {
 }
 
 #[tokio::test]
+async fn listener_waits_for_same_process_pelt_publication() {
+    let receiver = generate_identity();
+    let runtime = Arc::new(crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap());
+    let state = Arc::new(Mutex::new(DaemonState::default()));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    drop(listener);
+    let state_for_task = state.clone();
+    let task =
+        tokio::spawn(async move { run_fang_listener(&address.to_string(), state_for_task).await });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(TcpStream::connect(address).await.is_err());
+    let ready = {
+        let mut live = state.lock().await;
+        live.pelt = Some(receiver.clone());
+        live.runtime_tls_identity = Some(runtime);
+        live.tls_identity_ready.clone()
+    };
+    ready.notify_waiters();
+    let expected = selected(&receiver);
+    let _client = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let Ok(client) = connect_authenticated_tcp(&address.to_string(), &expected).await {
+                break client;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    task.abort();
+}
+
+#[tokio::test]
 async fn authenticated_tcp_wire_hides_application_and_pelt_certificate_bytes() {
     let expected = generate_identity();
     let identity = crate::tls_identity::RuntimeTlsIdentity::from_pelt(&expected).unwrap();
