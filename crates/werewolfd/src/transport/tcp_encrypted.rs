@@ -29,11 +29,16 @@ pub(super) async fn run_fang_listener(
     listen_addr: &str,
     state: Arc<Mutex<DaemonState>>,
 ) -> io::Result<()> {
-    let (admission, runtime_tls_identity) = {
-        let state = state.lock().await;
-        (state.admission.clone(), state.runtime_tls_identity.clone())
+    let (admission, runtime_tls_identity) = loop {
+        let ready = {
+            let state = state.lock().await;
+            if let Some(identity) = state.runtime_tls_identity.clone() {
+                break (state.admission.clone(), identity);
+            }
+            state.tls_identity_ready.clone()
+        };
+        ready.notified().await;
     };
-    let runtime_tls_identity = runtime_tls_identity.ok_or_else(hs::rejected)?;
     let tls_config =
         crate::tls_identity::server_config(&runtime_tls_identity).map_err(|_| hs::rejected())?;
     let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));

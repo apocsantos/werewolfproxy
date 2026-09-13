@@ -91,6 +91,13 @@ pub(super) async fn handle(
         if state_validation::identity(&identity).is_err() {
             return error(&req.id, "PELT_INVALID");
         }
+        // Construct and validate the ephemeral TLS identity before touching
+        // durable state. Publication below installs both values atomically.
+        let runtime_tls_identity =
+            match crate::tls_identity::RuntimeTlsIdentity::from_pelt(&identity) {
+                Ok(identity) => Arc::new(identity),
+                Err(_) => return error(&req.id, "PELT_TLS_INVALID"),
+            };
         if durable(&home, "pelt.json", &identity, true, &state)
             .await
             .is_err()
@@ -100,7 +107,11 @@ pub(super) async fn handle(
         let fingerprint = identity.fingerprint.clone();
         let mut live = state.lock().await;
         live.pelt = Some(identity);
+        live.runtime_tls_identity = Some(runtime_tls_identity);
         live.status.pelt_ready = true;
+        let tls_identity_ready = live.tls_identity_ready.clone();
+        drop(live);
+        tls_identity_ready.notify_waiters();
         return ControlResponse::ok(
             req.id,
             json!({"fingerprint":fingerprint,"saved_to":home.join("pelt.json")}),
