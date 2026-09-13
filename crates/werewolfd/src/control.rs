@@ -950,6 +950,7 @@ mod characterization_tests {
         assert_eq!(persisted.fingerprint, identity.fingerprint);
         assert_eq!(persisted.public_key_b64, identity.public_key_b64);
         assert!(!live.storage_degraded);
+        assert!(live.tls_identity_ready.is_ready());
     }
 
     #[tokio::test]
@@ -967,9 +968,18 @@ mod characterization_tests {
                 .ok
         );
         let before = std::fs::read(fixture.0.join("pelt.json")).unwrap();
-        let response = handle_request(request(), state, fixture.0.clone()).await;
+        let runtime_before = state.lock().await.runtime_tls_identity.clone().unwrap();
+        assert!(state.lock().await.tls_identity_ready.is_ready());
+        let response = handle_request(request(), state.clone(), fixture.0.clone()).await;
         assert!(!response.ok);
         assert_eq!(response.error.unwrap().code, "ALREADY_INITIALIZED");
+        let live = state.lock().await;
+        assert!(live.tls_identity_ready.is_ready());
+        assert!(Arc::ptr_eq(
+            &runtime_before,
+            live.runtime_tls_identity.as_ref().unwrap()
+        ));
+        drop(live);
         assert!(std::fs::read(fixture.0.join("pelt.json")).unwrap() == before);
         std::fs::write(fixture.0.join("pelt.json"), b"invalid existing identity").unwrap();
         let state = Arc::new(Mutex::new(fixture.state()));
@@ -979,6 +989,7 @@ mod characterization_tests {
                 .ok
         );
         assert!(state.lock().await.pelt.is_none());
+        assert!(!state.lock().await.tls_identity_ready.is_ready());
         assert_eq!(
             std::fs::read(fixture.0.join("pelt.json")).unwrap(),
             b"invalid existing identity"

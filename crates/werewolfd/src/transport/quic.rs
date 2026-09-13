@@ -28,19 +28,10 @@ pub(super) async fn run_quic_fang_listener(
     state: Arc<Mutex<DaemonState>>,
 ) -> io::Result<()> {
     let addr = listen_addr.parse().map_err(|_| hs::rejected())?;
-    let (admission, authority, runtime_tls_identity) = loop {
-        let ready = {
-            let state = state.lock().await;
-            if let Some(identity) = state.runtime_tls_identity.clone() {
-                break (
-                    state.admission.clone(),
-                    state.inbound_authority.clone(),
-                    identity,
-                );
-            }
-            state.tls_identity_ready.clone()
-        };
-        ready.notified().await;
+    let runtime_tls_identity = crate::state::wait_for_runtime_tls_identity(&state).await?;
+    let (admission, authority) = {
+        let state = state.lock().await;
+        (state.admission.clone(), state.inbound_authority.clone())
     };
     let crypto =
         crate::tls_identity::server_config(&runtime_tls_identity).map_err(|_| hs::rejected())?;

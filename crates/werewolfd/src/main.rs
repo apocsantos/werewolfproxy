@@ -88,12 +88,7 @@ async fn main() -> anyhow_free::Result<()> {
 
     // Build one ephemeral TLS representation of the existing Pelt per process
     // startup. It remains in memory for later transport integration.
-    initial_state.runtime_tls_identity = initial_state
-        .pelt
-        .as_ref()
-        .map(tls_identity::RuntimeTlsIdentity::from_pelt)
-        .transpose()?
-        .map(Arc::new);
+    initial_state.initialize_runtime_tls_identity()?;
 
     validate_startup_config(&initial_state);
 

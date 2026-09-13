@@ -179,13 +179,12 @@ async fn listener_waits_for_same_process_pelt_publication() {
         tokio::spawn(async move { run_fang_listener(&address.to_string(), state_for_task).await });
     tokio::time::sleep(Duration::from_millis(20)).await;
     assert!(TcpStream::connect(address).await.is_err());
-    let ready = {
+    {
         let mut live = state.lock().await;
         live.pelt = Some(receiver.clone());
         live.runtime_tls_identity = Some(runtime);
-        live.tls_identity_ready.clone()
-    };
-    ready.notify_waiters();
+        live.tls_identity_ready.publish();
+    }
     let expected = selected(&receiver);
     let _client = tokio::time::timeout(Duration::from_secs(2), async {
         loop {

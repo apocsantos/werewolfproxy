@@ -109,9 +109,9 @@ pub(super) async fn handle(
         live.pelt = Some(identity);
         live.runtime_tls_identity = Some(runtime_tls_identity);
         live.status.pelt_ready = true;
-        let tls_identity_ready = live.tls_identity_ready.clone();
-        drop(live);
-        tls_identity_ready.notify_waiters();
+        // Only signal after durable persistence and coherent state publication.
+        // The state lock prevents a listener from seeing READY before identity.
+        live.tls_identity_ready.publish();
         return ControlResponse::ok(
             req.id,
             json!({"fingerprint":fingerprint,"saved_to":home.join("pelt.json")}),
@@ -295,6 +295,7 @@ mod tests {
         .await
         .is_err());
         assert!(!state.lock().await.storage_degraded);
+        assert!(!state.lock().await.tls_identity_ready.is_ready());
         assert!(finish_outcome(
             CommitOutcome::IndeterminateAfterRename(io::Error::other("injected directory fsync")),
             &state
@@ -302,6 +303,7 @@ mod tests {
         .await
         .is_err());
         assert!(state.lock().await.storage_degraded);
+        assert!(!state.lock().await.tls_identity_ready.is_ready());
         let response = super::super::handle_request(
             ControlRequest {
                 id: "test".into(),

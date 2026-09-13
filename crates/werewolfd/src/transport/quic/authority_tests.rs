@@ -10,6 +10,98 @@ use werewolf_core::{
     pelt::{generate_identity, PeltIdentity},
 };
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tcp_and_quic_listeners_waiting_before_pelt_publish_both_activate() {
+    timeout(Duration::from_secs(12), async {
+        let (observed, mut waits) = tokio::sync::mpsc::unbounded_channel();
+        let state = Arc::new(Mutex::new(DaemonState {
+            tls_identity_wait_observed: Some(observed),
+            ..Default::default()
+        }));
+        let tcp_address = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let quic_address = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let tcp_state = state.clone();
+        let tcp = Task(tokio::spawn(async move {
+            crate::transport::run_fang_listener(&tcp_address.to_string(), tcp_state).await
+        }));
+        let quic_state = state.clone();
+        let quic = Task(tokio::spawn(async move {
+            run_quic_fang_listener(&quic_address.to_string(), quic_state).await
+        }));
+
+        // Each signal is emitted after an actual production listener checked
+        // state and found no identity. No scheduling sleep establishes order.
+        for _ in 0..2 {
+            timeout(Duration::from_secs(2), waits.recv())
+                .await
+                .unwrap()
+                .unwrap();
+        }
+        let pelt = generate_identity();
+        let identity = Arc::new(crate::tls_identity::RuntimeTlsIdentity::from_pelt(&pelt).unwrap());
+        {
+            let mut live = state.lock().await;
+            assert!(!live.tls_identity_ready.is_ready());
+            live.pelt = Some(pelt.clone());
+            live.runtime_tls_identity = Some(identity);
+            live.tls_identity_ready.publish();
+        }
+
+        let expected = crate::policy::ExpectedPeerIdentity {
+            fingerprint: pelt.fingerprint.clone(),
+            public_key_b64: Some(pelt.public_key_b64.clone()),
+        };
+        let tcp_client = timeout(Duration::from_secs(5), async {
+            loop {
+                if let Ok(stream) = crate::transport::tcp_encrypted::connect_authenticated_tcp(
+                    &tcp_address.to_string(),
+                    &expected,
+                )
+                .await
+                {
+                    break stream;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            tcp_client.get_ref().1.protocol_version(),
+            Some(rustls::ProtocolVersion::TLSv1_3)
+        );
+
+        let rustls =
+            crate::tls_identity::client_config_for_selected_peer_key(Some(&pelt.public_key_b64))
+                .unwrap();
+        let quic_crypto = quinn::crypto::rustls::QuicClientConfig::try_from(rustls).unwrap();
+        let mut endpoint = quinn::Endpoint::client("127.0.0.1:0".parse().unwrap()).unwrap();
+        endpoint.set_default_client_config(quinn::ClientConfig::new(Arc::new(quic_crypto)));
+        let connection = timeout(
+            Duration::from_secs(5),
+            endpoint
+                .connect(quic_address, &quic_address.ip().to_string())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(connection.remote_address(), quic_address);
+        connection.close(hs::V3_REJECT_CODE.into(), b"");
+        drop(tcp_client);
+        drop(tcp);
+        drop(quic);
+    })
+    .await
+    .unwrap();
+}
+
 struct Task(tokio::task::JoinHandle<io::Result<()>>);
 impl Drop for Task {
     fn drop(&mut self) {
