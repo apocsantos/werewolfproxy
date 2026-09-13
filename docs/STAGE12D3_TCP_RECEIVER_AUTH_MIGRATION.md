@@ -95,13 +95,11 @@ The Cargo.lock SHA-256 is
   targets, and daemon restart/profile restoration.
 - `git diff --check`: PASS.
 
-The acceptance fixture's first boot has no Pelt: both secure listeners require
-a runtime certificate, so the fixture no longer probes TCP readiness before
-it calls `pelt.init` and restarts. On subsequent boots with persisted Pelt,
-it checks TCP readiness and exercises both network transports normally. The
-initial `pelt.init` still requires a daemon restart to bring up the secure
-listeners; this is an existing Stage 12 listener-lifecycle limitation, not a
-change to QUIC behavior in this checkpoint.
+The acceptance fixture's first boot has no Pelt: the owned secure listener
+tasks wait without binding. After `pelt.init` durably publishes Pelt and its
+matching runtime identity, the fixture observes both listeners become ready
+in the same process. Subsequent boots with persisted Pelt retain the existing
+startup behavior.
 
 Existing untracked Stage 12B/C proof artifacts were preserved and excluded
 from the commits. Their prior secret audit remains applicable; this checkpoint

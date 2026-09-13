@@ -205,9 +205,8 @@ class Lab:
                                     f'{wolf}-{self.generation}')
             self.wolves.append(process)
             self.wait_for(lambda: self.control(wolf, 'status'), f'{wolf} control', process)
-            # Secure listeners require the process-lifetime Pelt TLS identity.
-            # On the first boot this lab initializes Pelt through control and
-            # restarts before exercising either network transport.
+            # A fresh Den has no TLS identity yet; its owned listener task waits
+            # for pelt.init and binds once identity publication completes.
             if (den / 'pelt.json').exists():
                 self.wait_for(lambda: self.listener(wolf + '_tcp'), f'{wolf} TCP', process)
             exe = pathlib.Path(f'/proc/{process.pid}/exe')
@@ -338,6 +337,9 @@ class Lab:
             pelt = json.loads((self.base / wolf / 'pelt.json').read_text())
             identities[wolf] = {k: pelt[k] for k in ('fingerprint', 'public_key_b64')}
         require(identities['a']['fingerprint'] != identities['b']['fingerprint'], 'identities are not distinct')
+        for wolf in ('a', 'b'):
+            self.wait_for(lambda wolf=wolf: self.listener(wolf + '_tcp'),
+                          f'{wolf} TCP after same-process pelt.init', self.wolves[('a', 'b').index(wolf)])
         self.stop_wolves()
         def peer(name, wolf, protocol):
             return dict(name=name, trust='Packmate', **identities[wolf],
