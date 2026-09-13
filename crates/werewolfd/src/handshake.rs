@@ -131,7 +131,10 @@ pub(super) async fn read<T: DeserializeOwned, R: AsyncRead + Unpin>(
             let byte = reader.read_u8().await?;
             data.push(byte);
             if byte == b'\n' {
-                return serde_json::from_slice(&data).map_err(|_| rejected());
+                let value = serde_json::from_slice(&data).map_err(|_| rejected())?;
+                #[cfg(test)]
+                test_observer::record(test_observer::Phase::Read, &data);
+                return Ok(value);
             }
         }
         Err(rejected())
@@ -153,7 +156,89 @@ pub(super) async fn write<T: Serialize, W: AsyncWrite + Unpin>(
         writer.write_all(&data),
     )
     .await
-    .map_err(|_| rejected())?
+    .map_err(|_| rejected())??;
+    #[cfg(test)]
+    test_observer::record(test_observer::Phase::Write, &data);
+    Ok(())
+}
+
+// Test-only observation of the bytes generated and consumed by the real
+// production handshake functions. No secret, key log, or wire marker is made.
+#[cfg(test)]
+pub(crate) mod test_observer {
+    use std::sync::{Mutex, OnceLock};
+    use tokio::sync::mpsc;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub(crate) enum Phase {
+        Read,
+        Write,
+    }
+
+    pub(crate) struct Event {
+        pub(crate) phase: Phase,
+        pub(crate) serialized: Vec<u8>,
+    }
+
+    struct Observer {
+        receiver_fingerprint: String,
+        events: mpsc::UnboundedSender<Event>,
+    }
+
+    static OBSERVER: OnceLock<Mutex<Option<Observer>>> = OnceLock::new();
+
+    fn slot() -> &'static Mutex<Option<Observer>> {
+        OBSERVER.get_or_init(|| Mutex::new(None))
+    }
+
+    pub(crate) struct Guard(String);
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let mut active = slot().lock().unwrap();
+            if active
+                .as_ref()
+                .map(|value| value.receiver_fingerprint.as_str())
+                == Some(&self.0)
+            {
+                *active = None;
+            }
+        }
+    }
+
+    pub(crate) fn observe(receiver_fingerprint: &str) -> (Guard, mpsc::UnboundedReceiver<Event>) {
+        let (events, receiver) = mpsc::unbounded_channel();
+        let mut active = slot().lock().unwrap();
+        assert!(active.is_none(), "only one TLS wire observation at a time");
+        *active = Some(Observer {
+            receiver_fingerprint: receiver_fingerprint.to_owned(),
+            events,
+        });
+        (Guard(receiver_fingerprint.to_owned()), receiver)
+    }
+
+    pub(crate) fn record(phase: Phase, serialized: &[u8]) {
+        let Some(receiver) = serde_json::from_slice::<serde_json::Value>(serialized)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("receiver_fingerprint")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            })
+        else {
+            return;
+        };
+        let active = slot().lock().unwrap();
+        if let Some(observer) = active.as_ref() {
+            if observer.receiver_fingerprint == receiver {
+                let _ = observer.events.send(Event {
+                    phase,
+                    serialized: serialized.to_vec(),
+                });
+            }
+        }
+    }
 }
 
 pub(super) fn quic_binding(connection: &quinn::Connection) -> io::Result<[u8; 32]> {
