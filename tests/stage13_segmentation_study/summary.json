@@ -1,0 +1,2205 @@
+{
+  "schema": 1,
+  "source_head": "bc2d3d6955fa5125b11802252c7bf90c44c1c76b",
+  "policy_definition_sha256": "ad5f169106b539a784a6bc8928056aef1fcc4c6ba2aeab677c7c810f5e7ba51b",
+  "control_validation": {
+    "connections": 275,
+    "frames": 351054,
+    "exact_application_bytes_counts_and_wire_totals": true,
+    "payload_size_histogram_top_ten": [
+      [
+        1400,
+        345398
+      ],
+      [
+        536,
+        4596
+      ],
+      [
+        32,
+        186
+      ],
+      [
+        16,
+        120
+      ],
+      [
+        64,
+        120
+      ],
+      [
+        128,
+        120
+      ],
+      [
+        528,
+        84
+      ],
+      [
+        256,
+        61
+      ],
+      [
+        224,
+        61
+      ],
+      [
+        1024,
+        60
+      ]
+    ],
+    "unique_payload_sizes": 64
+  },
+  "majority_baseline": 0.3494,
+  "online_policies_passing_required_frame_count_classifier_gate": [],
+  "policies": {
+    "A_current": {
+      "name": "A_current",
+      "kind": "observed",
+      "online": true
+    },
+    "B_fixed_256": {
+      "name": "B_fixed_256",
+      "kind": "split_each_read",
+      "maximum_payload": 256,
+      "online": true
+    },
+    "B_fixed_512": {
+      "name": "B_fixed_512",
+      "kind": "split_each_read",
+      "maximum_payload": 512,
+      "online": true
+    },
+    "C_medium_1024": {
+      "name": "C_medium_1024",
+      "kind": "split_each_read",
+      "maximum_payload": 1024,
+      "online": true
+    },
+    "B_fixed_1536": {
+      "name": "B_fixed_1536",
+      "kind": "split_each_read",
+      "maximum_payload": 1536,
+      "online": true
+    },
+    "B_fixed_2046": {
+      "name": "B_fixed_2046",
+      "kind": "split_each_read",
+      "maximum_payload": 2046,
+      "online": true
+    },
+    "D_alternate": {
+      "name": "D_alternate",
+      "kind": "alternate_each_read",
+      "capacities": [
+        1024,
+        1536
+      ],
+      "online": true
+    },
+    "E_random": {
+      "name": "E_random",
+      "kind": "random_each_read",
+      "capacities": [
+        512,
+        1024,
+        1536,
+        2046
+      ],
+      "probabilities": [
+        0.1,
+        0.2,
+        0.4,
+        0.3
+      ],
+      "online": true
+    },
+    "F_available_current_buffer": {
+      "name": "F_available_current_buffer",
+      "kind": "split_each_read",
+      "maximum_payload": 2046,
+      "online": true
+    },
+    "OFFLINE_IDEAL_MAX": {
+      "name": "OFFLINE_IDEAL_MAX",
+      "kind": "offline_direction",
+      "maximum_payload": 2046,
+      "online": false
+    }
+  },
+  "candidate_metrics": {
+    "A_current": {
+      "total_frames": 351054,
+      "frame_count_by_direction": {
+        "c2s": 47105,
+        "s2c": 303949
+      },
+      "total_estimated_wire_bytes": 617909311,
+      "additional_estimated_wire_bytes": 0,
+      "additional_frames": 0,
+      "additional_aead_tag_bytes": 0,
+      "additional_inner_prefix_bytes": 0,
+      "additional_estimated_tls_overhead_bytes": 0,
+      "unique_frame_payload_sizes": 64,
+      "payload_size_top_ten": [
+        [
+          1400,
+          345398
+        ],
+        [
+          536,
+          4596
+        ],
+        [
+          32,
+          186
+        ],
+        [
+          16,
+          120
+        ],
+        [
+          64,
+          120
+        ],
+        [
+          128,
+          120
+        ],
+        [
+          528,
+          84
+        ],
+        [
+          256,
+          61
+        ],
+        [
+          224,
+          61
+        ],
+        [
+          1024,
+          60
+        ]
+      ],
+      "median_frame_payload": 1400.0,
+      "p90_frame_payload": 1400,
+      "p95_frame_payload": 1400,
+      "p99_frame_payload": 1400,
+      "terminal_frame_fraction": 0.00122,
+      "terminal_payload_top_ten": [
+        [
+          32,
+          126
+        ],
+        [
+          224,
+          61
+        ],
+        [
+          128,
+          60
+        ],
+        [
+          1024,
+          60
+        ],
+        [
+          1136,
+          60
+        ],
+        [
+          88,
+          30
+        ],
+        [
+          352,
+          5
+        ],
+        [
+          760,
+          3
+        ],
+        [
+          432,
+          3
+        ],
+        [
+          848,
+          2
+        ]
+      ],
+      "terminal_payload_below_current_1400_read_cap": 430,
+      "spearman_application_size_frame_count": 0.9401,
+      "spearman_c2s_application_c2s_count": 0.8956,
+      "spearman_s2c_application_s2c_count": 0.9037,
+      "by_workload": {
+        "handshake_only": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        },
+        "tiny": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 76.172
+        },
+        "interactive": {
+          "connections": 30,
+          "median_frame_count": 16.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 8.0,
+          "median_s2c_frames": 8.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 18.153
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 2.507
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_frame_count": 94.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 47.0,
+          "median_s2c_frames": 47.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.278
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_frame_count": 1508.0,
+          "frame_count_variance": 1.632,
+          "median_c2s_frames": 756.0,
+          "median_s2c_frames": 752.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.265
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_frame_count": 37793,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1,
+          "median_s2c_frames": 37792,
+          "median_added_frames": 0,
+          "median_added_wire_bytes": 0,
+          "median_wire_application_ratio": 1.268
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_frame_count": 757.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 756.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.273
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_frame_count": 3024.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 3023.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.268
+        },
+        "idle": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        }
+      }
+    },
+    "B_fixed_256": {
+      "total_frames": 2088241,
+      "frame_count_by_direction": {
+        "c2s": 278915,
+        "s2c": 1809326
+      },
+      "total_estimated_wire_bytes": 3028954015,
+      "additional_estimated_wire_bytes": 2411044704,
+      "additional_frames": 1737187,
+      "additional_aead_tag_bytes": 27794992,
+      "additional_inner_prefix_bytes": 6948748,
+      "additional_estimated_tls_overhead_bytes": 38218114,
+      "unique_frame_payload_sizes": 30,
+      "payload_size_top_ten": [
+        [
+          256,
+          1737310
+        ],
+        [
+          120,
+          345401
+        ],
+        [
+          24,
+          4596
+        ],
+        [
+          16,
+          204
+        ],
+        [
+          32,
+          189
+        ],
+        [
+          128,
+          125
+        ],
+        [
+          64,
+          120
+        ],
+        [
+          112,
+          62
+        ],
+        [
+          224,
+          62
+        ],
+        [
+          80,
+          52
+        ]
+      ],
+      "median_frame_payload": 256.0,
+      "p90_frame_payload": 256,
+      "p95_frame_payload": 256,
+      "p99_frame_payload": 256,
+      "terminal_frame_fraction": 0.00021,
+      "terminal_payload_top_ten": [
+        [
+          32,
+          126
+        ],
+        [
+          256,
+          62
+        ],
+        [
+          224,
+          62
+        ],
+        [
+          128,
+          61
+        ],
+        [
+          112,
+          60
+        ],
+        [
+          88,
+          30
+        ],
+        [
+          96,
+          7
+        ],
+        [
+          80,
+          4
+        ],
+        [
+          248,
+          3
+        ],
+        [
+          144,
+          3
+        ]
+      ],
+      "terminal_payload_below_current_1400_read_cap": 430,
+      "spearman_application_size_frame_count": 0.9655,
+      "spearman_c2s_application_c2s_count": 0.9654,
+      "spearman_s2c_application_s2c_count": 0.9649,
+      "by_workload": {
+        "handshake_only": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        },
+        "tiny": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 76.172
+        },
+        "interactive": {
+          "connections": 30,
+          "median_frame_count": 16.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 8.0,
+          "median_s2c_frames": 8.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 18.153
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_frame_count": 8.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 4.0,
+          "median_s2c_frames": 4.0,
+          "median_added_frames": 6.0,
+          "median_added_wire_bytes": 8568.0,
+          "median_wire_application_ratio": 6.816
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_frame_count": 562.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 281.0,
+          "median_s2c_frames": 281.0,
+          "median_added_frames": 468.0,
+          "median_added_wire_bytes": 649292.0,
+          "median_wire_application_ratio": 6.237
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_frame_count": 8996.5,
+          "frame_count_variance": 1.41,
+          "median_c2s_frames": 4501.0,
+          "median_s2c_frames": 4495.5,
+          "median_added_frames": 7489.0,
+          "median_added_wire_bytes": 10396479.0,
+          "median_wire_application_ratio": 6.222
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_frame_count": 225086,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1,
+          "median_s2c_frames": 225085,
+          "median_added_frames": 187293,
+          "median_added_wire_bytes": 259818920,
+          "median_wire_application_ratio": 6.223
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_frame_count": 4502.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 4501.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 3745.0,
+          "median_added_wire_bytes": 5188256.0,
+          "median_wire_application_ratio": 6.223
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_frame_count": 18007.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 18006.0,
+          "median_added_frames": 14983.0,
+          "median_added_wire_bytes": 20810022.0,
+          "median_wire_application_ratio": 6.23
+        },
+        "idle": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        }
+      }
+    },
+    "B_fixed_512": {
+      "total_frames": 1046893,
+      "frame_count_by_direction": {
+        "c2s": 139955,
+        "s2c": 906938
+      },
+      "total_estimated_wire_bytes": 1518406903,
+      "additional_estimated_wire_bytes": 900497592,
+      "additional_frames": 695839,
+      "additional_aead_tag_bytes": 11133424,
+      "additional_inner_prefix_bytes": 2783356,
+      "additional_estimated_tls_overhead_bytes": 15308458,
+      "unique_frame_payload_sizes": 43,
+      "payload_size_top_ten": [
+        [
+          512,
+          695899
+        ],
+        [
+          376,
+          345398
+        ],
+        [
+          24,
+          4596
+        ],
+        [
+          16,
+          204
+        ],
+        [
+          32,
+          188
+        ],
+        [
+          128,
+          124
+        ],
+        [
+          64,
+          120
+        ],
+        [
+          256,
+          63
+        ],
+        [
+          112,
+          62
+        ],
+        [
+          224,
+          62
+        ]
+      ],
+      "median_frame_payload": 512.0,
+      "p90_frame_payload": 512,
+      "p95_frame_payload": 512,
+      "p99_frame_payload": 512,
+      "terminal_frame_fraction": 0.00041,
+      "terminal_payload_top_ten": [
+        [
+          32,
+          126
+        ],
+        [
+          224,
+          62
+        ],
+        [
+          128,
+          60
+        ],
+        [
+          512,
+          60
+        ],
+        [
+          112,
+          60
+        ],
+        [
+          88,
+          30
+        ],
+        [
+          352,
+          6
+        ],
+        [
+          248,
+          3
+        ],
+        [
+          336,
+          3
+        ],
+        [
+          432,
+          3
+        ]
+      ],
+      "terminal_payload_below_current_1400_read_cap": 430,
+      "spearman_application_size_frame_count": 0.9656,
+      "spearman_c2s_application_c2s_count": 0.9654,
+      "spearman_s2c_application_s2c_count": 0.965,
+      "by_workload": {
+        "handshake_only": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        },
+        "tiny": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 76.172
+        },
+        "interactive": {
+          "connections": 30,
+          "median_frame_count": 16.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 8.0,
+          "median_s2c_frames": 8.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 18.153
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_frame_count": 4.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 2.0,
+          "median_s2c_frames": 2.0,
+          "median_added_frames": 2.0,
+          "median_added_wire_bytes": 3152.0,
+          "median_wire_application_ratio": 4.109
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_frame_count": 282.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 141.0,
+          "median_s2c_frames": 141.0,
+          "median_added_frames": 188.0,
+          "median_added_wire_bytes": 243228.0,
+          "median_wire_application_ratio": 3.131
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_frame_count": 4505.0,
+          "frame_count_variance": 2.329,
+          "median_c2s_frames": 2256.0,
+          "median_s2c_frames": 2249.0,
+          "median_added_frames": 2998.0,
+          "median_added_wire_bytes": 3885168.0,
+          "median_wire_application_ratio": 3.117
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_frame_count": 112821,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1,
+          "median_s2c_frames": 112820,
+          "median_added_frames": 75028,
+          "median_added_wire_bytes": 97223214,
+          "median_wire_application_ratio": 3.122
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_frame_count": 2257.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 2256.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 1500.0,
+          "median_added_wire_bytes": 1939790.0,
+          "median_wire_application_ratio": 3.122
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_frame_count": 9026.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 9025.0,
+          "median_added_frames": 6002.0,
+          "median_added_wire_bytes": 7755892.0,
+          "median_wire_application_ratio": 3.119
+        },
+        "idle": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        }
+      }
+    },
+    "C_medium_1024": {
+      "total_frames": 696591,
+      "frame_count_by_direction": {
+        "c2s": 93215,
+        "s2c": 603376
+      },
+      "total_estimated_wire_bytes": 1033531033,
+      "additional_estimated_wire_bytes": 415621722,
+      "additional_frames": 345537,
+      "additional_aead_tag_bytes": 5528592,
+      "additional_inner_prefix_bytes": 1382148,
+      "additional_estimated_tls_overhead_bytes": 7601814,
+      "unique_frame_payload_sizes": 55,
+      "payload_size_top_ten": [
+        [
+          1024,
+          345597
+        ],
+        [
+          376,
+          345398
+        ],
+        [
+          536,
+          4596
+        ],
+        [
+          32,
+          187
+        ],
+        [
+          128,
+          123
+        ],
+        [
+          16,
+          120
+        ],
+        [
+          64,
+          120
+        ],
+        [
+          528,
+          84
+        ],
+        [
+          256,
+          62
+        ],
+        [
+          224,
+          62
+        ]
+      ],
+      "median_frame_payload": 536.0,
+      "p90_frame_payload": 1024,
+      "p95_frame_payload": 1024,
+      "p99_frame_payload": 1024,
+      "terminal_frame_fraction": 0.00062,
+      "terminal_payload_top_ten": [
+        [
+          32,
+          126
+        ],
+        [
+          224,
+          62
+        ],
+        [
+          128,
+          60
+        ],
+        [
+          1024,
+          60
+        ],
+        [
+          112,
+          60
+        ],
+        [
+          88,
+          30
+        ],
+        [
+          352,
+          6
+        ],
+        [
+          760,
+          3
+        ],
+        [
+          432,
+          3
+        ],
+        [
+          848,
+          2
+        ]
+      ],
+      "terminal_payload_below_current_1400_read_cap": 430,
+      "spearman_application_size_frame_count": 0.9402,
+      "spearman_c2s_application_c2s_count": 0.8956,
+      "spearman_s2c_application_s2c_count": 0.9038,
+      "by_workload": {
+        "handshake_only": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        },
+        "tiny": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 76.172
+        },
+        "interactive": {
+          "connections": 30,
+          "median_frame_count": 16.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 8.0,
+          "median_s2c_frames": 8.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 18.153
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 2.507
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_frame_count": 188.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 94.0,
+          "median_s2c_frames": 94.0,
+          "median_added_frames": 94.0,
+          "median_added_wire_bytes": 113068.0,
+          "median_wire_application_ratio": 2.139
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_frame_count": 3001.0,
+          "frame_count_variance": 0.943,
+          "median_c2s_frames": 1501.0,
+          "median_s2c_frames": 1500.0,
+          "median_added_frames": 1493.0,
+          "median_added_wire_bytes": 1794664.0,
+          "median_wire_application_ratio": 2.124
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_frame_count": 75030,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1,
+          "median_s2c_frames": 75029,
+          "median_added_frames": 37237,
+          "median_added_wire_bytes": 44835586,
+          "median_wire_application_ratio": 2.123
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_frame_count": 1502.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1501.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 745.0,
+          "median_added_wire_bytes": 894594.0,
+          "median_wire_application_ratio": 2.129
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_frame_count": 6004.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 6003.0,
+          "median_added_frames": 2980.0,
+          "median_added_wire_bytes": 3585200.0,
+          "median_wire_application_ratio": 2.122
+        },
+        "idle": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        }
+      }
+    },
+    "B_fixed_1536": {
+      "total_frames": 351054,
+      "frame_count_by_direction": {
+        "c2s": 47105,
+        "s2c": 303949
+      },
+      "total_estimated_wire_bytes": 617909311,
+      "additional_estimated_wire_bytes": 0,
+      "additional_frames": 0,
+      "additional_aead_tag_bytes": 0,
+      "additional_inner_prefix_bytes": 0,
+      "additional_estimated_tls_overhead_bytes": 0,
+      "unique_frame_payload_sizes": 64,
+      "payload_size_top_ten": [
+        [
+          1400,
+          345398
+        ],
+        [
+          536,
+          4596
+        ],
+        [
+          32,
+          186
+        ],
+        [
+          16,
+          120
+        ],
+        [
+          64,
+          120
+        ],
+        [
+          128,
+          120
+        ],
+        [
+          528,
+          84
+        ],
+        [
+          256,
+          61
+        ],
+        [
+          224,
+          61
+        ],
+        [
+          1024,
+          60
+        ]
+      ],
+      "median_frame_payload": 1400.0,
+      "p90_frame_payload": 1400,
+      "p95_frame_payload": 1400,
+      "p99_frame_payload": 1400,
+      "terminal_frame_fraction": 0.00122,
+      "terminal_payload_top_ten": [
+        [
+          32,
+          126
+        ],
+        [
+          224,
+          61
+        ],
+        [
+          128,
+          60
+        ],
+        [
+          1024,
+          60
+        ],
+        [
+          1136,
+          60
+        ],
+        [
+          88,
+          30
+        ],
+        [
+          352,
+          5
+        ],
+        [
+          760,
+          3
+        ],
+        [
+          432,
+          3
+        ],
+        [
+          848,
+          2
+        ]
+      ],
+      "terminal_payload_below_current_1400_read_cap": 430,
+      "spearman_application_size_frame_count": 0.9401,
+      "spearman_c2s_application_c2s_count": 0.8956,
+      "spearman_s2c_application_s2c_count": 0.9037,
+      "by_workload": {
+        "handshake_only": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        },
+        "tiny": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 76.172
+        },
+        "interactive": {
+          "connections": 30,
+          "median_frame_count": 16.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 8.0,
+          "median_s2c_frames": 8.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 18.153
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 2.507
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_frame_count": 94.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 47.0,
+          "median_s2c_frames": 47.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.278
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_frame_count": 1508.0,
+          "frame_count_variance": 1.632,
+          "median_c2s_frames": 756.0,
+          "median_s2c_frames": 752.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.265
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_frame_count": 37793,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1,
+          "median_s2c_frames": 37792,
+          "median_added_frames": 0,
+          "median_added_wire_bytes": 0,
+          "median_wire_application_ratio": 1.268
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_frame_count": 757.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 756.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.273
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_frame_count": 3024.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 3023.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.268
+        },
+        "idle": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        }
+      }
+    },
+    "B_fixed_2046": {
+      "total_frames": 351054,
+      "frame_count_by_direction": {
+        "c2s": 47105,
+        "s2c": 303949
+      },
+      "total_estimated_wire_bytes": 617909311,
+      "additional_estimated_wire_bytes": 0,
+      "additional_frames": 0,
+      "additional_aead_tag_bytes": 0,
+      "additional_inner_prefix_bytes": 0,
+      "additional_estimated_tls_overhead_bytes": 0,
+      "unique_frame_payload_sizes": 64,
+      "payload_size_top_ten": [
+        [
+          1400,
+          345398
+        ],
+        [
+          536,
+          4596
+        ],
+        [
+          32,
+          186
+        ],
+        [
+          16,
+          120
+        ],
+        [
+          64,
+          120
+        ],
+        [
+          128,
+          120
+        ],
+        [
+          528,
+          84
+        ],
+        [
+          256,
+          61
+        ],
+        [
+          224,
+          61
+        ],
+        [
+          1024,
+          60
+        ]
+      ],
+      "median_frame_payload": 1400.0,
+      "p90_frame_payload": 1400,
+      "p95_frame_payload": 1400,
+      "p99_frame_payload": 1400,
+      "terminal_frame_fraction": 0.00122,
+      "terminal_payload_top_ten": [
+        [
+          32,
+          126
+        ],
+        [
+          224,
+          61
+        ],
+        [
+          128,
+          60
+        ],
+        [
+          1024,
+          60
+        ],
+        [
+          1136,
+          60
+        ],
+        [
+          88,
+          30
+        ],
+        [
+          352,
+          5
+        ],
+        [
+          760,
+          3
+        ],
+        [
+          432,
+          3
+        ],
+        [
+          848,
+          2
+        ]
+      ],
+      "terminal_payload_below_current_1400_read_cap": 430,
+      "spearman_application_size_frame_count": 0.9401,
+      "spearman_c2s_application_c2s_count": 0.8956,
+      "spearman_s2c_application_s2c_count": 0.9037,
+      "by_workload": {
+        "handshake_only": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        },
+        "tiny": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 76.172
+        },
+        "interactive": {
+          "connections": 30,
+          "median_frame_count": 16.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 8.0,
+          "median_s2c_frames": 8.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 18.153
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 2.507
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_frame_count": 94.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 47.0,
+          "median_s2c_frames": 47.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.278
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_frame_count": 1508.0,
+          "frame_count_variance": 1.632,
+          "median_c2s_frames": 756.0,
+          "median_s2c_frames": 752.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.265
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_frame_count": 37793,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1,
+          "median_s2c_frames": 37792,
+          "median_added_frames": 0,
+          "median_added_wire_bytes": 0,
+          "median_wire_application_ratio": 1.268
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_frame_count": 757.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 756.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.273
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_frame_count": 3024.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 3023.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.268
+        },
+        "idle": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        }
+      }
+    },
+    "D_alternate": {
+      "total_frames": 691858,
+      "frame_count_by_direction": {
+        "c2s": 92615,
+        "s2c": 599243
+      },
+      "total_estimated_wire_bytes": 1027853871,
+      "additional_estimated_wire_bytes": 409944560,
+      "additional_frames": 340804,
+      "additional_aead_tag_bytes": 5452864,
+      "additional_inner_prefix_bytes": 1363216,
+      "additional_estimated_tls_overhead_bytes": 7497688,
+      "unique_frame_payload_sizes": 56,
+      "payload_size_top_ten": [
+        [
+          1024,
+          340864
+        ],
+        [
+          376,
+          340665
+        ],
+        [
+          1400,
+          4733
+        ],
+        [
+          536,
+          4596
+        ],
+        [
+          32,
+          187
+        ],
+        [
+          128,
+          123
+        ],
+        [
+          16,
+          120
+        ],
+        [
+          64,
+          120
+        ],
+        [
+          528,
+          84
+        ],
+        [
+          256,
+          62
+        ]
+      ],
+      "median_frame_payload": 536.0,
+      "p90_frame_payload": 1024,
+      "p95_frame_payload": 1024,
+      "p99_frame_payload": 1024,
+      "terminal_frame_fraction": 0.00062,
+      "terminal_payload_top_ten": [
+        [
+          32,
+          126
+        ],
+        [
+          224,
+          62
+        ],
+        [
+          128,
+          60
+        ],
+        [
+          1024,
+          60
+        ],
+        [
+          112,
+          60
+        ],
+        [
+          88,
+          30
+        ],
+        [
+          352,
+          6
+        ],
+        [
+          760,
+          3
+        ],
+        [
+          432,
+          3
+        ],
+        [
+          848,
+          2
+        ]
+      ],
+      "terminal_payload_below_current_1400_read_cap": 430,
+      "spearman_application_size_frame_count": 0.9401,
+      "spearman_c2s_application_c2s_count": 0.8956,
+      "spearman_s2c_application_s2c_count": 0.9037,
+      "by_workload": {
+        "handshake_only": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        },
+        "tiny": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 76.172
+        },
+        "interactive": {
+          "connections": 30,
+          "median_frame_count": 16.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 8.0,
+          "median_s2c_frames": 8.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 18.153
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 2.507
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_frame_count": 188.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 94.0,
+          "median_s2c_frames": 94.0,
+          "median_added_frames": 94.0,
+          "median_added_wire_bytes": 113068.0,
+          "median_wire_application_ratio": 2.139
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_frame_count": 2988.0,
+          "frame_count_variance": 3.396,
+          "median_c2s_frames": 1491.0,
+          "median_s2c_frames": 1497.0,
+          "median_added_frames": 1479.0,
+          "median_added_wire_bytes": 1783534.0,
+          "median_wire_application_ratio": 2.116
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_frame_count": 74476,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1,
+          "median_s2c_frames": 74475,
+          "median_added_frames": 36683,
+          "median_added_wire_bytes": 44143438,
+          "median_wire_application_ratio": 2.11
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_frame_count": 1492.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1491.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 735.0,
+          "median_added_wire_bytes": 882830.0,
+          "median_wire_application_ratio": 2.116
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_frame_count": 5962.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 5961.0,
+          "median_added_frames": 2938.0,
+          "median_added_wire_bytes": 3530748.0,
+          "median_wire_application_ratio": 2.111
+        },
+        "idle": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        }
+      }
+    },
+    "E_random": {
+      "total_frames": 458563,
+      "frame_count_by_direction": {
+        "c2s": 61619,
+        "s2c": 396944
+      },
+      "total_estimated_wire_bytes": 747695657,
+      "additional_estimated_wire_bytes": 129786346,
+      "additional_frames": 107509,
+      "additional_aead_tag_bytes": 1720144,
+      "additional_inner_prefix_bytes": 430036,
+      "additional_estimated_tls_overhead_bytes": 2365198,
+      "unique_frame_payload_sizes": 70,
+      "payload_size_top_ten": [
+        [
+          1400,
+          241837
+        ],
+        [
+          376,
+          72502
+        ],
+        [
+          1024,
+          69156
+        ],
+        [
+          512,
+          38413
+        ],
+        [
+          888,
+          31059
+        ],
+        [
+          536,
+          4134
+        ],
+        [
+          24,
+          462
+        ],
+        [
+          32,
+          186
+        ],
+        [
+          16,
+          129
+        ],
+        [
+          64,
+          120
+        ]
+      ],
+      "median_frame_payload": 1400.0,
+      "p90_frame_payload": 1400,
+      "p95_frame_payload": 1400,
+      "p99_frame_payload": 1400,
+      "terminal_frame_fraction": 0.00094,
+      "terminal_payload_top_ten": [
+        [
+          32,
+          126
+        ],
+        [
+          224,
+          62
+        ],
+        [
+          128,
+          60
+        ],
+        [
+          1024,
+          50
+        ],
+        [
+          1136,
+          44
+        ],
+        [
+          88,
+          30
+        ],
+        [
+          112,
+          12
+        ],
+        [
+          512,
+          10
+        ],
+        [
+          352,
+          5
+        ],
+        [
+          624,
+          4
+        ]
+      ],
+      "terminal_payload_below_current_1400_read_cap": 430,
+      "spearman_application_size_frame_count": 0.9421,
+      "spearman_c2s_application_c2s_count": 0.8978,
+      "spearman_s2c_application_s2c_count": 0.9061,
+      "by_workload": {
+        "handshake_only": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        },
+        "tiny": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 76.172
+        },
+        "interactive": {
+          "connections": 30,
+          "median_frame_count": 16.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 8.0,
+          "median_s2c_frames": 8.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 18.153
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0.289,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 2.601
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_frame_count": 123.0,
+          "frame_count_variance": 14.232,
+          "median_c2s_frames": 62.0,
+          "median_s2c_frames": 60.5,
+          "median_added_frames": 29.0,
+          "median_added_wire_bytes": 35901.0,
+          "median_wire_application_ratio": 1.543
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_frame_count": 1972.5,
+          "frame_count_variance": 365.766,
+          "median_c2s_frames": 992.0,
+          "median_s2c_frames": 980.5,
+          "median_added_frames": 464.0,
+          "median_added_wire_bytes": 563128.0,
+          "median_wire_application_ratio": 1.535
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_frame_count": 49380,
+          "frame_count_variance": 8535.76,
+          "median_c2s_frames": 1,
+          "median_s2c_frames": 49379,
+          "median_added_frames": 11587,
+          "median_added_wire_bytes": 13921918,
+          "median_wire_application_ratio": 1.534
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_frame_count": 991.0,
+          "frame_count_variance": 167.739,
+          "median_c2s_frames": 990.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 234.0,
+          "median_added_wire_bytes": 280137.0,
+          "median_wire_application_ratio": 1.539
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_frame_count": 3954.5,
+          "frame_count_variance": 512.693,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 3953.5,
+          "median_added_frames": 930.5,
+          "median_added_wire_bytes": 1120775.0,
+          "median_wire_application_ratio": 1.536
+        },
+        "idle": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        }
+      }
+    },
+    "F_available_current_buffer": {
+      "total_frames": 351054,
+      "frame_count_by_direction": {
+        "c2s": 47105,
+        "s2c": 303949
+      },
+      "total_estimated_wire_bytes": 617909311,
+      "additional_estimated_wire_bytes": 0,
+      "additional_frames": 0,
+      "additional_aead_tag_bytes": 0,
+      "additional_inner_prefix_bytes": 0,
+      "additional_estimated_tls_overhead_bytes": 0,
+      "unique_frame_payload_sizes": 64,
+      "payload_size_top_ten": [
+        [
+          1400,
+          345398
+        ],
+        [
+          536,
+          4596
+        ],
+        [
+          32,
+          186
+        ],
+        [
+          16,
+          120
+        ],
+        [
+          64,
+          120
+        ],
+        [
+          128,
+          120
+        ],
+        [
+          528,
+          84
+        ],
+        [
+          256,
+          61
+        ],
+        [
+          224,
+          61
+        ],
+        [
+          1024,
+          60
+        ]
+      ],
+      "median_frame_payload": 1400.0,
+      "p90_frame_payload": 1400,
+      "p95_frame_payload": 1400,
+      "p99_frame_payload": 1400,
+      "terminal_frame_fraction": 0.00122,
+      "terminal_payload_top_ten": [
+        [
+          32,
+          126
+        ],
+        [
+          224,
+          61
+        ],
+        [
+          128,
+          60
+        ],
+        [
+          1024,
+          60
+        ],
+        [
+          1136,
+          60
+        ],
+        [
+          88,
+          30
+        ],
+        [
+          352,
+          5
+        ],
+        [
+          760,
+          3
+        ],
+        [
+          432,
+          3
+        ],
+        [
+          848,
+          2
+        ]
+      ],
+      "terminal_payload_below_current_1400_read_cap": 430,
+      "spearman_application_size_frame_count": 0.9401,
+      "spearman_c2s_application_c2s_count": 0.8956,
+      "spearman_s2c_application_s2c_count": 0.9037,
+      "by_workload": {
+        "handshake_only": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        },
+        "tiny": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 76.172
+        },
+        "interactive": {
+          "connections": 30,
+          "median_frame_count": 16.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 8.0,
+          "median_s2c_frames": 8.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 18.153
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 2.507
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_frame_count": 94.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 47.0,
+          "median_s2c_frames": 47.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.278
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_frame_count": 1508.0,
+          "frame_count_variance": 1.632,
+          "median_c2s_frames": 756.0,
+          "median_s2c_frames": 752.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.265
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_frame_count": 37793,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1,
+          "median_s2c_frames": 37792,
+          "median_added_frames": 0,
+          "median_added_wire_bytes": 0,
+          "median_wire_application_ratio": 1.268
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_frame_count": 757.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 756.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.273
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_frame_count": 3024.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 3023.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 1.268
+        },
+        "idle": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        }
+      }
+    },
+    "OFFLINE_IDEAL_MAX": {
+      "total_frames": 238055,
+      "frame_count_by_direction": {
+        "c2s": 31895,
+        "s2c": 206160
+      },
+      "total_estimated_wire_bytes": 497888423,
+      "additional_estimated_wire_bytes": -120020888,
+      "additional_frames": -112999,
+      "additional_aead_tag_bytes": -1807984,
+      "additional_inner_prefix_bytes": -451996,
+      "additional_estimated_tls_overhead_bytes": -2485978,
+      "unique_frame_payload_sizes": 7,
+      "payload_size_top_ten": [
+        [
+          2046,
+          237625
+        ],
+        [
+          1024,
+          150
+        ],
+        [
+          32,
+          125
+        ],
+        [
+          704,
+          60
+        ],
+        [
+          64,
+          60
+        ],
+        [
+          4,
+          30
+        ],
+        [
+          50,
+          5
+        ]
+      ],
+      "median_frame_payload": 2046.0,
+      "p90_frame_payload": 2046,
+      "p95_frame_payload": 2046,
+      "p99_frame_payload": 2046,
+      "terminal_frame_fraction": 0.00181,
+      "terminal_payload_top_ten": [
+        [
+          1024,
+          150
+        ],
+        [
+          32,
+          125
+        ],
+        [
+          704,
+          60
+        ],
+        [
+          64,
+          60
+        ],
+        [
+          4,
+          30
+        ],
+        [
+          50,
+          5
+        ]
+      ],
+      "terminal_payload_below_current_1400_read_cap": 430,
+      "spearman_application_size_frame_count": 0.9662,
+      "spearman_c2s_application_c2s_count": 0.9092,
+      "spearman_s2c_application_s2c_count": 0.9208,
+      "by_workload": {
+        "handshake_only": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        },
+        "tiny": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 76.172
+        },
+        "interactive": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": -14.0,
+          "median_added_wire_bytes": -20172.0,
+          "median_wire_application_ratio": 3.735
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_frame_count": 2.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": 2.507
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_frame_count": 66.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 33.0,
+          "median_s2c_frames": 33.0,
+          "median_added_frames": -28.0,
+          "median_added_wire_bytes": -28244.0,
+          "median_wire_application_ratio": 1.06
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_frame_count": 1026.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 513.0,
+          "median_s2c_frames": 513.0,
+          "median_added_frames": -482.0,
+          "median_added_wire_bytes": -508425.0,
+          "median_wire_application_ratio": 1.023
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_frame_count": 25627,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1,
+          "median_s2c_frames": 25626,
+          "median_added_frames": -12166,
+          "median_added_wire_bytes": -12931990,
+          "median_wire_application_ratio": 1.022
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_frame_count": 514.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 513.0,
+          "median_s2c_frames": 1.0,
+          "median_added_frames": -243.0,
+          "median_added_wire_bytes": -260646.0,
+          "median_wire_application_ratio": 1.026
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_frame_count": 2052.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 1.0,
+          "median_s2c_frames": 2051.0,
+          "median_added_frames": -972.0,
+          "median_added_wire_bytes": -1029240.0,
+          "median_wire_application_ratio": 1.023
+        },
+        "idle": {
+          "connections": 30,
+          "median_frame_count": 0.0,
+          "frame_count_variance": 0,
+          "median_c2s_frames": 0.0,
+          "median_s2c_frames": 0.0,
+          "median_added_frames": 0.0,
+          "median_added_wire_bytes": 0.0,
+          "median_wire_application_ratio": null
+        }
+      }
+    }
+  },
+  "privacy_floor": {
+    "offline_ideal_frame_count_accuracy": 0.8916,
+    "application_total_only_accuracy": 0.8916,
+    "directional_application_bytes_accuracy": 0.6747,
+    "ratio_only_accuracy": 0.4337,
+    "observable_wire_total_only_accuracy": 0.8916,
+    "observable_directional_wire_bytes_accuracy": 0.6988,
+    "offline_ideal_not_online_implementable": true
+  },
+  "verdict": "SEGMENTATION_ONLY_INSUFFICIENT",
+  "recommended_next_stage": "traffic-volume leakage and bounded shaping study"
+}

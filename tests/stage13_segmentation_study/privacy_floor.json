@@ -1,0 +1,9 @@
+{
+  "offline_ideal_frame_count_accuracy": 0.8916,
+  "application_total_only_accuracy": 0.8916,
+  "directional_application_bytes_accuracy": 0.6747,
+  "ratio_only_accuracy": 0.4337,
+  "observable_wire_total_only_accuracy": 0.8916,
+  "observable_directional_wire_bytes_accuracy": 0.6988,
+  "offline_ideal_not_online_implementable": true
+}
