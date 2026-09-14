@@ -1,0 +1,7 @@
+candidate,unique_record_sizes,frame_size_entropy_bits,largest_size_share_percent,wire_spearman,frame_count_spearman,full_accuracy,size_only_accuracy,total_inner_bytes,total_outer_estimated_bytes,max_workload_median_overhead_percent,bulk_median_overhead_percent
+A_current,64,2.7225,16.467,0.9267,0.9402,0.6747,0.747,609695208,618031943,0.0,0.0
+B_power_two,5,0.1276,98.445,0.9986,0.9402,0.7831,0.7831,719777196,728113931,20.367,17.966
+C_coarse,3,0.116,98.445,0.9654,0.9402,0.6867,0.6747,542051116,550387851,1.141,-10.926
+D_random_upper,4,1.0942,54.125,0.9577,0.9402,0.6747,0.6867,623158060,631494795,12.736,2.16
+E_small_flatten,64,2.7217,16.467,0.9064,0.9402,0.6747,0.759,609953768,618290503,22.838,0.0
+F_constant_max,1,-0.0,100.0,0.9402,0.9402,0.6747,0.7831,725981740,734318475,39.915,18.825

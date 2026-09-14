@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "source_head": "af0a02dea2f11f157eaf81080acb869e15e11426",
+  "lock_sha256": "c1ba0b557cb984716c3a04b093df63917cded507fb24ae5a8fbe9f8f04e58d17",
+  "connections": 275,
+  "frames": 351055,
+  "grouped_rows": 2933,
+  "workloads": {
+    "handshake_only": 30,
+    "tiny": 30,
+    "interactive": 30,
+    "request_1kib": 30,
+    "transfer_64kib": 30,
+    "transfer_1mib": 30,
+    "bulk_50mib": 5,
+    "asymmetric_upload": 30,
+    "asymmetric_download": 30,
+    "idle": 30
+  },
+  "capture": "existing local payload-length diagnostics + passive TLS record lengths",
+  "record_overhead": {
+    "ciphertext": 16,
+    "inner_length": 4,
+    "outer_tls": 22
+  }
+}

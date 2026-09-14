@@ -1,0 +1,64 @@
+{
+  "2": {
+    "best_by_frozen_classifier_score": "C_coarse",
+    "size_only_accuracy": 0.6747,
+    "full_accuracy": 0.6867,
+    "max_workload_median_additional_wire_percent": 1.141,
+    "eligible_candidates": [
+      "A_current",
+      "C_coarse"
+    ],
+    "warning": "Classifier score alone does not establish protocol fingerprint safety"
+  },
+  "5": {
+    "best_by_frozen_classifier_score": "C_coarse",
+    "size_only_accuracy": 0.6747,
+    "full_accuracy": 0.6867,
+    "max_workload_median_additional_wire_percent": 1.141,
+    "eligible_candidates": [
+      "A_current",
+      "C_coarse"
+    ],
+    "warning": "Classifier score alone does not establish protocol fingerprint safety"
+  },
+  "10": {
+    "best_by_frozen_classifier_score": "C_coarse",
+    "size_only_accuracy": 0.6747,
+    "full_accuracy": 0.6867,
+    "max_workload_median_additional_wire_percent": 1.141,
+    "eligible_candidates": [
+      "A_current",
+      "C_coarse"
+    ],
+    "warning": "Classifier score alone does not establish protocol fingerprint safety"
+  },
+  "25": {
+    "best_by_frozen_classifier_score": "C_coarse",
+    "size_only_accuracy": 0.6747,
+    "full_accuracy": 0.6867,
+    "max_workload_median_additional_wire_percent": 1.141,
+    "eligible_candidates": [
+      "A_current",
+      "B_power_two",
+      "C_coarse",
+      "D_random_upper",
+      "E_small_flatten"
+    ],
+    "warning": "Classifier score alone does not establish protocol fingerprint safety"
+  },
+  "50": {
+    "best_by_frozen_classifier_score": "C_coarse",
+    "size_only_accuracy": 0.6747,
+    "full_accuracy": 0.6867,
+    "max_workload_median_additional_wire_percent": 1.141,
+    "eligible_candidates": [
+      "A_current",
+      "B_power_two",
+      "C_coarse",
+      "D_random_upper",
+      "E_small_flatten",
+      "F_constant_max"
+    ],
+    "warning": "Classifier score alone does not establish protocol fingerprint safety"
+  }
+}

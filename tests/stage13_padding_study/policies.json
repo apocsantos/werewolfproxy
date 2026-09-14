@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "frozen_before_classifier_evaluation": true,
+  "simulation_seed": 13,
+  "maximum_padded_plaintext_bytes": 2048,
+  "segmentation": "unchanged production payload lengths and frame counts",
+  "classifier": "Stage13A log1p features, seed-13 per-workload 70/30 split, train-only standardization, nearest centroid",
+  "decision_materiality_percentage_points": 10,
+  "padding_only_floor_above_majority_percentage_points": 10,
+  "acceptable_bulk_median_additional_wire_percent": 10,
+  "final_frame_ablation": "replace only final forwarding frames with padded size 2048 and retain every frame count and nonfinal size",
+  "budget_rule": "maximum median additional wire percentage among eight nonempty workloads",
+  "budget_levels_percent": [2, 5, 10, 25, 50],
+  "model_validation": {
+    "payload_to_record_mapping": "exact for every frame",
+    "baseline_reconstructed_wire_bytes": "exact for every connection",
+    "dominant_payload_1400_uniform_total_variation_max": 0.02,
+    "fresh_vs_stage13b_spearman_difference_max": 0.05,
+    "fresh_vs_stage13b_classifier_accuracy_difference_max": 0.15,
+    "fresh_vs_stage13b_50mib_ratio_difference_max": 0.03
+  },
+  "candidates": {
+    "A_current": {
+      "kind": "observed_current",
+      "rationale": "Exact measured Stage13B control; stochastic production bucket rule separately validated"
+    },
+    "B_power_two": {
+      "kind": "smallest_bucket",
+      "buckets": [128, 256, 512, 1024, 2048],
+      "rationale": "Requested power-of-two counterfactual; 128-512 are wire-format feasible but below the current 768-byte privacy floor"
+    },
+    "C_coarse": {
+      "kind": "smallest_bucket",
+      "buckets": [768, 1024, 1536, 2048],
+      "rationale": "Four round coarse buckets preserving the current 768-byte minimum; dominant 1400-byte payload fits 1536"
+    },
+    "D_random_upper": {
+      "kind": "random_upper",
+      "buckets": [768, 1024, 1536, 2048],
+      "probabilities_min_next_max": [0.55, 0.30, 0.15],
+      "rationale": "Fixed distribution before classification; candidate is clamped to the next or maximum feasible bucket"
+    },
+    "E_small_flatten": {
+      "kind": "small_flatten",
+      "threshold_payload_bytes": 256,
+      "small_buckets": [1536, 2048],
+      "small_probabilities": [0.5, 0.5],
+      "larger_frame_policy": "retain measured current padded size",
+      "rationale": "Baseline length histogram has 16/32/64/128/224/256-byte small frames and no 257-399-byte frames; only 710 of 351055 frames qualify"
+    },
+    "F_constant_max": {
+      "kind": "constant_max",
+      "padded_plaintext_bytes": 2048,
+      "rationale": "Simulation-only upper bound for per-frame padding with frozen frame count"
+    }
+  }
+}
