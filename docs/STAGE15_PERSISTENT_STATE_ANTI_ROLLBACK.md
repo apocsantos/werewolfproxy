@@ -69,7 +69,7 @@ diagnostic only, not trusted monotonic anchors.
 
 ## Disposable-Den attack characterization
 
-Five tests in `crates/werewolfd/src/persistence.rs` use generated identities,
+Seven tests in `crates/werewolfd/src/persistence.rs` use generated identities,
 the production `PrivateDirectory::replace` writer, and a fresh `DaemonState`
 passed to the production startup reader for each simulated restart. They never
 touch a user Den or retain identity bytes as artifacts. These tests describe
@@ -79,10 +79,13 @@ exercise an actual network listener or a subprocess restart.
 | Restore sequence after a newer durable document | Startup observation |
 | --- | --- |
 | old Silver `open` after `locked` | accepted; authority starts unlocked |
+| old Silver `locked` after a newer `open` | accepted; authority starts locked, confirming startup honors either valid historical latch value |
 | old Pack with a removed full-key peer after empty Pack | accepted; peer returns to Pack |
 | old exact target grant after empty grants | accepted; authorization for that endpoint returns |
-| old Pelt and old Pack/profile/active Fang documents | accepted; old identity and active profile return to startup state; normal startup restoration can then attempt that profile, subject to Silver, Pack and bind checks |
+| unrelated valid Pelt replacement, then old Pelt and old Pack/profile/active Fang documents | accepted; each accepted Pelt derives the matching runtime TLS certificate SPKI, and the restored old identity and active profile return to startup state; normal startup restoration can then attempt that profile, subject to Silver, Pack and bind checks |
 | old target policy with newer locked Silver and newer Pelt | accepted as a cross-generation mixture |
+| old Pack plus new Silver/policy; new Pack plus old policy; old Pelt plus new Pack | accepted when each document is syntactically valid; no Den-wide revision is compared |
+| new Fang registry plus old active list | rejected only if the old name is absent from the new registry |
 | earlier valid Den documents restored together | accepted; no retained freshness evidence exists |
 | active profile name absent from `fangs.json` | rejected by existing semantic validation; this is a narrow cross-file consistency check |
 
@@ -198,8 +201,8 @@ generated Pelt identities remain in temporary test Dens, which are removed by
 the fixture. No raw captures, real user policy, private keys, traffic secrets,
 payloads, or key logs are committed. The changed-file scan found no private
 PEM block, TLS key-log line, or long embedded base64 literal:
-`STAGE15_SECRET_MATERIAL_AUDIT = PASS`. The five new tests raise the Rust
-aggregate from 156 to 161 (22 core unit, 12 core integration, 127 werewolfd);
+`STAGE15_SECRET_MATERIAL_AUDIT = PASS`. The seven new tests raise the Rust
+aggregate from 156 to 163 (22 core unit, 12 core integration, 129 werewolfd);
 Python remains 64 and acceptance remains 12/12. Formatting, Clippy, offline
 workspace tests, Python tests, acceptance, and diff checks passed. Existing
 Clippy warnings are outside the test-only change. Cargo.lock retains SHA-256
