@@ -84,7 +84,11 @@ mod tests {
         os::unix::fs::{symlink, PermissionsExt},
         path::PathBuf,
     };
-    use werewolf_core::{local_fs::CommitOutcome, pelt::generate_identity};
+    use werewolf_core::{
+        local_fs::CommitOutcome,
+        pack::{PeerRecord, TrustLevel},
+        pelt::generate_identity,
+    };
     struct Fixture(PathBuf, PrivateDirectory);
     impl Fixture {
         fn new() -> Self {
@@ -108,6 +112,14 @@ mod tests {
                 self.1.replace(OsStr::new(name), data, false),
                 CommitOutcome::DurablyCommitted
             ));
+        }
+
+        fn startup(&self) -> DaemonState {
+            // A new state models the next process after the previous owner
+            // stopped. This invokes the production startup reader.
+            let mut state = DaemonState::default();
+            load_startup_state(&self.1, &mut state).unwrap();
+            state
         }
     }
     impl Drop for Fixture {
@@ -216,5 +228,200 @@ mod tests {
         load_startup_state(&fixture.1, &mut state).unwrap();
         assert!(state.inbound_authority.is_locked());
         assert_eq!(state.status.silver, "active");
+    }
+
+    #[test]
+    fn characterizes_old_silver_open_restored_after_durable_lock() {
+        let fixture = Fixture::new();
+        let old_open = fixture
+            .1
+            .read(OsStr::new("silver.json"), 1024)
+            .unwrap()
+            .unwrap();
+        assert!(!fixture.startup().inbound_authority.is_locked());
+
+        fixture.write("silver.json", br#"{"version":1,"mode":"locked"}"#);
+        assert!(fixture.startup().inbound_authority.is_locked());
+
+        fixture.write("silver.json", &old_open);
+        assert!(!fixture.startup().inbound_authority.is_locked());
+    }
+
+    #[test]
+    fn characterizes_removed_pack_peer_restored_from_valid_old_document() {
+        let fixture = Fixture::new();
+        let peer_identity = generate_identity();
+        let peer = PeerRecord {
+            name: "former-peer".into(),
+            fingerprint: peer_identity.fingerprint.clone(),
+            address: "tcp://127.0.0.1:12345".into(),
+            trust: TrustLevel::Packmate,
+            public_key_b64: Some(peer_identity.public_key_b64.clone()),
+        };
+        let old_pack = serde_json::to_vec(&vec![peer]).unwrap();
+        fixture.write("pack.json", &old_pack);
+        assert_eq!(fixture.startup().peers.len(), 1);
+
+        fixture.write("pack.json", b"[]");
+        assert!(fixture.startup().peers.is_empty());
+
+        fixture.write("pack.json", &old_pack);
+        assert_eq!(fixture.startup().peers.len(), 1);
+        assert_eq!(fixture.startup().peers[0].name, "former-peer");
+    }
+
+    #[tokio::test]
+    async fn characterizes_old_target_grant_restored_after_removal() {
+        let fixture = Fixture::new();
+        let peer = generate_identity();
+        let old_policy = serde_json::json!({
+            "mode": "deny-by-default",
+            "peers": {peer.fingerprint.clone(): {"targets": [{"address": "127.0.0.1", "port": 12345}]}}
+        })
+        .to_string();
+        fixture.write("target_policy.json", old_policy.as_bytes());
+        assert!(target_policy::authorize(
+            &fixture.startup().target_policy,
+            &peer.fingerprint,
+            "127.0.0.1:12345"
+        )
+        .await
+        .is_ok());
+
+        fixture.write(
+            "target_policy.json",
+            br#"{"mode":"deny-by-default","peers":{}}"#,
+        );
+        assert!(target_policy::authorize(
+            &fixture.startup().target_policy,
+            &peer.fingerprint,
+            "127.0.0.1:12345"
+        )
+        .await
+        .is_err());
+
+        fixture.write("target_policy.json", old_policy.as_bytes());
+        assert!(target_policy::authorize(
+            &fixture.startup().target_policy,
+            &peer.fingerprint,
+            "127.0.0.1:12345"
+        )
+        .await
+        .is_ok());
+    }
+
+    #[test]
+    fn characterizes_old_pelt_and_active_fang_state_restoration() {
+        let fixture = Fixture::new();
+        let old_pelt = generate_identity();
+        let new_pelt = generate_identity();
+        let remote_pelt = generate_identity();
+        let remote_peer = PeerRecord {
+            name: "former-peer".into(),
+            fingerprint: remote_pelt.fingerprint.clone(),
+            address: "tcp://127.0.0.1:12345".into(),
+            trust: TrustLevel::Packmate,
+            public_key_b64: Some(remote_pelt.public_key_b64.clone()),
+        };
+        let old_pack = serde_json::to_vec(&vec![remote_peer]).unwrap();
+        let old_pelt_json = serde_json::to_vec(&old_pelt).unwrap();
+        fixture.write("pelt.json", &old_pelt_json);
+        fixture.write("pack.json", &old_pack);
+        let old_fangs = br#"[{"name":"old-route","peer":"former-peer","local":"127.0.0.1:12346","remote":"127.0.0.1:12345","transport":"tcp"}]"#;
+        fixture.write("fangs.json", old_fangs);
+        fixture.write("active_fangs.json", br#"["old-route"]"#);
+        assert_eq!(fixture.startup().active_profiles, ["old-route"]);
+
+        fixture.write("pelt.json", &serde_json::to_vec(&new_pelt).unwrap());
+        fixture.write("pack.json", b"[]");
+        fixture.write("active_fangs.json", b"[]");
+        fixture.write("fangs.json", b"[]");
+        assert_eq!(
+            fixture.startup().pelt.unwrap().fingerprint,
+            new_pelt.fingerprint
+        );
+        assert!(fixture.startup().active_profiles.is_empty());
+
+        fixture.write("pelt.json", &old_pelt_json);
+        fixture.write("pack.json", &old_pack);
+        fixture.write("fangs.json", old_fangs);
+        fixture.write("active_fangs.json", br#"["old-route"]"#);
+        let restored = fixture.startup();
+        assert_eq!(restored.pelt.unwrap().fingerprint, old_pelt.fingerprint);
+        assert_eq!(restored.active_profiles, ["old-route"]);
+        assert_eq!(restored.peers[0].name, "former-peer");
+        assert_eq!(restored.fang_profiles[0].remote, "127.0.0.1:12345");
+    }
+
+    #[test]
+    fn characterizes_mixed_and_whole_den_valid_snapshot_restoration() {
+        let fixture = Fixture::new();
+        let old_pelt = generate_identity();
+        let new_pelt = generate_identity();
+        let old_pelt_json = serde_json::to_vec(&old_pelt).unwrap();
+        fixture.write("pelt.json", &old_pelt_json);
+        fixture.write("pack.json", b"[]");
+        fixture.write("target_policy.json", br#"{"mode":"legacy-allow"}"#);
+        fixture.write("fangs.json", b"[]");
+        fixture.write("active_fangs.json", b"[]");
+        assert!(!fixture.startup().inbound_authority.is_locked());
+        let old_snapshot: Vec<_> = [
+            "silver.json",
+            "target_policy.json",
+            "pelt.json",
+            "pack.json",
+            "fangs.json",
+            "active_fangs.json",
+        ]
+        .into_iter()
+        .map(|name| {
+            (
+                name,
+                Zeroizing::new(
+                    fixture
+                        .1
+                        .read(OsStr::new(name), 1024 * 1024)
+                        .unwrap()
+                        .unwrap(),
+                ),
+            )
+        })
+        .collect();
+
+        fixture.write("pelt.json", &serde_json::to_vec(&new_pelt).unwrap());
+        fixture.write("silver.json", br#"{"version":1,"mode":"locked"}"#);
+        fixture.write(
+            "target_policy.json",
+            br#"{"mode":"deny-by-default","peers":{}}"#,
+        );
+        assert!(fixture.startup().inbound_authority.is_locked());
+
+        // A cross-generation set of individually valid files is accepted.
+        fixture.write("target_policy.json", br#"{"mode":"legacy-allow"}"#);
+        let mixed = fixture.startup();
+        assert!(mixed.inbound_authority.is_locked());
+        assert!(matches!(
+            mixed.target_policy,
+            target_policy::TargetPolicy::LegacyAllow
+        ));
+        assert_eq!(mixed.pelt.unwrap().fingerprint, new_pelt.fingerprint);
+
+        // Restoring every protected document from the earlier valid state
+        // gives startup no persistent freshness evidence to reject it.
+        for (name, old_bytes) in &old_snapshot {
+            fixture.write(name, old_bytes);
+        }
+        let restored = fixture.startup();
+        assert!(!restored.inbound_authority.is_locked());
+        assert!(matches!(
+            restored.target_policy,
+            target_policy::TargetPolicy::LegacyAllow
+        ));
+        assert_eq!(restored.pelt.unwrap().fingerprint, old_pelt.fingerprint);
+
+        // Existing semantic validation catches a dangling active profile,
+        // but this is not a general cross-file revision check.
+        fixture.write("active_fangs.json", br#"["absent"]"#);
+        assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
     }
 }
