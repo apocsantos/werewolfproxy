@@ -516,6 +516,9 @@ fn derive_shared_key(secret: &StaticSecret, peer_public_b64: &str) -> io::Result
 
     let peer_public = X25519PublicKey::from(peer_arr);
     let shared = secret.diffie_hellman(&peer_public);
+    // Both TCP handshake roles use this function. A low-order peer point can
+    // produce the public all-zero value; it must never enter the session KDF.
+    hs::require(shared.as_bytes() != &[0u8; 32])?;
 
     let hash = blake3::hash(shared.as_bytes());
     Ok(*hash.as_bytes())
