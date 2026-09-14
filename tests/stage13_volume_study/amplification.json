@@ -1,0 +1,74 @@
+{
+  "A_current": {
+    "theoretical_bucket_edge_total_mode": [
+      1,
+      null,
+      null
+    ],
+    "max_observed_amplification_all_modes": 1.0
+  },
+  "B_fixed": {
+    "theoretical_bucket_edge_total_mode": [
+      3.999999761581435,
+      16777217,
+      67108864
+    ],
+    "max_observed_amplification_all_modes": 3.755214302085721
+  },
+  "C_power2": {
+    "theoretical_bucket_edge_total_mode": [
+      2.0,
+      "just above power-of-two boundary",
+      "next power of two"
+    ],
+    "max_observed_amplification_all_modes": 1.8776071510428605
+  },
+  "D_random_upper": {
+    "theoretical_bucket_edge_total_mode": [
+      63.99993896490196,
+      1048577,
+      67108864
+    ],
+    "max_observed_amplification_all_modes": 55.223088266273436
+  },
+  "E_coarse": {
+    "theoretical_bucket_edge_total_mode": [
+      15.999877930618815,
+      131073,
+      2097152
+    ],
+    "max_observed_amplification_all_modes": 12.862885567256914
+  },
+  "F_constant": {
+    "theoretical_bucket_edge_total_mode": [
+      null,
+      "smallest observed connection",
+      "dataset maximum"
+    ],
+    "max_observed_amplification_all_modes": 30415.190945764232
+  },
+  "G_small64k": {
+    "theoretical_bucket_edge_total_mode": [
+      29.375168086060064,
+      2231,
+      65536
+    ],
+    "max_observed_amplification_all_modes": 58.75033617212013
+  },
+  "H_geo1_5": {
+    "theoretical_bucket_edge_total_mode": [
+      1.5,
+      "just above geometric boundary",
+      "next geometric bucket"
+    ],
+    "max_observed_amplification_all_modes": 3.671896010757508
+  },
+  "H_geo2": {
+    "theoretical_bucket_edge_total_mode": [
+      2.0,
+      "just above geometric boundary",
+      "next geometric bucket"
+    ],
+    "max_observed_amplification_all_modes": 3.671896010757508
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "budgets": {
+    "1": {
+      "best_raw_candidate": "A_current",
+      "total_accuracy": 0.747,
+      "full_accuracy": 0.759,
+      "median_added_percent": 0.0,
+      "eligible_count": 1,
+      "production_recommendation": false
+    },
+    "2": {
+      "best_raw_candidate": "A_current",
+      "total_accuracy": 0.747,
+      "full_accuracy": 0.759,
+      "median_added_percent": 0.0,
+      "eligible_count": 1,
+      "production_recommendation": false
+    },
+    "5": {
+      "best_raw_candidate": "A_current",
+      "total_accuracy": 0.747,
+      "full_accuracy": 0.759,
+      "median_added_percent": 0.0,
+      "eligible_count": 1,
+      "production_recommendation": false
+    },
+    "10": {
+      "best_raw_candidate": "A_current",
+      "total_accuracy": 0.747,
+      "full_accuracy": 0.759,
+      "median_added_percent": 0.0,
+      "eligible_count": 1,
+      "production_recommendation": false
+    },
+    "25": {
+      "best_raw_candidate": "A_current",
+      "total_accuracy": 0.747,
+      "full_accuracy": 0.759,
+      "median_added_percent": 0.0,
+      "eligible_count": 1,
+      "production_recommendation": false
+    },
+    "50": {
+      "best_raw_candidate": "H_geo1_5__directional",
+      "total_accuracy": 0.6747,
+      "full_accuracy": 0.6747,
+      "median_added_percent": 35.381,
+      "eligible_count": 4,
+      "production_recommendation": false
+    },
+    "100": {
+      "best_raw_candidate": "H_geo1_5__directional",
+      "total_accuracy": 0.6747,
+      "full_accuracy": 0.6747,
+      "median_added_percent": 35.381,
+      "eligible_count": 10,
+      "production_recommendation": false
+    },
+    "200": {
+      "best_raw_candidate": "H_geo1_5__directional",
+      "total_accuracy": 0.6747,
+      "full_accuracy": 0.6747,
+      "median_added_percent": 35.381,
+      "eligible_count": 13,
+      "production_recommendation": false
+    }
+  },
+  "nondominated_raw_total_accuracy": [
+    {
+      "candidate": "A_current",
+      "median_added_percent": 0.0,
+      "total_accuracy": 0.747,
+      "full_accuracy": 0.759
+    },
+    {
+      "candidate": "H_geo1_5__total_proportional",
+      "median_added_percent": 30.169,
+      "total_accuracy": 0.6867,
+      "full_accuracy": 0.6386
+    },
+    {
+      "candidate": "H_geo1_5__directional",
+      "median_added_percent": 35.381,
+      "total_accuracy": 0.6747,
+      "full_accuracy": 0.6747
+    },
+    {
+      "candidate": "E_coarse__total_proportional",
+      "median_added_percent": 267.19,
+      "total_accuracy": 0.5663,
+      "full_accuracy": 0.4578
+    },
+    {
+      "candidate": "E_coarse__total_ratio",
+      "median_added_percent": 267.19,
+      "total_accuracy": 0.5663,
+      "full_accuracy": 0.4578
+    },
+    {
+      "candidate": "F_constant__total_proportional",
+      "median_added_percent": 257563.758,
+      "total_accuracy": 0.3494,
+      "full_accuracy": 0.6386
+    }
+  ]
+}
