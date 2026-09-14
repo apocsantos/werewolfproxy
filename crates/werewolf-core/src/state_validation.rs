@@ -7,6 +7,7 @@ use crate::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::SigningKey;
 use std::{collections::HashSet, io};
+use zeroize::Zeroizing;
 
 fn invalid() -> io::Error {
     io::Error::new(
@@ -35,7 +36,16 @@ pub fn fingerprint(text: &str) -> bool {
 }
 pub fn identity(identity: &PeltIdentity) -> io::Result<()> {
     let public = key(&identity.public_key_b64)?;
-    let secret = key(&identity.secret_key_b64)?;
+    let decoded = Zeroizing::new(
+        STANDARD
+            .decode(&identity.secret_key_b64)
+            .map_err(|_| invalid())?,
+    );
+    if STANDARD.encode(&decoded[..]) != identity.secret_key_b64 {
+        return Err(invalid());
+    }
+    let secret: Zeroizing<[u8; 32]> =
+        Zeroizing::new(decoded.as_slice().try_into().map_err(|_| invalid())?);
     if SigningKey::from_bytes(&secret).verifying_key().to_bytes() != public
         || !fingerprint(&identity.fingerprint)
         || fingerprint_from_public_key_b64(&identity.public_key_b64).map_err(|_| invalid())?
@@ -148,10 +158,10 @@ mod tests {
         let good = generate_identity();
         identity(&good).unwrap();
         let mut bad = good.clone();
-        bad.fingerprint = generate_identity().fingerprint;
+        bad.fingerprint = generate_identity().fingerprint.clone();
         assert!(identity(&bad).is_err());
         let mut bad = good.clone();
-        bad.public_key_b64 = generate_identity().public_key_b64;
+        bad.public_key_b64 = generate_identity().public_key_b64.clone();
         assert!(identity(&bad).is_err());
         let mut bad = good.clone();
         bad.secret_key_b64 = "invalid".into();
@@ -163,10 +173,10 @@ mod tests {
         let pelt = generate_identity();
         let peer = PeerRecord {
             name: "peer".into(),
-            fingerprint: pelt.fingerprint,
+            fingerprint: pelt.fingerprint.clone(),
             address: "quic://127.0.0.1:1".into(),
             trust: TrustLevel::Packmate,
-            public_key_b64: Some(pelt.public_key_b64),
+            public_key_b64: Some(pelt.public_key_b64.clone()),
         };
         pack(std::slice::from_ref(&peer)).unwrap();
         assert!(pack(&[peer.clone(), peer.clone()]).is_err());
@@ -177,7 +187,7 @@ mod tests {
         bad.fingerprint = "wwp1:bad".into();
         assert!(pack(&[bad]).is_err());
         let mut bad = peer;
-        bad.public_key_b64 = Some(generate_identity().public_key_b64);
+        bad.public_key_b64 = Some(generate_identity().public_key_b64.clone());
         assert!(pack(&[bad]).is_err());
     }
 }

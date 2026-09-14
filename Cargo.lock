@@ -1681,6 +1681,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "toml",
+ "zeroize",
 ]
 
 [[package]]
@@ -1716,6 +1717,7 @@ dependencies = [
  "tracing-subscriber",
  "werewolf-core",
  "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

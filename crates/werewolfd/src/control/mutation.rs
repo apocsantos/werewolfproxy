@@ -19,6 +19,7 @@ use werewolf_core::{
     protocol::{ControlRequest, ControlResponse},
     state_validation,
 };
+use zeroize::Zeroizing;
 
 pub(super) fn handles(command: &str) -> bool {
     matches!(
@@ -46,8 +47,12 @@ async fn durable<T: Serialize + Sync>(
     create_only: bool,
     state: &Arc<Mutex<DaemonState>>,
 ) -> io::Result<()> {
-    let bytes = serde_json::to_vec_pretty(candidate)
-        .map_err(|_| io::Error::other("state serialization failed"))?;
+    // This coordinator also serializes Pelt, so own every temporary JSON
+    // buffer with drop wiping on success, failure, or cancelled mutation.
+    let bytes = Zeroizing::new(
+        serde_json::to_vec_pretty(candidate)
+            .map_err(|_| io::Error::other("state serialization failed"))?,
+    );
     let directory = state
         .lock()
         .await

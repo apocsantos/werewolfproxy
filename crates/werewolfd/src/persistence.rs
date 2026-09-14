@@ -1,6 +1,7 @@
 use crate::{authority::Authority, state::DaemonState, target_policy};
 use std::{ffi::OsStr, io};
 use werewolf_core::{local_fs::PrivateDirectory, state_validation};
+use zeroize::Zeroizing;
 
 pub(super) fn load_startup_state(
     den: &PrivateDirectory,
@@ -45,6 +46,7 @@ pub(super) fn load_startup_state(
         },
     };
     if let Some(data) = den.read(OsStr::new("pelt.json"), 4096)? {
+        let data = Zeroizing::new(data);
         let pelt = serde_json::from_slice(&data).map_err(|_| invalid())?;
         state_validation::identity(&pelt)?;
         initial_state.pelt = Some(pelt);

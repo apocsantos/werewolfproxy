@@ -16,7 +16,7 @@ impl Drop for Task {
 struct Session {
     peer: ClientTlsStream<TcpStream>,
     target: TcpStream,
-    key: [u8; 32],
+    key: Zeroizing<[u8; 32]>,
     worker: Task,
 }
 async fn establish(state: Arc<Mutex<DaemonState>>, sender: &PeltIdentity) -> Session {
@@ -33,8 +33,8 @@ async fn establish(state: Arc<Mutex<DaemonState>>, sender: &PeltIdentity) -> Ses
     let address = listener.local_addr().unwrap();
     let receiver = state.lock().await.pelt.clone().unwrap();
     let expected = crate::policy::ExpectedPeerIdentity {
-        fingerprint: receiver.fingerprint,
-        public_key_b64: Some(receiver.public_key_b64),
+        fingerprint: receiver.fingerprint.clone(),
+        public_key_b64: Some(receiver.public_key_b64.clone()),
     };
     let identity = state.lock().await.runtime_tls_identity.clone().unwrap();
     let acceptor = TlsAcceptor::from(Arc::new(

@@ -4,6 +4,7 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use std::{io, path::Path};
+use zeroize::{Zeroize, Zeroizing};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -11,6 +12,14 @@ pub struct PeltIdentity {
     pub public_key_b64: String,
     pub secret_key_b64: String,
     pub fingerprint: String,
+}
+
+impl Drop for PeltIdentity {
+    fn drop(&mut self) {
+        // Each cloned in-memory identity owns a separate copy of this field.
+        // Persistent Den storage remains governed by Stage11B.
+        self.secret_key_b64.zeroize();
+    }
 }
 
 impl std::fmt::Debug for PeltIdentity {
@@ -26,7 +35,7 @@ pub fn generate_identity() -> PeltIdentity {
     let verifying_key = signing_key.verifying_key();
 
     let public = verifying_key.to_bytes();
-    let secret = signing_key.to_bytes();
+    let secret = Zeroizing::new(signing_key.to_bytes());
 
     let mut hasher = Hasher::new();
     hasher.update(&public);
@@ -37,7 +46,7 @@ pub fn generate_identity() -> PeltIdentity {
 
     PeltIdentity {
         public_key_b64: STANDARD.encode(public),
-        secret_key_b64: STANDARD.encode(secret),
+        secret_key_b64: STANDARD.encode(&secret[..]),
         fingerprint,
     }
 }
@@ -57,13 +66,18 @@ pub fn load_identity(path: &Path) -> io::Result<Option<PeltIdentity>> {
 }
 
 pub fn sign_message(identity: &PeltIdentity, message: &[u8]) -> Result<String, String> {
-    let secret_bytes = STANDARD
-        .decode(&identity.secret_key_b64)
-        .map_err(|e| e.to_string())?;
+    let secret_bytes = Zeroizing::new(
+        STANDARD
+            .decode(&identity.secret_key_b64)
+            .map_err(|e| e.to_string())?,
+    );
 
-    let secret: [u8; 32] = secret_bytes
-        .try_into()
-        .map_err(|_| "invalid secret key length".to_string())?;
+    let secret: Zeroizing<[u8; 32]> = Zeroizing::new(
+        secret_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid secret key length".to_string())?,
+    );
 
     let signing_key = SigningKey::from_bytes(&secret);
     let sig = signing_key.sign(message);
@@ -114,4 +128,19 @@ fn hexish(bytes: &[u8]) -> String {
         .map(|b| format!("{:02X}", b))
         .collect::<Vec<_>>()
         .join("-")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pelt_debug_redacts_secret_and_owned_copy_can_be_wiped() {
+        let identity = generate_identity();
+        let mut copy = identity.clone();
+        assert!(!format!("{identity:?}").contains(&identity.secret_key_b64));
+        copy.secret_key_b64.zeroize();
+        assert!(copy.secret_key_b64.is_empty());
+        assert!(!identity.secret_key_b64.is_empty());
+    }
 }

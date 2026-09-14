@@ -10,6 +10,7 @@ use tokio::{
 use werewolf_core::pelt::{
     fingerprint_from_public_key_b64, sign_message, verify_message, PeltIdentity,
 };
+use zeroize::Zeroizing;
 
 pub(super) const TCP: &str = "fang-tcp-v3";
 pub(super) const QUIC: &str = "fang-quic-v3";
@@ -242,17 +243,17 @@ pub(crate) mod test_observer {
 }
 
 pub(super) fn quic_binding(connection: &quinn::Connection) -> io::Result<[u8; 32]> {
-    let mut exporter = [0; 32];
+    let mut exporter = Zeroizing::new([0; 32]);
     connection
         .export_keying_material(
-            &mut exporter,
+            &mut *exporter,
             b"EXPORTER-WerewolfProxy-Fang-QUIC-v3",
             b"werewolfproxy/fang-quic-v3",
         )
         .map_err(|_| rejected())?;
     let mut hash = blake3::Hasher::new();
     hash.update(b"werewolfproxy/fang-quic-v3/channel-binding\0");
-    hash.update(&exporter);
+    hash.update(&exporter[..]);
     // B is public channel-binding material, NOT a secret or bearer credential.
     // E is never transmitted, logged, persisted, or used by the TCP session KDF.
     Ok(*hash.finalize().as_bytes())

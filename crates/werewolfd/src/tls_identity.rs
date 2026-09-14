@@ -11,6 +11,7 @@ use rustls::{
 };
 use std::{error::Error, fmt, sync::Arc};
 use werewolf_core::{pack::PeerRecord, pelt::PeltIdentity};
+use zeroize::Zeroizing;
 
 /// Failures are deliberately categorical: no variant carries identity secrets.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -52,7 +53,7 @@ impl Error for TlsIdentityError {}
 /// independently generated or persisted.
 pub(crate) struct RuntimeTlsIdentity {
     certificate: CertificateDer<'static>,
-    private_key: PrivateKeyDer<'static>,
+    private_key: Zeroizing<PrivatePkcs8KeyDer<'static>>,
 }
 
 impl RuntimeTlsIdentity {
@@ -60,11 +61,17 @@ impl RuntimeTlsIdentity {
         werewolf_core::state_validation::identity(identity)
             .map_err(|_| TlsIdentityError::InvalidPeltIdentity)?;
 
-        let secret: [u8; 32] = STANDARD
-            .decode(&identity.secret_key_b64)
-            .map_err(|_| TlsIdentityError::InvalidPeltIdentity)?
-            .try_into()
-            .map_err(|_| TlsIdentityError::InvalidPeltIdentity)?;
+        let decoded = Zeroizing::new(
+            STANDARD
+                .decode(&identity.secret_key_b64)
+                .map_err(|_| TlsIdentityError::InvalidPeltIdentity)?,
+        );
+        let secret: Zeroizing<[u8; 32]> = Zeroizing::new(
+            decoded
+                .as_slice()
+                .try_into()
+                .map_err(|_| TlsIdentityError::InvalidPeltIdentity)?,
+        );
         let public: [u8; 32] = STANDARD
             .decode(&identity.public_key_b64)
             .map_err(|_| TlsIdentityError::InvalidPeltIdentity)?
@@ -79,7 +86,7 @@ impl RuntimeTlsIdentity {
         let pkcs8 = signing_key
             .to_pkcs8_der()
             .map_err(|_| TlsIdentityError::CertificateGeneration)?;
-        let key_pair_der = PrivatePkcs8KeyDer::from(pkcs8.as_bytes().to_vec());
+        let key_pair_der = Zeroizing::new(PrivatePkcs8KeyDer::from(pkcs8.as_bytes().to_vec()));
         let key_pair =
             rcgen::KeyPair::from_pkcs8_der_and_sign_algo(&key_pair_der, &rcgen::PKCS_ED25519)
                 .map_err(|_| TlsIdentityError::CertificateGeneration)?;
@@ -105,7 +112,7 @@ impl RuntimeTlsIdentity {
 
         Ok(Self {
             certificate,
-            private_key: PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(pkcs8.as_bytes().to_vec())),
+            private_key: Zeroizing::new(PrivatePkcs8KeyDer::from(pkcs8.as_bytes().to_vec())),
         })
     }
 
@@ -277,7 +284,7 @@ pub(crate) fn server_config(
         .with_no_client_auth()
         .with_single_cert(
             vec![identity.certificate.clone()],
-            identity.private_key.clone_key(),
+            PrivateKeyDer::Pkcs8(identity.private_key.clone_key()),
         )
         .map_err(|_| TlsIdentityError::TlsConfiguration)?;
     config.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
@@ -297,11 +304,23 @@ mod tests {
     };
     use std::{io::Cursor, net::IpAddr, sync::Arc, time::Duration};
     use werewolf_core::{pack::TrustLevel, pelt};
+    use zeroize::Zeroize;
 
     fn identity() -> (PeltIdentity, RuntimeTlsIdentity) {
         let pelt = pelt::generate_identity();
         let tls = RuntimeTlsIdentity::from_pelt(&pelt).unwrap();
         (pelt, tls)
+    }
+
+    #[test]
+    fn runtime_private_pkcs8_debug_is_redacted_and_copy_is_wipeable() {
+        let (_, tls) = identity();
+        let mut copy = Zeroizing::new(PrivatePkcs8KeyDer::from(
+            tls.private_key.secret_pkcs8_der().to_vec(),
+        ));
+        assert!(format!("{:?}", &*copy).contains("secret key elided"));
+        copy.zeroize();
+        assert!(copy.secret_pkcs8_der().is_empty());
     }
 
     fn peer(pelt: &PeltIdentity, public_key_b64: Option<String>) -> PeerRecord {
@@ -497,7 +516,7 @@ mod tests {
         let provider = provider();
         let actual = provider
             .key_provider
-            .load_private_key(signer.private_key.clone_key())
+            .load_private_key(PrivateKeyDer::Pkcs8(signer.private_key.clone_key()))
             .unwrap();
         let certified_key = Arc::new(CertifiedKey::new(
             vec![certificate],

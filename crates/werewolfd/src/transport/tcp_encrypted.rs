@@ -19,9 +19,12 @@ use tokio_rustls::{
 };
 use werewolf_core::pelt::PeltIdentity;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
+use zeroize::Zeroizing;
 
 #[cfg(test)]
 mod authority_tests;
+#[cfg(test)]
+mod crypto_hygiene_tests;
 #[cfg(test)]
 mod frame_write_tests;
 #[cfg(test)]
@@ -92,7 +95,7 @@ async fn server_handshake(
     state: Arc<Mutex<DaemonState>>,
     mut permit: HandshakePermit,
     started: tokio::time::Instant,
-) -> io::Result<(TcpStream, [u8; 32], SessionLease)> {
+) -> io::Result<(TcpStream, Zeroizing<[u8; 32]>, SessionLease)> {
     let receiver = state.lock().await.pelt.clone().ok_or_else(hs::rejected)?;
     // The identity and key snapshot travel with this challenge through ACK signing.
     let mut context = hs::TcpChallengeContext::new(receiver)?;
@@ -268,7 +271,7 @@ pub(crate) async fn connect_authenticated_tcp(
 async fn secure_copy_client_side<S>(
     inbound: &mut TcpStream,
     outbound: S,
-    key: [u8; 32],
+    key: Zeroizing<[u8; 32]>,
 ) -> io::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -277,7 +280,7 @@ where
     let (mut out_r, mut out_w) = tokio::io::split(outbound);
 
     let client_to_server = async {
-        let mut buf = vec![0u8; 1400];
+        let mut buf = Zeroizing::new(vec![0u8; 1400]);
         let mut counter = 0u64;
 
         loop {
@@ -305,6 +308,7 @@ where
             .await
             {
                 Ok(Ok(plaintext)) => {
+                    let plaintext = Zeroizing::new(plaintext);
                     eprintln!(
                         "TCPV2 client recv server->client plaintext={} counter={}",
                         plaintext.len(),
@@ -335,7 +339,7 @@ where
 async fn secure_copy_server_side(
     stream: ServerTlsStream<AuthorityTcpStream>,
     remote_stream: TcpStream,
-    key: [u8; 32],
+    key: Zeroizing<[u8; 32]>,
     lease: SessionLease,
 ) -> io::Result<()> {
     let (mut fang_r, fang_w) = tokio::io::split(stream);
@@ -355,6 +359,7 @@ async fn secure_copy_server_side(
             .await
             {
                 Ok(Ok(plaintext)) => {
+                    let plaintext = Zeroizing::new(plaintext);
                     eprintln!(
                         "TCPV2 server recv client->remote plaintext={} counter={}",
                         plaintext.len(),
@@ -379,7 +384,7 @@ async fn secure_copy_server_side(
     };
 
     let remote_to_client = async {
-        let mut buf = vec![0u8; 1400];
+        let mut buf = Zeroizing::new(vec![0u8; 1400]);
         let mut counter = 0u64;
 
         loop {
@@ -432,7 +437,7 @@ async fn write_encrypted_frame<W: AsyncWriteExt + Unpin>(
 
     let frame_size = min_bucket + (random_bucket * STEP);
 
-    let mut padded_plaintext = Vec::with_capacity(frame_size);
+    let mut padded_plaintext = Zeroizing::new(Vec::with_capacity(frame_size));
     padded_plaintext.extend_from_slice(&(plaintext.len() as u16).to_be_bytes());
     padded_plaintext.extend_from_slice(plaintext);
     padded_plaintext.resize(frame_size, 0);
@@ -485,9 +490,11 @@ async fn read_encrypted_frame<R: AsyncReadExt + Unpin>(
     let nonce_bytes = make_nonce(direction, *counter);
     *counter += 1;
 
-    let padded_plaintext = cipher
-        .decrypt(Nonce::from_slice(&nonce_bytes), ciphertext.as_ref())
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "decrypt failed"))?;
+    let padded_plaintext = Zeroizing::new(
+        cipher
+            .decrypt(Nonce::from_slice(&nonce_bytes), ciphertext.as_ref())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "decrypt failed"))?,
+    );
 
     if padded_plaintext.len() < 2 {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "bad frame"));
@@ -505,14 +512,15 @@ async fn read_encrypted_frame<R: AsyncReadExt + Unpin>(
     Ok(padded_plaintext[2..2 + real_len].to_vec())
 }
 
-fn derive_shared_key(secret: &StaticSecret, peer_public_b64: &str) -> io::Result<[u8; 32]> {
+fn derive_shared_key(
+    secret: &StaticSecret,
+    peer_public_b64: &str,
+) -> io::Result<Zeroizing<[u8; 32]>> {
     let peer_bytes = STANDARD
         .decode(peer_public_b64)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        .map_err(|_| hs::rejected())?;
 
-    let peer_arr: [u8; 32] = peer_bytes
-        .try_into()
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "bad x25519 public key length"))?;
+    let peer_arr: [u8; 32] = peer_bytes.try_into().map_err(|_| hs::rejected())?;
 
     let peer_public = X25519PublicKey::from(peer_arr);
     let shared = secret.diffie_hellman(&peer_public);
@@ -520,8 +528,14 @@ fn derive_shared_key(secret: &StaticSecret, peer_public_b64: &str) -> io::Result
     // produce the public all-zero value; it must never enter the session KDF.
     hs::require(shared.as_bytes() != &[0u8; 32])?;
 
-    let hash = blake3::hash(shared.as_bytes());
-    Ok(*hash.as_bytes())
+    // The first 32 XOF bytes are exactly BLAKE3's ordinary 32-byte digest.
+    // Write them directly into a drop-wiped owner instead of leaving an
+    // additional application-owned raw digest copy on the stack.
+    let mut key = Zeroizing::new([0u8; 32]);
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(shared.as_bytes());
+    hasher.finalize_xof().fill(&mut key[..]);
+    Ok(key)
 }
 
 fn make_nonce(direction: u8, counter: u64) -> [u8; 12] {

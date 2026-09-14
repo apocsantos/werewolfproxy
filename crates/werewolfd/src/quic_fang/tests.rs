@@ -251,7 +251,7 @@ async fn assert_preconnect_key_failure(public_key_b64: Option<String>) {
     let address = socket.local_addr().unwrap();
     let sender = generate_identity();
     let expected_peer = ExpectedPeerIdentity {
-        fingerprint: generate_identity().fingerprint,
+        fingerprint: generate_identity().fingerprint.clone(),
         public_key_b64,
     };
     assert!(

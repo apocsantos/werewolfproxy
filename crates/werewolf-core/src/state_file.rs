@@ -2,6 +2,7 @@
 //! commit-outcome API directly. These standalone writers also hold the Den lock.
 use serde::{de::DeserializeOwned, Serialize};
 use std::{io, path::Path};
+use zeroize::Zeroizing;
 
 #[cfg(target_os = "linux")]
 fn directory(path: &Path) -> io::Result<(crate::local_fs::PrivateDirectory, std::ffi::OsString)> {
@@ -26,6 +27,7 @@ pub(crate) fn read<T: DeserializeOwned>(path: &Path) -> io::Result<Option<T>> {
         directory
             .read(&name, 1024 * 1024)?
             .map(|data| {
+                let data = Zeroizing::new(data);
                 serde_json::from_slice(&data).map_err(|_| {
                     io::Error::new(io::ErrorKind::InvalidData, "invalid persistent state")
                 })
@@ -52,8 +54,10 @@ pub(crate) fn write<T: Serialize + ?Sized>(
         use crate::local_fs::CommitOutcome;
         let (directory, name) = directory(path)?;
         let _writer = directory.lock(std::ffi::OsStr::new(".den.lock"))?;
-        let data = serde_json::to_vec_pretty(value)
-            .map_err(|_| io::Error::other("state serialization failed"))?;
+        let data = Zeroizing::new(
+            serde_json::to_vec_pretty(value)
+                .map_err(|_| io::Error::other("state serialization failed"))?,
+        );
         match directory.replace(&name, &data, create_only) {
             CommitOutcome::DurablyCommitted => Ok(()),
             CommitOutcome::NotCommitted(e) => Err(e),
