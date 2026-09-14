@@ -248,6 +248,24 @@ mod tests {
     }
 
     #[test]
+    fn characterizes_old_silver_lock_restored_after_newer_open() {
+        let fixture = Fixture::new();
+        fixture.write("silver.json", br#"{"version":1,"mode":"locked"}"#);
+        let old_locked = fixture
+            .1
+            .read(OsStr::new("silver.json"), 1024)
+            .unwrap()
+            .unwrap();
+        assert!(fixture.startup().inbound_authority.is_locked());
+
+        fixture.write("silver.json", br#"{"version":1,"mode":"open"}"#);
+        assert!(!fixture.startup().inbound_authority.is_locked());
+
+        fixture.write("silver.json", &old_locked);
+        assert!(fixture.startup().inbound_authority.is_locked());
+    }
+
+    #[test]
     fn characterizes_removed_pack_peer_restored_from_valid_old_document() {
         let fixture = Fixture::new();
         let peer_identity = generate_identity();
@@ -336,18 +354,38 @@ mod tests {
         fixture.write("pack.json", b"[]");
         fixture.write("active_fangs.json", b"[]");
         fixture.write("fangs.json", b"[]");
+        let mut unrelated = fixture.startup();
         assert_eq!(
-            fixture.startup().pelt.unwrap().fingerprint,
+            unrelated.pelt.as_ref().unwrap().fingerprint,
             new_pelt.fingerprint
         );
-        assert!(fixture.startup().active_profiles.is_empty());
+        unrelated.initialize_runtime_tls_identity().unwrap();
+        let unrelated_tls = unrelated.runtime_tls_identity.as_ref().unwrap();
+        let unrelated_cert = webpki::EndEntityCert::try_from(unrelated_tls.certificate()).unwrap();
+        assert_eq!(
+            unrelated_cert.subject_public_key_info().as_ref(),
+            crate::tls_identity::canonical_spki_from_public_key_b64(&new_pelt.public_key_b64)
+                .unwrap()
+        );
+        assert!(unrelated.active_profiles.is_empty());
 
         fixture.write("pelt.json", &old_pelt_json);
         fixture.write("pack.json", &old_pack);
         fixture.write("fangs.json", old_fangs);
         fixture.write("active_fangs.json", br#"["old-route"]"#);
-        let restored = fixture.startup();
-        assert_eq!(restored.pelt.unwrap().fingerprint, old_pelt.fingerprint);
+        let mut restored = fixture.startup();
+        assert_eq!(
+            restored.pelt.as_ref().unwrap().fingerprint,
+            old_pelt.fingerprint
+        );
+        restored.initialize_runtime_tls_identity().unwrap();
+        let restored_tls = restored.runtime_tls_identity.as_ref().unwrap();
+        let restored_cert = webpki::EndEntityCert::try_from(restored_tls.certificate()).unwrap();
+        assert_eq!(
+            restored_cert.subject_public_key_info().as_ref(),
+            crate::tls_identity::canonical_spki_from_public_key_b64(&old_pelt.public_key_b64)
+                .unwrap()
+        );
         assert_eq!(restored.active_profiles, ["old-route"]);
         assert_eq!(restored.peers[0].name, "former-peer");
         assert_eq!(restored.fang_profiles[0].remote, "127.0.0.1:12345");
@@ -422,6 +460,80 @@ mod tests {
         // Existing semantic validation catches a dangling active profile,
         // but this is not a general cross-file revision check.
         fixture.write("active_fangs.json", br#"["absent"]"#);
+        assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+    }
+
+    #[test]
+    fn characterizes_named_mixed_generation_combinations() {
+        let fixture = Fixture::new();
+        let old_pelt = generate_identity();
+        let new_pelt = generate_identity();
+        let old_peer_identity = generate_identity();
+        let new_peer_identity = generate_identity();
+        let peer = |name: &str, identity: &werewolf_core::pelt::PeltIdentity| PeerRecord {
+            name: name.into(),
+            fingerprint: identity.fingerprint.clone(),
+            address: "tcp://127.0.0.1:12345".into(),
+            trust: TrustLevel::Packmate,
+            public_key_b64: Some(identity.public_key_b64.clone()),
+        };
+        let old_pack = serde_json::to_vec(&vec![peer("old-peer", &old_peer_identity)]).unwrap();
+        let new_pack = serde_json::to_vec(&vec![peer("new-peer", &new_peer_identity)]).unwrap();
+        let old_policy = serde_json::json!({
+            "mode": "deny-by-default",
+            "peers": {old_peer_identity.fingerprint.clone(): {"targets": [{"address": "127.0.0.1", "port": 12345}]}}
+        })
+        .to_string();
+        let new_policy = serde_json::json!({
+            "mode": "deny-by-default",
+            "peers": {new_peer_identity.fingerprint.clone(): {"targets": [{"address": "127.0.0.1", "port": 12346}]}}
+        })
+        .to_string();
+        let old_fangs = br#"[{"name":"old-route","peer":"old-peer","local":"127.0.0.1:12347","remote":"127.0.0.1:12345","transport":"tcp"}]"#;
+        let new_fangs = br#"[{"name":"new-route","peer":"new-peer","local":"127.0.0.1:12348","remote":"127.0.0.1:12346","transport":"tcp"}]"#;
+
+        fixture.write("pelt.json", &serde_json::to_vec(&old_pelt).unwrap());
+        fixture.write("pack.json", &old_pack);
+        fixture.write("target_policy.json", old_policy.as_bytes());
+        fixture.write("fangs.json", old_fangs);
+        fixture.write("active_fangs.json", br#"["old-route"]"#);
+
+        fixture.write("pelt.json", &serde_json::to_vec(&new_pelt).unwrap());
+        fixture.write("pack.json", &new_pack);
+        fixture.write("target_policy.json", new_policy.as_bytes());
+        fixture.write("fangs.json", new_fangs);
+        fixture.write("active_fangs.json", br#"["new-route"]"#);
+        fixture.write("silver.json", br#"{"version":1,"mode":"locked"}"#);
+
+        // old Pack + new Silver: each valid file loads; Silver stays a
+        // runtime fence even while historic Pack membership returns.
+        fixture.write("pack.json", &old_pack);
+        let old_pack_new_silver = fixture.startup();
+        assert!(old_pack_new_silver.inbound_authority.is_locked());
+        assert_eq!(old_pack_new_silver.peers[0].name, "old-peer");
+
+        // new Pack + old target policy and old Pelt + newer Pack are both
+        // individually valid mixed generations; no common revision rejects
+        // them. Target policy remains an independent authorization layer.
+        fixture.write("pack.json", &new_pack);
+        fixture.write("target_policy.json", old_policy.as_bytes());
+        fixture.write("pelt.json", &serde_json::to_vec(&old_pelt).unwrap());
+        let new_pack_old_policy_old_pelt = fixture.startup();
+        assert_eq!(new_pack_old_policy_old_pelt.peers[0].name, "new-peer");
+        assert_eq!(
+            new_pack_old_policy_old_pelt.pelt.unwrap().fingerprint,
+            old_pelt.fingerprint
+        );
+        assert!(matches!(
+            new_pack_old_policy_old_pelt.target_policy,
+            target_policy::TargetPolicy::Grants(_)
+        ));
+
+        // A new Fang registry with an old active list is rejected only when
+        // the old profile name is absent. This is the existing referential
+        // check, not a general generation check.
+        fixture.write("fangs.json", new_fangs);
+        fixture.write("active_fangs.json", br#"["old-route"]"#);
         assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
     }
 }
