@@ -1,0 +1,42 @@
+[Unit]
+Description=WerewolfProxy secure forwarding daemon
+ConditionArchitecture=x86-64
+After=local-fs.target network.target
+Wants=network.target
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=werewolf
+Group=werewolf
+StateDirectory=werewolfproxy
+StateDirectoryMode=0700
+RuntimeDirectory=werewolfproxy
+RuntimeDirectoryMode=0700
+UMask=0077
+ExecStart=/usr/local/bin/werewolfd --home /var/lib/werewolfproxy --socket /run/werewolfproxy/control.sock --listen 127.0.0.1:8443 --quic-listen 127.0.0.1:9560
+Restart=on-failure
+RestartSec=5s
+RestartPreventExitStatus=64 65 66 69
+TimeoutStopSec=10s
+KillSignal=SIGTERM
+KillMode=control-group
+LimitNOFILE=4096
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/werewolfproxy /run/werewolfproxy
+
+[Install]
+WantedBy=multi-user.target
