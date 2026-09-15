@@ -20,8 +20,54 @@ use tokio::{
     time::{timeout, timeout_at, Instant},
 };
 
+// These are transport resources controlled by the remote QUIC peer. They are
+// deliberately far below Quinn's general-purpose defaults and match the
+// Werewolf admission model: each connection may carry at most 64
+// bidirectional forwarding streams, with a 512 KiB aggregate receive window.
+const MAX_INCOMING_CONNECTIONS: usize = 64;
+const INCOMING_BUFFER_PER_CONNECTION: u64 = 16 * 1024;
+const INCOMING_BUFFER_TOTAL: u64 = 1024 * 1024;
+const MAX_BIDIRECTIONAL_STREAMS: u32 = 64;
+const STREAM_RECEIVE_WINDOW: u32 = 64 * 1024;
+const CONNECTION_RECEIVE_WINDOW: u32 = 512 * 1024;
+const SEND_WINDOW: u64 = 512 * 1024;
+const CRYPTO_BUFFER: usize = 16 * 1024;
+const QUIC_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn resource_bounded_server_config(
+    crypto: quinn::crypto::rustls::QuicServerConfig,
+) -> io::Result<quinn::ServerConfig> {
+    let mut transport = quinn::TransportConfig::default();
+    transport
+        .max_concurrent_bidi_streams(quinn::VarInt::from_u32(MAX_BIDIRECTIONAL_STREAMS))
+        .max_concurrent_uni_streams(quinn::VarInt::from_u32(0))
+        .stream_receive_window(quinn::VarInt::from_u32(STREAM_RECEIVE_WINDOW))
+        .receive_window(quinn::VarInt::from_u32(CONNECTION_RECEIVE_WINDOW))
+        .send_window(SEND_WINDOW)
+        .crypto_buffer_size(CRYPTO_BUFFER)
+        // Werewolf has no QUIC DATAGRAM protocol. Leaving Quinn's default
+        // receive buffer enabled would allocate remote-triggerable memory for
+        // a feature the application never consumes.
+        .datagram_receive_buffer_size(None)
+        .max_idle_timeout(Some(
+            QUIC_IDLE_TIMEOUT.try_into().map_err(|_| hs::rejected())?,
+        ));
+
+    let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
+    config
+        .transport_config(Arc::new(transport))
+        // `Incoming` objects are created before application acceptance. Bound
+        // their number and buffering separately from our owned context permit.
+        .max_incoming(MAX_INCOMING_CONNECTIONS)
+        .incoming_buffer_size(INCOMING_BUFFER_PER_CONNECTION)
+        .incoming_buffer_size_total(INCOMING_BUFFER_TOTAL);
+    Ok(config)
+}
+
 #[cfg(test)]
 mod authority_tests;
+#[cfg(test)]
+mod resource_tests;
 
 pub(super) async fn run_quic_fang_listener(
     listen_addr: &str,
@@ -37,7 +83,7 @@ pub(super) async fn run_quic_fang_listener(
         crate::tls_identity::server_config(&runtime_tls_identity).map_err(|_| hs::rejected())?;
     let quic_crypto =
         quinn::crypto::rustls::QuicServerConfig::try_from(crypto).map_err(|_| hs::rejected())?;
-    let server_config = quinn::ServerConfig::with_crypto(Arc::new(quic_crypto));
+    let server_config = resource_bounded_server_config(quic_crypto)?;
     let endpoint = quinn::Endpoint::server(server_config, addr).map_err(|_| hs::rejected())?;
     let mut connections = tokio::task::JoinSet::new();
     loop {
@@ -139,7 +185,6 @@ pub(super) async fn run_quic_fang_listener(
                                 _=>{
                                     let _=send.reset(hs::V3_REJECT_CODE.into());
                                     let _=recv.stop(hs::V3_REJECT_CODE.into());
-                                    eprintln!("QUIC v3 handshake rejected");
                                 }
                             }
                         });
@@ -187,6 +232,7 @@ async fn server_handshake(
     hs::verify(&sender_key, &retained, &open.signature)?;
     hs::require(Instant::now() < started + hs::READ_WINDOW)?;
     permit.authenticated(&open.sender_fingerprint)?;
+    let _target_work = permit.target_work(&open.sender_fingerprint)?;
     let ticket = authority.ticket(&open.sender_fingerprint)?;
     replay.reserve(&open.sender_fingerprint, &open.nonce)?;
     let lease = authority.reserve(ticket, Transport::Quic(connection_id))?;
