@@ -5,6 +5,7 @@ mod control;
 mod fang_registry;
 mod handshake;
 mod policy;
+mod protected_state;
 mod state;
 #[cfg(test)]
 mod target_authorization_tests;

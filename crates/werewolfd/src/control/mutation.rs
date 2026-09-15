@@ -1,7 +1,11 @@
 //! Control mutations enter through the single admission coordinator. Candidate
 //! state is prepared off the live model, persisted off the Tokio worker, then
 //! published without a fallible step. Client lifetime does not own this task.
-use crate::state::DaemonState;
+use crate::{
+    protected_state::{self, ProtectedState, Transaction},
+    state::DaemonState,
+    target_policy,
+};
 use serde::Serialize;
 use serde_json::json;
 use std::{
@@ -29,8 +33,10 @@ pub(super) fn handles(command: &str) -> bool {
             | "pack.set_address"
             | "pack.revoke"
             | "pack.remove"
+            | "target.policy.set"
             | "fang.profile.add"
             | "fang.profile.remove"
+            | "state.manifest.migrate"
     )
 }
 fn error(id: &str, code: &str) -> ControlResponse {
@@ -69,6 +75,27 @@ async fn durable<T: Serialize + Sync>(
     finish_outcome(outcome, state).await
 }
 
+async fn durable_bytes(
+    file: &'static str,
+    bytes: Vec<u8>,
+    state: &Arc<Mutex<DaemonState>>,
+) -> io::Result<()> {
+    let bytes = Zeroizing::new(bytes);
+    let directory = state
+        .lock()
+        .await
+        .den
+        .clone()
+        .ok_or_else(|| io::Error::other("Den not initialized"))?;
+    let outcome =
+        tokio::task::spawn_blocking(move || directory.replace(OsStr::new(file), &bytes, false))
+            .await
+            .unwrap_or_else(|_| {
+                CommitOutcome::IndeterminateAfterRename(io::Error::other("storage worker failed"))
+            });
+    finish_outcome(outcome, state).await
+}
+
 async fn finish_outcome(outcome: CommitOutcome, state: &Arc<Mutex<DaemonState>>) -> io::Result<()> {
     match outcome {
         CommitOutcome::DurablyCommitted => Ok(()),
@@ -81,6 +108,100 @@ async fn finish_outcome(outcome: CommitOutcome, state: &Arc<Mutex<DaemonState>>)
             Err(e)
         }
     }
+}
+
+fn protected_from_live(live: &DaemonState) -> ProtectedState {
+    ProtectedState {
+        silver_locked: live.inbound_authority.is_locked(),
+        peers: live.peers.clone(),
+        target_policy: live.target_policy.clone(),
+        fang_profiles: live.fang_profiles.clone(),
+        active_profiles: live.active_profiles.clone(),
+    }
+}
+
+async fn commit_protected(
+    generation: u64,
+    candidate: ProtectedState,
+    state: &Arc<Mutex<DaemonState>>,
+) -> io::Result<u64> {
+    let directory = state
+        .lock()
+        .await
+        .den
+        .clone()
+        .ok_or_else(|| io::Error::other("Den not initialized"))?;
+    let outcome = tokio::task::spawn_blocking(move || {
+        protected_state::commit(&directory, generation, &candidate)
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Transaction::IndeterminateAfterRename(io::Error::other("storage worker failed"))
+    });
+    match outcome {
+        Transaction::DurablyCommitted(next) => {
+            state.lock().await.protected_state_generation = Some(next.number);
+            Ok(next.number)
+        }
+        Transaction::NotCommitted(error) => Err(error),
+        Transaction::IndeterminateAfterRename(error) => {
+            state.lock().await.storage_degraded = true;
+            eprintln!("protected state commit indeterminate; administrative mutations disabled; operator intervention required");
+            Err(error)
+        }
+    }
+}
+
+async fn persist_protected_or_legacy<T: Serialize + Sync>(
+    generation: Option<u64>,
+    candidate: ProtectedState,
+    legacy_file: &'static str,
+    legacy_value: &T,
+    home: &Path,
+    state: &Arc<Mutex<DaemonState>>,
+) -> io::Result<()> {
+    match generation {
+        Some(generation) => {
+            commit_protected(generation, candidate, state).await?;
+            Ok(())
+        }
+        None => durable(home, legacy_file, legacy_value, false, state).await,
+    }
+}
+
+pub(crate) async fn persist_silver(
+    locked: bool,
+    state: &Arc<Mutex<DaemonState>>,
+) -> io::Result<()> {
+    let (generation, mut candidate) = {
+        let live = state.lock().await;
+        (live.protected_state_generation, protected_from_live(&live))
+    };
+    candidate.silver_locked = locked;
+    if let Some(generation) = generation {
+        return commit_protected(generation, candidate, state)
+            .await
+            .map(|_| ());
+    }
+    let bytes: &'static [u8] = if locked {
+        br#"{"version":1,"mode":"locked"}"#
+    } else {
+        br#"{"version":1,"mode":"open"}"#
+    };
+    let directory = state
+        .lock()
+        .await
+        .den
+        .clone()
+        .ok_or_else(|| io::Error::other("Den not initialized"))?;
+    let outcome = tokio::task::spawn_blocking(move || {
+        directory.replace(OsStr::new("silver.json"), bytes, false)
+    })
+    .await
+    .unwrap_or_else(|_| {
+        CommitOutcome::IndeterminateAfterRename(io::Error::other("storage worker failed"))
+    });
+    finish_outcome(outcome, state).await
 }
 
 pub(super) async fn handle(
@@ -122,8 +243,66 @@ pub(super) async fn handle(
             json!({"fingerprint":fingerprint,"saved_to":home.join("pelt.json")}),
         );
     }
+    if req.cmd == "state.manifest.migrate" {
+        let directory = {
+            let live = state.lock().await;
+            if live.protected_state_generation.is_some() {
+                return error(&req.id, "MANIFEST_ALREADY_ENABLED");
+            }
+            match &live.den {
+                Some(directory) => directory.clone(),
+                None => return error(&req.id, "MANIFEST_MIGRATION_FAILED"),
+            }
+        };
+        let outcome = tokio::task::spawn_blocking(move || protected_state::migrate(&directory))
+            .await
+            .unwrap_or_else(|_| {
+                Transaction::IndeterminateAfterRename(io::Error::other("storage worker failed"))
+            });
+        match outcome {
+            Transaction::DurablyCommitted(generation) => {
+                state.lock().await.protected_state_generation = Some(generation.number);
+                return ControlResponse::ok(req.id, json!({"generation": generation.number}));
+            }
+            Transaction::NotCommitted(_) => return error(&req.id, "MANIFEST_MIGRATION_FAILED"),
+            Transaction::IndeterminateAfterRename(_) => {
+                state.lock().await.storage_degraded = true;
+                return error(&req.id, "MANIFEST_MIGRATION_INDETERMINATE");
+            }
+        }
+    }
+    if req.cmd == "target.policy.set" {
+        let document = arg(&req, "document");
+        let canonical = match target_policy::canonicalize(&document) {
+            Ok(canonical) => canonical,
+            Err(_) => return error(&req.id, "TARGET_POLICY_INVALID"),
+        };
+        let parsed = match target_policy::parse_canonical(&canonical) {
+            Ok(policy) => policy,
+            Err(_) => return error(&req.id, "TARGET_POLICY_INVALID"),
+        };
+        let (generation, mut candidate) = {
+            let live = state.lock().await;
+            (live.protected_state_generation, protected_from_live(&live))
+        };
+        candidate.target_policy = parsed.clone();
+        let persisted = match generation {
+            Some(generation) => commit_protected(generation, candidate, &state)
+                .await
+                .map(|_| ()),
+            None => durable_bytes("target_policy.json", canonical, &state).await,
+        };
+        if persisted.is_err() {
+            return error(&req.id, "TARGET_POLICY_SAVE_FAILED");
+        }
+        state.lock().await.target_policy = parsed;
+        return ControlResponse::ok(req.id, json!({"status":"target_policy_updated"}));
+    }
     if req.cmd.starts_with("pack.") {
-        let mut candidate = state.lock().await.peers.clone();
+        let (mut candidate, protected_generation) = {
+            let live = state.lock().await;
+            (live.peers.clone(), live.protected_state_generation)
+        };
         let name = arg(&req, "name");
         let before = candidate.len();
         let revoked_fingerprint = if matches!(req.cmd.as_str(), "pack.remove" | "pack.revoke") {
@@ -141,7 +320,10 @@ pub(super) async fn handle(
                     fingerprint: arg(&req, "fingerprint"),
                     address: arg(&req, "address"),
                     trust: TrustLevel::Packmate,
-                    public_key_b64: None,
+                    public_key_b64: {
+                        let value = arg(&req, "public_key_b64");
+                        (!value.is_empty()).then_some(value)
+                    },
                 });
                 "added"
             }
@@ -185,10 +367,19 @@ pub(super) async fn handle(
             };
             (authority, closed)
         };
-        if durable(&home, "pack.json", &candidate, false, &state)
-            .await
-            .is_err()
-        {
+        let persisted = if let Some(generation) = protected_generation {
+            let mut protected = {
+                let live = state.lock().await;
+                protected_from_live(&live)
+            };
+            protected.peers = candidate.clone();
+            commit_protected(generation, protected, &state)
+                .await
+                .map(|_| ())
+        } else {
+            durable(&home, "pack.json", &candidate, false, &state).await
+        };
+        if persisted.is_err() {
             // NotCommitted leaves Pack memory/disk unchanged but never restores
             // runtime authority. Indeterminate also retains the deny fence and
             // durable() enters the existing storage-degraded path.
@@ -223,9 +414,13 @@ pub(super) async fn handle(
             json!({"status":status,"name":name,"peer":name,"address":req.args["address"],"closed_fangs":closed,"packmates":packmates}),
         );
     }
-    let (mut candidate, peers) = {
+    let (mut candidate, peers, protected_generation) = {
         let live = state.lock().await;
-        (live.fang_profiles.clone(), live.peers.clone())
+        (
+            live.fang_profiles.clone(),
+            live.peers.clone(),
+            live.protected_state_generation,
+        )
     };
     let name = arg(&req, "name");
     if req.cmd == "fang.profile.remove" && state.lock().await.active_profiles.contains(&name) {
@@ -254,10 +449,19 @@ pub(super) async fn handle(
     if state_validation::profile_document(&candidate).is_err() {
         return error(&req.id, "FANG_PROFILE_INVALID");
     }
-    if durable(&home, "fangs.json", &candidate, false, &state)
-        .await
-        .is_err()
-    {
+    let persisted = if let Some(generation) = protected_generation {
+        let mut protected = {
+            let live = state.lock().await;
+            protected_from_live(&live)
+        };
+        protected.fang_profiles = candidate.clone();
+        commit_protected(generation, protected, &state)
+            .await
+            .map(|_| ())
+    } else {
+        durable(&home, "fangs.json", &candidate, false, &state).await
+    };
+    if persisted.is_err() {
         return error(&req.id, "FANG_PROFILE_SAVE_FAILED");
     }
     let mut live = state.lock().await;
@@ -282,7 +486,20 @@ pub(crate) async fn persist_active(
         }
         state_validation::active(&candidate, &live.fang_profiles)?;
     }
-    durable(home, "active_fangs.json", &candidate, false, state).await?;
+    let (generation, mut protected) = {
+        let live = state.lock().await;
+        (live.protected_state_generation, protected_from_live(&live))
+    };
+    protected.active_profiles = candidate.clone();
+    persist_protected_or_legacy(
+        generation,
+        protected,
+        "active_fangs.json",
+        &candidate,
+        home,
+        state,
+    )
+    .await?;
     state.lock().await.active_profiles = candidate;
     Ok(())
 }
@@ -290,6 +507,36 @@ pub(crate) async fn persist_active(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{os::unix::fs::PermissionsExt, sync::Arc};
+    use werewolf_core::{local_fs::PrivateDirectory, pelt::generate_identity};
+
+    struct Fixture(std::path::PathBuf);
+
+    impl Fixture {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "wwp-manifest-mutation-{}",
+                crate::handshake::hex(&crate::handshake::random::<16>().unwrap())
+            ));
+            std::fs::create_dir(&path).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            Self(path)
+        }
+
+        fn state(&self) -> Arc<Mutex<DaemonState>> {
+            Arc::new(Mutex::new(DaemonState {
+                den: Some(Arc::new(PrivateDirectory::open(&self.0, false).unwrap())),
+                ..DaemonState::default()
+            }))
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[tokio::test]
     async fn indeterminate_commit_disables_subsequent_mutations() {
         let state = Arc::new(Mutex::new(DaemonState::default()));
@@ -321,5 +568,82 @@ mod tests {
         .await;
         assert!(!response.ok);
         assert_eq!(response.error.unwrap().code, "STORAGE_DEGRADED");
+    }
+
+    #[tokio::test]
+    async fn manifest_mode_routes_every_protected_mutation_through_one_generation() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        let migrate = handle(
+            ControlRequest {
+                id: "migrate".into(),
+                cmd: "state.manifest.migrate".into(),
+                args: json!({}),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert!(migrate.ok);
+        assert_eq!(state.lock().await.protected_state_generation, Some(1));
+
+        let peer = generate_identity();
+        let add = handle(
+            ControlRequest {
+                id: "pack".into(),
+                cmd: "pack.add".into(),
+                args: json!({
+                    "name":"peer", "fingerprint":peer.fingerprint,
+                    "address":"tcp://127.0.0.1:1", "public_key_b64":peer.public_key_b64,
+                }),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert!(add.ok);
+        assert_eq!(state.lock().await.protected_state_generation, Some(2));
+        assert!(!fixture.0.join("pack.json").exists());
+
+        let policy = serde_json::json!({
+            "mode":"deny-by-default",
+            "peers": { peer.fingerprint.clone(): {"targets":[{"address":"127.0.0.1","port":1}]} }
+        })
+        .to_string();
+        let policy = handle(
+            ControlRequest {
+                id: "policy".into(),
+                cmd: "target.policy.set".into(),
+                args: json!({"document":policy}),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert!(policy.ok);
+        assert_eq!(state.lock().await.protected_state_generation, Some(3));
+        assert!(!fixture.0.join("target_policy.json").exists());
+
+        let profile = handle(
+            ControlRequest {
+                id: "profile".into(),
+                cmd: "fang.profile.add".into(),
+                args: json!({
+                    "name":"route", "peer":"peer", "local":"127.0.0.1:1",
+                    "remote":"127.0.0.1:2", "transport":"tcp"
+                }),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert!(profile.ok);
+        assert_eq!(state.lock().await.protected_state_generation, Some(4));
+        persist_active(&fixture.0, vec!["route".into()], &state)
+            .await
+            .unwrap();
+        assert_eq!(state.lock().await.protected_state_generation, Some(5));
+        assert!(!fixture.0.join("fangs.json").exists());
+        assert!(!fixture.0.join("active_fangs.json").exists());
     }
 }

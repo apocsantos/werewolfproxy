@@ -239,26 +239,7 @@ async fn handle_request(
                     )
                 }
             };
-            let den = {
-                let st = state.lock().await;
-                st.den.clone()
-            };
-            let Some(den) = den else {
-                return ControlResponse::err(
-                    req.id,
-                    "SILVER_FAILED",
-                    "local state mutation rejected",
-                );
-            };
-            let bytes = br#"{"version":1,"mode":"locked"}"#;
-            let outcome = tokio::task::spawn_blocking(move || {
-                den.replace(std::ffi::OsStr::new("silver.json"), bytes, false)
-            })
-            .await;
-            if !matches!(
-                outcome,
-                Ok(werewolf_core::local_fs::CommitOutcome::DurablyCommitted)
-            ) {
+            if mutation::persist_silver(true, &state).await.is_err() {
                 return ControlResponse::err(
                     req.id,
                     "SILVER_SAVE_FAILED",
@@ -287,26 +268,7 @@ async fn handle_request(
         "silver.reset" => {
             let authority = state.lock().await.inbound_authority.clone();
             let expected = authority.epoch().unwrap_or(0);
-            let den = state.lock().await.den.clone();
-            let Some(den) = den else {
-                return ControlResponse::err(
-                    req.id,
-                    "SILVER_FAILED",
-                    "local state mutation rejected",
-                );
-            };
-            let outcome = tokio::task::spawn_blocking(move || {
-                den.replace(
-                    std::ffi::OsStr::new("silver.json"),
-                    br#"{"version":1,"mode":"open"}"#,
-                    false,
-                )
-            })
-            .await;
-            if !matches!(
-                outcome,
-                Ok(werewolf_core::local_fs::CommitOutcome::DurablyCommitted)
-            ) {
+            if mutation::persist_silver(false, &state).await.is_err() {
                 return ControlResponse::err(
                     req.id,
                     "SILVER_SAVE_FAILED",

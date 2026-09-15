@@ -31,6 +31,11 @@ enum Commands {
         command: DenCommands,
     },
 
+    State {
+        #[command(subcommand)]
+        command: StateCommands,
+    },
+
     Silver {
         #[command(subcommand)]
         command: SilverCommands,
@@ -55,6 +60,14 @@ enum Commands {
 #[derive(Subcommand)]
 enum DenCommands {
     Info,
+}
+
+#[derive(Subcommand)]
+enum StateCommands {
+    /// Explicitly migrate a validated legacy Den into manifest mode.
+    ManifestMigrate,
+    /// Replace the target-policy document through the protected-state transaction.
+    SetTargetPolicy { document: String },
 }
 
 #[derive(Subcommand)]
@@ -157,6 +170,14 @@ async fn main() -> std::io::Result<()> {
         Commands::Status => ("status".to_string(), json!({})),
         Commands::Den { command } => match command {
             DenCommands::Info => ("den.info".to_string(), json!({})),
+        },
+
+        Commands::State { command } => match command {
+            StateCommands::ManifestMigrate => ("state.manifest.migrate".to_string(), json!({})),
+            StateCommands::SetTargetPolicy { document } => (
+                "target.policy.set".to_string(),
+                json!({ "document": document }),
+            ),
         },
 
         Commands::Silver { command } => match command {

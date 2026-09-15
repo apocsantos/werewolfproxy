@@ -1,4 +1,9 @@
-use crate::{authority::Authority, state::DaemonState, target_policy};
+use crate::{
+    authority::Authority,
+    protected_state::{self, Load, ProtectedState},
+    state::DaemonState,
+    target_policy,
+};
 use std::{ffi::OsStr, io};
 use werewolf_core::{local_fs::PrivateDirectory, state_validation};
 use zeroize::Zeroizing;
@@ -13,38 +18,67 @@ pub(super) fn load_startup_state(
         version: u8,
         mode: String,
     }
-    let silver_locked = match den.read(OsStr::new("silver.json"), 1024)? {
-        None => true,
-        Some(data) => {
-            let value: Silver = serde_json::from_slice(&data).map_err(|_| invalid())?;
-            if value.version != 1 {
-                return Err(invalid());
-            }
-            match value.mode.as_str() {
-                "locked" => true,
-                "open" => false,
-                _ => return Err(invalid()),
-            }
+    match protected_state::load(den)? {
+        Load::Manifest { generation, state } => {
+            apply_protected_state(initial_state, state, Some(generation.number));
         }
-    };
-    initial_state.inbound_authority = Authority::new(silver_locked);
-    initial_state.status.silver = if silver_locked {
-        "active".into()
-    } else {
-        "armed".into()
-    };
-    initial_state.status.mode = if silver_locked {
-        werewolf_core::state::WolfMode::Silver
-    } else {
-        werewolf_core::state::WolfMode::Human
-    };
-    initial_state.target_policy = match den.read(OsStr::new("target_policy.json"), 1024 * 1024)? {
-        None => target_policy::TargetPolicy::Deny,
-        Some(data) => match std::str::from_utf8(&data) {
-            Ok(text) => target_policy::parse(text),
-            Err(_) => target_policy::TargetPolicy::Invalid,
-        },
-    };
+        Load::Legacy => {
+            let silver_locked = match den.read(OsStr::new("silver.json"), 1024)? {
+                None => true,
+                Some(data) => {
+                    let value: Silver = serde_json::from_slice(&data).map_err(|_| invalid())?;
+                    if value.version != 1 {
+                        return Err(invalid());
+                    }
+                    match value.mode.as_str() {
+                        "locked" => true,
+                        "open" => false,
+                        _ => return Err(invalid()),
+                    }
+                }
+            };
+            let state = ProtectedState {
+                silver_locked,
+                target_policy: match den.read(OsStr::new("target_policy.json"), 1024 * 1024)? {
+                    None => target_policy::TargetPolicy::Deny,
+                    Some(data) => match std::str::from_utf8(&data) {
+                        Ok(text) => target_policy::parse(text),
+                        Err(_) => target_policy::TargetPolicy::Invalid,
+                    },
+                },
+                peers: match den.read(OsStr::new("pack.json"), 1024 * 1024)? {
+                    None => Vec::new(),
+                    Some(data) => {
+                        let peers =
+                            serde_json::from_slice::<Vec<_>>(&data).map_err(|_| invalid())?;
+                        state_validation::pack(&peers)?;
+                        peers
+                    }
+                },
+                fang_profiles: match den.read(OsStr::new("fangs.json"), 1024 * 1024)? {
+                    None => Vec::new(),
+                    Some(data) => {
+                        let profiles =
+                            serde_json::from_slice::<Vec<_>>(&data).map_err(|_| invalid())?;
+                        state_validation::profile_document(&profiles)?;
+                        profiles
+                    }
+                },
+                active_profiles: Vec::new(),
+            };
+            let mut state = state;
+            state.active_profiles = match den.read(OsStr::new("active_fangs.json"), 1024 * 1024)? {
+                None => Vec::new(),
+                Some(data) => {
+                    let active =
+                        serde_json::from_slice::<Vec<String>>(&data).map_err(|_| invalid())?;
+                    state_validation::active(&active, &state.fang_profiles)?;
+                    active
+                }
+            };
+            apply_protected_state(initial_state, state, None);
+        }
+    }
     if let Some(data) = den.read(OsStr::new("pelt.json"), 4096)? {
         let data = Zeroizing::new(data);
         let pelt = serde_json::from_slice(&data).map_err(|_| invalid())?;
@@ -52,22 +86,30 @@ pub(super) fn load_startup_state(
         initial_state.pelt = Some(pelt);
         initial_state.status.pelt_ready = true;
     }
-    if let Some(data) = den.read(OsStr::new("pack.json"), 1024 * 1024)? {
-        let peers = serde_json::from_slice::<Vec<_>>(&data).map_err(|_| invalid())?;
-        state_validation::pack(&peers)?;
-        initial_state.peers = peers;
-    }
-    if let Some(data) = den.read(OsStr::new("fangs.json"), 1024 * 1024)? {
-        let profiles = serde_json::from_slice::<Vec<_>>(&data).map_err(|_| invalid())?;
-        state_validation::profile_document(&profiles)?;
-        initial_state.fang_profiles = profiles;
-    }
-    if let Some(data) = den.read(OsStr::new("active_fangs.json"), 1024 * 1024)? {
-        let active = serde_json::from_slice::<Vec<String>>(&data).map_err(|_| invalid())?;
-        state_validation::active(&active, &initial_state.fang_profiles)?;
-        initial_state.active_profiles = active;
-    }
     Ok(())
+}
+
+fn apply_protected_state(
+    initial_state: &mut DaemonState,
+    state: ProtectedState,
+    generation: Option<u64>,
+) {
+    initial_state.inbound_authority = Authority::new(state.silver_locked);
+    initial_state.status.silver = if state.silver_locked {
+        "active".into()
+    } else {
+        "armed".into()
+    };
+    initial_state.status.mode = if state.silver_locked {
+        werewolf_core::state::WolfMode::Silver
+    } else {
+        werewolf_core::state::WolfMode::Human
+    };
+    initial_state.target_policy = state.target_policy;
+    initial_state.peers = state.peers;
+    initial_state.fang_profiles = state.fang_profiles;
+    initial_state.active_profiles = state.active_profiles;
+    initial_state.protected_state_generation = generation;
 }
 
 fn invalid() -> io::Error {

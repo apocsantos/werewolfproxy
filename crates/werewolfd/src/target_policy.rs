@@ -1,9 +1,9 @@
 use serde::{
     de::{self, MapAccess, Visitor},
-    Deserialize, Deserializer,
+    Deserialize, Deserializer, Serialize,
 };
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     future::Future,
     net::{IpAddr, SocketAddr},
     path::Path,
@@ -18,7 +18,7 @@ pub(super) enum TargetPolicy {
     Invalid,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PolicyFile {
     mode: String,
@@ -26,20 +26,20 @@ struct PolicyFile {
     peers: Peers,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 enum Peers {
     #[default]
     Missing,
-    Present(HashMap<String, PeerGrant>),
+    Present(BTreeMap<String, PeerGrant>),
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct PeerGrant {
     targets: Vec<TargetGrant>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct TargetGrant {
     address: IpAddr,
@@ -57,7 +57,7 @@ impl<'de> Deserialize<'de> for Peers {
                 formatter.write_str("an object of unique canonical fingerprints")
             }
             fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Peers, M::Error> {
-                let mut peers = HashMap::new();
+                let mut peers = BTreeMap::new();
                 while let Some((fingerprint, grant)) = map.next_entry::<String, PeerGrant>()? {
                     if !valid_fingerprint(&fingerprint)
                         || peers.insert(fingerprint, grant).is_some()
@@ -82,10 +82,18 @@ pub(super) fn load(path: &Path) -> TargetPolicy {
 }
 
 pub(super) fn parse(data: &str) -> TargetPolicy {
-    let parsed: PolicyFile = match serde_json::from_str(data) {
+    let parsed = match parse_file(data) {
         Ok(value) => value,
-        Err(_) => return TargetPolicy::Invalid,
+        Err(()) => return TargetPolicy::Invalid,
     };
+    policy_from_file(parsed)
+}
+
+fn parse_file(data: &str) -> Result<PolicyFile, ()> {
+    serde_json::from_str(data).map_err(|_| ())
+}
+
+fn policy_from_file(parsed: PolicyFile) -> TargetPolicy {
     match (parsed.mode.as_str(), parsed.peers) {
         ("legacy-allow", Peers::Missing) => TargetPolicy::LegacyAllow,
         ("deny-by-default", Peers::Present(peers)) => {
@@ -104,6 +112,92 @@ pub(super) fn parse(data: &str) -> TargetPolicy {
         }
         _ => TargetPolicy::Invalid,
     }
+}
+
+#[derive(Serialize)]
+struct CanonicalPeerGrant {
+    targets: Vec<CanonicalTargetGrant>,
+}
+
+#[derive(Serialize)]
+struct CanonicalTargetGrant {
+    address: IpAddr,
+    port: u16,
+}
+
+#[derive(Serialize)]
+struct CanonicalRuntimePolicy {
+    mode: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    peers: Option<BTreeMap<String, CanonicalPeerGrant>>,
+}
+
+fn invalid_document() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "invalid target policy document",
+    )
+}
+
+/// Parse, semantically validate, and serialize a policy in one deterministic
+/// representation. BTreeMap fixes peer-key ordering; serde's struct ordering
+/// fixes every remaining object field. This is state storage only, never wire
+/// serialization.
+pub(super) fn canonicalize(data: &str) -> std::io::Result<Vec<u8>> {
+    let parsed = parse_file(data).map_err(|_| invalid_document())?;
+    let policy = policy_from_file(parsed.clone());
+    if matches!(policy, TargetPolicy::Invalid) {
+        return Err(invalid_document());
+    }
+    canonical_from_runtime(&policy)
+}
+
+pub(super) fn parse_canonical(data: &[u8]) -> std::io::Result<TargetPolicy> {
+    let text = std::str::from_utf8(data).map_err(|_| invalid_document())?;
+    let canonical = canonicalize(text)?;
+    if canonical != data {
+        return Err(invalid_document());
+    }
+    let policy = parse(text);
+    if matches!(policy, TargetPolicy::Invalid) {
+        return Err(invalid_document());
+    }
+    Ok(policy)
+}
+
+pub(super) fn canonical_from_runtime(policy: &TargetPolicy) -> std::io::Result<Vec<u8>> {
+    let value = match policy {
+        TargetPolicy::Deny => CanonicalRuntimePolicy {
+            mode: "deny-by-default",
+            peers: Some(BTreeMap::new()),
+        },
+        TargetPolicy::LegacyAllow => CanonicalRuntimePolicy {
+            mode: "legacy-allow",
+            peers: None,
+        },
+        TargetPolicy::Grants(grants) => {
+            let peers: BTreeMap<_, _> = grants
+                .iter()
+                .map(|(fingerprint, endpoints)| {
+                    let targets = endpoints
+                        .iter()
+                        .map(|endpoint| CanonicalTargetGrant {
+                            address: endpoint.ip(),
+                            port: endpoint.port(),
+                        })
+                        .collect();
+                    (fingerprint.clone(), CanonicalPeerGrant { targets })
+                })
+                .collect();
+            CanonicalRuntimePolicy {
+                mode: "deny-by-default",
+                peers: Some(peers),
+            }
+        }
+        TargetPolicy::Invalid => return Err(invalid_document()),
+    };
+    serde_json::to_vec(&value)
+        .map_err(|_| std::io::Error::other("target policy serialization failed"))
 }
 
 fn valid_fingerprint(fp: &str) -> bool {
