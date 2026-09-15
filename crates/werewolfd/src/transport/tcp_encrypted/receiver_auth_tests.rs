@@ -268,6 +268,57 @@ async fn stalled_pre_tls_admission_is_bounded_and_a_valid_peer_recovers_after_de
 }
 
 #[tokio::test]
+async fn silver_cancels_stalled_pre_tls_handshake_without_waiting_for_timeout() {
+    let receiver = generate_identity();
+    let runtime = Arc::new(crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap());
+    let authority = crate::authority::Authority::new(false);
+    let admission = crate::admission::Admission::test_with_handshake_limit(1);
+    let state = Arc::new(Mutex::new(DaemonState {
+        inbound_authority: authority.clone(),
+        admission: admission.clone(),
+        pelt: Some(receiver),
+        runtime_tls_identity: Some(runtime),
+        ..Default::default()
+    }));
+    let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = reserved.local_addr().unwrap();
+    drop(reserved);
+    let listener_state = state.clone();
+    let listener =
+        tokio::spawn(async move { run_fang_listener(&address.to_string(), listener_state).await });
+    let raw = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let Ok(stream) = TcpStream::connect(address).await {
+                break stream;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    raw.writable().await.unwrap();
+    raw.try_write(&[0x16]).unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while admission.available_handshakes() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+
+    authority.lock().unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while admission.available_handshakes() != 1 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    drop(raw);
+    listener.abort();
+}
+
+#[tokio::test]
 async fn post_tls_missing_or_partial_open_releases_admission_at_handshake_deadline() {
     let receiver = generate_identity();
     let runtime = Arc::new(crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap());

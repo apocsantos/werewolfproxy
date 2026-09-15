@@ -35,7 +35,10 @@ pub(super) async fn run_fang_listener(
     state: Arc<Mutex<DaemonState>>,
 ) -> io::Result<()> {
     let runtime_tls_identity = crate::state::wait_for_runtime_tls_identity(&state).await?;
-    let admission = state.lock().await.admission.clone();
+    let (admission, authority) = {
+        let state = state.lock().await;
+        (state.admission.clone(), state.inbound_authority.clone())
+    };
     let tls_config =
         crate::tls_identity::server_config(&runtime_tls_identity).map_err(|_| hs::rejected())?;
     let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
@@ -50,24 +53,37 @@ pub(super) async fn run_fang_listener(
             Some(_) = tasks.join_next(), if !tasks.is_empty() => continue,
             accepted = listener.accept() => accepted?,
         };
+        if authority.is_locked() {
+            continue;
+        }
         let started = tokio::time::Instant::now();
         let Ok(permit) = admission.handshake() else {
             continue;
         };
         let state_for_client = state.clone();
         let tls_acceptor = tls_acceptor.clone();
+        let mut silver = authority.silver_watch();
 
         tasks.spawn(async move {
-            let stream = AuthorityTcpStream::new(stream);
-            let tls_stream =
-                tokio::time::timeout_at(started + hs::READ_WINDOW, tls_acceptor.accept(stream))
-                    .await
+            let tls_stream = tokio::select! {
+                biased;
+                _ = silver.changed() => Err(hs::rejected()),
+                result = tokio::time::timeout_at(
+                    started + hs::READ_WINDOW,
+                    tls_acceptor.accept(AuthorityTcpStream::new(stream)),
+                ) => result
                     .map_err(|_| hs::rejected())
-                    .and_then(|result| result.map_err(|_| hs::rejected()));
-            match tls_stream {
-                Ok(stream) => handle_fang_pipe(stream, state_for_client, permit, started).await,
+                    .and_then(|result| result.map_err(|_| hs::rejected())),
+            };
+            let result = match tls_stream {
+                Ok(tls_stream) => tokio::select! {
+                    biased;
+                    _ = silver.changed() => Err(hs::rejected()),
+                    result = handle_fang_pipe(tls_stream, state_for_client, permit, started) => result,
+                },
                 Err(error) => Err(error),
-            }
+            };
+            let _ = result;
             // Routine unauthenticated failures are intentionally silent. A
             // network peer must not be able to turn handshake failures into
             // unbounded local log volume.

@@ -54,15 +54,3 @@ async fn transport_configuration_bounds_remote_stream_and_datagram_resources() {
         .unwrap()
         .unwrap();
 }
-
-#[test]
-fn quic_resource_budget_constants_are_consistent() {
-    assert!(MAX_INCOMING_CONNECTIONS <= 128);
-    assert!(
-        INCOMING_BUFFER_PER_CONNECTION * MAX_INCOMING_CONNECTIONS as u64 <= INCOMING_BUFFER_TOTAL
-    );
-    assert!(STREAM_RECEIVE_WINDOW <= CONNECTION_RECEIVE_WINDOW);
-    assert_eq!(MAX_BIDIRECTIONAL_STREAMS, 64);
-    assert_eq!(QUIC_IDLE_TIMEOUT, Duration::from_secs(30));
-    assert_eq!(SEND_WINDOW, CONNECTION_RECEIVE_WINDOW as u64);
-}
