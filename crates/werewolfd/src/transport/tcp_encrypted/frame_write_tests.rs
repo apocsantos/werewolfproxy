@@ -187,6 +187,21 @@ async fn write_failures_do_not_retry_or_reuse_a_nonce() {
     }
 }
 
+#[tokio::test]
+async fn network_frame_length_is_rejected_before_ciphertext_allocation_or_nonce_use() {
+    let oversized = (4097u32).to_be_bytes();
+    let mut reader = oversized.as_slice();
+    let mut counter = 0;
+    let error = read_encrypted_frame(&mut reader, &[7; 32], 0, &mut counter)
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    // The body was neither read nor allocated, and malformed framing cannot
+    // consume a nonce/counter value.
+    assert!(reader.is_empty());
+    assert_eq!(counter, 0);
+}
+
 #[test]
 fn invalidated_authority_between_partial_submission_polls_rejects_remainder() {
     let allowed = Arc::new(AtomicBool::new(true));

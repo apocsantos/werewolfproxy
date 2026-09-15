@@ -45,7 +45,7 @@ pub(super) async fn run_fang_listener(
     loop {
         // Reap ready children before admitting more. Dropping the listener
         // supervisor aborts all owned children; no inbound task is detached.
-        let (stream, peer_addr) = tokio::select! {
+        let (stream, _) = tokio::select! {
             biased;
             Some(_) = tasks.join_next(), if !tasks.is_empty() => continue,
             accepted = listener.accept() => accepted?,
@@ -64,13 +64,13 @@ pub(super) async fn run_fang_listener(
                     .await
                     .map_err(|_| hs::rejected())
                     .and_then(|result| result.map_err(|_| hs::rejected()));
-            let result = match tls_stream {
+            match tls_stream {
                 Ok(stream) => handle_fang_pipe(stream, state_for_client, permit, started).await,
                 Err(error) => Err(error),
-            };
-            if let Err(e) = result {
-                eprintln!("fang pipe from {} error: {}", peer_addr, e);
             }
+            // Routine unauthenticated failures are intentionally silent. A
+            // network peer must not be able to turn handshake failures into
+            // unbounded local log volume.
         });
     }
 }
@@ -122,6 +122,7 @@ async fn server_handshake(
     hs::verify(&open.sender_pubkey, &retained, &open.signature)?;
     permit.authenticated(&open.sender_fingerprint)?;
     context.consume(&open)?;
+    let _target_work = permit.target_work(&open.sender_fingerprint)?;
     let ticket = authority.ticket(&open.sender_fingerprint)?;
     let lease = authority.reserve(ticket, Transport::Tcp)?;
     // Place the sender authority gate beneath rustls before target admission or
@@ -190,20 +191,21 @@ pub(super) async fn run_local_fang_forwarder(
     println!("🦷 {} listening locally on {}", fang_id, local);
 
     loop {
-        let (mut inbound, client_addr) = listener.accept().await?;
+        let (mut inbound, _) = listener.accept().await?;
         let peer_addr = peer_addr.to_string();
         let remote = remote.to_string();
-        let fang_id = fang_id.to_string();
         let identity = identity.clone();
         let expected_peer = expected_peer.clone();
 
         let handle = tokio::spawn(async move {
-            if let Err(e) =
-                pipe_one_fang_connection(&mut inbound, &peer_addr, &remote, identity, expected_peer)
-                    .await
-            {
-                eprintln!("🦷 {} client {} pipe error: {}", fang_id, client_addr, e);
-            }
+            let _ = pipe_one_fang_connection(
+                &mut inbound,
+                &peer_addr,
+                &remote,
+                identity,
+                expected_peer,
+            )
+            .await;
         });
         cancellation.track(&handle);
     }
@@ -290,9 +292,7 @@ where
                 return Ok::<(), io::Error>(());
             }
 
-            eprintln!("TCPV2 client->server plaintext={} counter={}", n, counter);
             write_encrypted_frame(&mut out_w, &key, 0, &mut counter, &buf[..n]).await?;
-            eprintln!("TCPV2 client->server sent counter={}", counter);
         }
     };
 
@@ -300,7 +300,6 @@ where
         let mut counter = 0u64;
 
         loop {
-            eprintln!("TCPV2 client waiting server->client counter={}", counter);
             match tokio::time::timeout(
                 Duration::from_secs(60),
                 read_encrypted_frame(&mut out_r, &key, 1, &mut counter),
@@ -309,11 +308,6 @@ where
             {
                 Ok(Ok(plaintext)) => {
                     let plaintext = Zeroizing::new(plaintext);
-                    eprintln!(
-                        "TCPV2 client recv server->client plaintext={} counter={}",
-                        plaintext.len(),
-                        counter
-                    );
                     in_w.write_all(&plaintext).await?;
                     in_w.flush().await?;
                 }
@@ -351,7 +345,6 @@ async fn secure_copy_server_side(
         let mut counter = 0u64;
 
         loop {
-            eprintln!("TCPV2 server waiting client->remote counter={}", counter);
             match tokio::time::timeout(
                 Duration::from_secs(60),
                 read_encrypted_frame(&mut fang_r, &key, 0, &mut counter),
@@ -360,11 +353,6 @@ async fn secure_copy_server_side(
             {
                 Ok(Ok(plaintext)) => {
                     let plaintext = Zeroizing::new(plaintext);
-                    eprintln!(
-                        "TCPV2 server recv client->remote plaintext={} counter={}",
-                        plaintext.len(),
-                        counter
-                    );
                     remote_w.write_all(&plaintext).await?;
                     remote_w.flush().await?;
                 }
@@ -394,9 +382,7 @@ async fn secure_copy_server_side(
                 return Ok::<(), io::Error>(());
             }
 
-            eprintln!("TCPV2 server->client plaintext={} counter={}", n, counter);
             write_encrypted_frame(&mut fang_w, &key, 1, &mut counter, &buf[..n]).await?;
-            eprintln!("TCPV2 server->client sent counter={}", counter);
         }
     };
 
@@ -474,7 +460,12 @@ async fn read_encrypted_frame<R: AsyncReadExt + Unpin>(
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "closed"));
     }
 
-    let len = u32::from_be_bytes(len_buf) as usize;
+    let len = usize::try_from(u32::from_be_bytes(len_buf)).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "frame length is not representable",
+        )
+    })?;
 
     if len > 4096 {
         return Err(io::Error::new(

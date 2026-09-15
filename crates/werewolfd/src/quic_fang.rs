@@ -65,7 +65,6 @@ pub async fn open_quic_fang(
 
                 let result = connect_v3(server_addr, &remote_addr, &identity, &expected_peer).await;
                 let Ok((_connection, send, recv)) = result else {
-                    eprintln!("QUIC v3 handshake rejected");
                     return;
                 };
                 let _ = proxy_streams(tcp, send, recv).await;
