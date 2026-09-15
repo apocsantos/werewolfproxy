@@ -8,6 +8,7 @@ pub(crate) struct ControlListener {
     listener: UnixListener,
     _lock: File,
     _directory: PrivateDirectory,
+    name: OsString,
 }
 
 fn denied() -> io::Error {
@@ -42,6 +43,7 @@ pub(crate) async fn bind(socket: &str) -> io::Result<ControlListener> {
         listener,
         _lock: lock,
         _directory: directory,
+        name: name.to_os_string(),
     })
 }
 
@@ -49,6 +51,25 @@ impl ControlListener {
     pub(super) async fn accept(&self) -> io::Result<UnixStream> {
         let (stream, _) = self.listener.accept().await?;
         Ok(stream)
+    }
+
+    /// Normal lifecycle shutdown owns the instance lock and unlinks only the
+    /// exact socket inode it created. Abrupt death deliberately relies on the
+    /// next start's connection-refused, inode-checked stale recovery instead.
+    pub(super) fn close(self) -> io::Result<()> {
+        let ControlListener {
+            listener,
+            _lock,
+            _directory,
+            name,
+        } = self;
+        let inode = _directory.socket_inode(&name)?;
+        drop(listener);
+        if let Some(inode) = inode {
+            _directory.unlink_stale_socket(&name, inode)?;
+        }
+        drop(_lock);
+        Ok(())
     }
 }
 

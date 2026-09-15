@@ -30,11 +30,28 @@ mod frame_write_tests;
 #[cfg(test)]
 mod receiver_auth_tests;
 
+#[cfg(test)]
 pub(super) async fn run_fang_listener(
     listen_addr: &str,
     state: Arc<Mutex<DaemonState>>,
 ) -> io::Result<()> {
-    let runtime_tls_identity = crate::state::wait_for_runtime_tls_identity(&state).await?;
+    run_fang_listener_with_ready(listen_addr, state, None).await
+}
+
+pub(crate) async fn run_fang_listener_with_ready(
+    listen_addr: &str,
+    state: Arc<Mutex<DaemonState>>,
+    mut ready: Option<tokio::sync::oneshot::Sender<io::Result<()>>>,
+) -> io::Result<()> {
+    let runtime_tls_identity = match crate::state::wait_for_runtime_tls_identity(&state).await {
+        Ok(identity) => identity,
+        Err(error) => {
+            if let Some(ready) = ready.take() {
+                let _ = ready.send(Err(io::Error::new(error.kind(), error.to_string())));
+            }
+            return Err(error);
+        }
+    };
     let (admission, authority) = {
         let state = state.lock().await;
         (state.admission.clone(), state.inbound_authority.clone())
@@ -42,7 +59,18 @@ pub(super) async fn run_fang_listener(
     let tls_config =
         crate::tls_identity::server_config(&runtime_tls_identity).map_err(|_| hs::rejected())?;
     let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
-    let listener = TcpListener::bind(listen_addr).await?;
+    let listener = match TcpListener::bind(listen_addr).await {
+        Ok(listener) => listener,
+        Err(error) => {
+            if let Some(ready) = ready.take() {
+                let _ = ready.send(Err(io::Error::new(error.kind(), error.to_string())));
+            }
+            return Err(error);
+        }
+    };
+    if let Some(ready) = ready.take() {
+        let _ = ready.send(Ok(()));
+    }
     let mut tasks = tokio::task::JoinSet::new();
 
     loop {

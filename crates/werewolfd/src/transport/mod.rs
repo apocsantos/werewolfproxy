@@ -8,6 +8,7 @@ pub(super) enum FangTransport {
     Quic(String),
 }
 
+#[cfg(test)]
 pub(super) async fn run_quic_fang_listener(
     listen_addr: &str,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::DaemonState>>,
@@ -15,11 +16,28 @@ pub(super) async fn run_quic_fang_listener(
     quic::run_quic_fang_listener(listen_addr, state).await
 }
 
+pub(crate) async fn run_quic_fang_listener_with_ready(
+    listen_addr: &str,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::DaemonState>>,
+    ready: tokio::sync::oneshot::Sender<tokio::io::Result<()>>,
+) -> tokio::io::Result<()> {
+    quic::run_quic_fang_listener_with_ready(listen_addr, state, Some(ready)).await
+}
+
+#[cfg(test)]
 pub(super) async fn run_fang_listener(
     listen_addr: &str,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::DaemonState>>,
 ) -> tokio::io::Result<()> {
     tcp_encrypted::run_fang_listener(listen_addr, state).await
+}
+
+pub(crate) async fn run_fang_listener_with_ready(
+    listen_addr: &str,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::DaemonState>>,
+    ready: tokio::sync::oneshot::Sender<tokio::io::Result<()>>,
+) -> tokio::io::Result<()> {
+    tcp_encrypted::run_fang_listener_with_ready(listen_addr, state, Some(ready)).await
 }
 
 #[allow(clippy::too_many_arguments)]

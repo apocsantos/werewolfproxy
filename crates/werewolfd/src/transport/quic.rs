@@ -69,12 +69,38 @@ mod authority_tests;
 #[cfg(test)]
 mod resource_tests;
 
+#[cfg(test)]
 pub(super) async fn run_quic_fang_listener(
     listen_addr: &str,
     state: Arc<Mutex<DaemonState>>,
 ) -> io::Result<()> {
-    let addr = listen_addr.parse().map_err(|_| hs::rejected())?;
-    let runtime_tls_identity = crate::state::wait_for_runtime_tls_identity(&state).await?;
+    run_quic_fang_listener_with_ready(listen_addr, state, None).await
+}
+
+pub(crate) async fn run_quic_fang_listener_with_ready(
+    listen_addr: &str,
+    state: Arc<Mutex<DaemonState>>,
+    mut ready: Option<tokio::sync::oneshot::Sender<io::Result<()>>>,
+) -> io::Result<()> {
+    let addr = match listen_addr.parse() {
+        Ok(addr) => addr,
+        Err(_) => {
+            let error = hs::rejected();
+            if let Some(ready) = ready.take() {
+                let _ = ready.send(Err(io::Error::new(error.kind(), error.to_string())));
+            }
+            return Err(error);
+        }
+    };
+    let runtime_tls_identity = match crate::state::wait_for_runtime_tls_identity(&state).await {
+        Ok(identity) => identity,
+        Err(error) => {
+            if let Some(ready) = ready.take() {
+                let _ = ready.send(Err(io::Error::new(error.kind(), error.to_string())));
+            }
+            return Err(error);
+        }
+    };
     let (admission, authority) = {
         let state = state.lock().await;
         (state.admission.clone(), state.inbound_authority.clone())
@@ -84,7 +110,19 @@ pub(super) async fn run_quic_fang_listener(
     let quic_crypto =
         quinn::crypto::rustls::QuicServerConfig::try_from(crypto).map_err(|_| hs::rejected())?;
     let server_config = resource_bounded_server_config(quic_crypto)?;
-    let endpoint = quinn::Endpoint::server(server_config, addr).map_err(|_| hs::rejected())?;
+    let endpoint = match quinn::Endpoint::server(server_config, addr) {
+        Ok(endpoint) => endpoint,
+        Err(_) => {
+            let error = hs::rejected();
+            if let Some(ready) = ready.take() {
+                let _ = ready.send(Err(io::Error::new(error.kind(), error.to_string())));
+            }
+            return Err(error);
+        }
+    };
+    if let Some(ready) = ready.take() {
+        let _ = ready.send(Ok(()));
+    }
     let mut connections = tokio::task::JoinSet::new();
     loop {
         let incoming = tokio::select! {

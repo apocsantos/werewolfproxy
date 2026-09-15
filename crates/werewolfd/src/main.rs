@@ -4,6 +4,7 @@ mod admission;
 mod control;
 mod fang_registry;
 mod handshake;
+mod lifecycle;
 mod policy;
 mod protected_state;
 mod state;
@@ -25,8 +26,11 @@ mod quic_lab;
 use clap::Parser;
 use rand_core::{OsRng, RngCore};
 use serde_json::json;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::{io, process::ExitCode, sync::Arc, time::Duration};
+use tokio::{
+    sync::{oneshot, watch, Mutex},
+    task::{JoinHandle, JoinSet},
+};
 use werewolf_core::{
     fang::{FangRecord, FangState},
     protocol::ControlResponse,
@@ -34,16 +38,11 @@ use werewolf_core::{
 };
 
 const WEREWOLF_VERSION: &str = "v0.1.0-rc1";
+const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(5);
 
 macro_rules! ww_info {
     ($subsystem:expr, $event:expr, $($arg:tt)*) => {
         println!("[INFO][{}][{}] {}", $subsystem, $event, format!($($arg)*));
-    };
-}
-
-macro_rules! ww_warn {
-    ($subsystem:expr, $event:expr, $($arg:tt)*) => {
-        eprintln!("[WARN][{}][{}] {}", $subsystem, $event, format!($($arg)*));
     };
 }
 
@@ -55,17 +54,110 @@ mod persistence;
 use persistence::load_startup_state;
 
 #[tokio::main]
-async fn main() -> anyhow_free::Result<()> {
+async fn main() -> ExitCode {
     tracing_subscriber::fmt::init();
 
-    let mut args = Args::parse();
+    let args = match Args::try_parse() {
+        Ok(args) => args,
+        Err(error) => {
+            let _ = error.print();
+            return ExitCode::from(ExitClass::Configuration.code());
+        }
+    };
+    match run(args).await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            lifecycle_state(LifecycleState::Failed);
+            eprintln!("[ERROR][SYSTEM][{}] {}", error.class.label(), error.message);
+            ExitCode::from(error.class.code())
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LifecycleState {
+    Starting,
+    Validating,
+    Locked,
+    Ready,
+    Stopping,
+    Failed,
+}
+
+impl LifecycleState {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Starting => "STARTING",
+            Self::Validating => "VALIDATING",
+            Self::Locked => "LOCKED",
+            Self::Ready => "READY",
+            Self::Stopping => "STOPPING",
+            Self::Failed => "FAILED",
+        }
+    }
+}
+
+fn lifecycle_state(state: LifecycleState) {
+    ww_info!("SYSTEM", "STATE", "{}", state.label());
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExitClass {
+    Configuration,
+    SecurityState,
+    AlreadyRunning,
+    Listener,
+    Runtime,
+}
+
+impl ExitClass {
+    fn code(self) -> u8 {
+        match self {
+            Self::Configuration => 64,
+            Self::SecurityState => 65,
+            Self::AlreadyRunning => 66,
+            Self::Listener => 69,
+            Self::Runtime => 70,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Configuration => "CONFIGURATION",
+            Self::SecurityState => "SECURITY_STATE",
+            Self::AlreadyRunning => "ALREADY_RUNNING",
+            Self::Listener => "LISTENER",
+            Self::Runtime => "RUNTIME",
+        }
+    }
+}
+
+struct DaemonFailure {
+    class: ExitClass,
+    message: String,
+}
+
+impl DaemonFailure {
+    fn new(class: ExitClass, error: impl std::fmt::Display) -> Self {
+        Self {
+            class,
+            message: error.to_string(),
+        }
+    }
+}
+
+async fn run(mut args: Args) -> Result<(), DaemonFailure> {
+    lifecycle_state(LifecycleState::Starting);
+
     if args.socket.is_empty() {
-        args.socket = werewolf_core::local_fs::default_control_socket()?
+        args.socket = werewolf_core::local_fs::default_control_socket()
+            .map_err(|error| DaemonFailure::new(ExitClass::Configuration, error))?
             .into_os_string()
             .into_string()
             .map_err(|_| {
                 std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-UTF-8 control path")
-            })?;
+            })
+            .map_err(|error| DaemonFailure::new(ExitClass::Configuration, error))?;
     }
 
     ww_info!(
@@ -80,22 +172,46 @@ async fn main() -> anyhow_free::Result<()> {
     let mut initial_state = DaemonState::default();
     configure_den(&mut initial_state, &args, &home);
 
-    let den = Arc::new(werewolf_core::local_fs::PrivateDirectory::open(
-        &home, true,
-    )?);
-    let _den_lock = den.lock(std::ffi::OsStr::new(".den.lock"))?;
-    load_startup_state(&den, &mut initial_state)?;
+    lifecycle_state(LifecycleState::Validating);
+    let den = Arc::new(
+        werewolf_core::local_fs::PrivateDirectory::open(&home, true)
+            .map_err(|error| DaemonFailure::new(ExitClass::SecurityState, error))?,
+    );
+    let _den_lock = den
+        .lock(std::ffi::OsStr::new(".den.lock"))
+        .map_err(|error| {
+            let class = if error.kind() == io::ErrorKind::WouldBlock {
+                ExitClass::AlreadyRunning
+            } else {
+                ExitClass::SecurityState
+            };
+            DaemonFailure::new(class, error)
+        })?;
+    load_startup_state(&den, &mut initial_state)
+        .map_err(|error| DaemonFailure::new(ExitClass::SecurityState, error))?;
     initial_state.den = Some(den.clone());
 
     // Build one ephemeral TLS representation of the existing Pelt per process
     // startup. It remains in memory for later transport integration.
-    initial_state.initialize_runtime_tls_identity()?;
+    initial_state
+        .initialize_runtime_tls_identity()
+        .map_err(|error| DaemonFailure::new(ExitClass::SecurityState, error))?;
 
     validate_startup_config(&initial_state);
 
+    let pelt_ready = initial_state.runtime_tls_identity.is_some();
     let state = Arc::new(Mutex::new(initial_state));
 
-    let listener = control::bind_socket(&args.socket).await?;
+    let listener = control::bind_socket(&args.socket)
+        .await
+        .map_err(|error| DaemonFailure::new(ExitClass::SecurityState, error))?;
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let mut control_task = tokio::spawn(control::serve_until_shutdown(
+        listener,
+        state.clone(),
+        home.clone(),
+        shutdown_rx,
+    ));
 
     let active_profiles = state.lock().await.active_profiles.clone();
 
@@ -146,22 +262,46 @@ async fn main() -> anyhow_free::Result<()> {
         }
     }
 
+    let (tcp_ready_tx, tcp_ready_rx) = oneshot::channel();
+    let (quic_ready_tx, quic_ready_rx) = oneshot::channel();
+    let mut transport_tasks = JoinSet::new();
     let net_state = state.clone();
     let listen_addr = args.listen.clone();
-    tokio::spawn(async move {
-        if let Err(e) = transport::run_fang_listener(&listen_addr, net_state).await {
-            eprintln!("🦷 Fang listener error: {}", e);
-        }
+    transport_tasks.spawn(async move {
+        transport::run_fang_listener_with_ready(&listen_addr, net_state, tcp_ready_tx).await
     });
-
     let quic_listen_addr = args.quic_listen.clone();
     let quic_state = state.clone();
-
-    tokio::spawn(async move {
-        if let Err(e) = transport::run_quic_fang_listener(&quic_listen_addr, quic_state).await {
-            eprintln!("⚡ QUIC Fang listener error: {}", e);
-        }
+    transport_tasks.spawn(async move {
+        transport::run_quic_fang_listener_with_ready(&quic_listen_addr, quic_state, quic_ready_tx)
+            .await
     });
+
+    // With an existing Pelt, secure transport binding is a startup prerequisite.
+    // With no Pelt, Stage12D4 deliberately leaves secure listeners unbound until
+    // the local pelt.init transaction publishes a RuntimeTlsIdentity.
+    if pelt_ready {
+        if let Err(error) = await_listener_ready(tcp_ready_rx).await {
+            shutdown_owned_tasks(
+                &state,
+                &shutdown_tx,
+                &mut transport_tasks,
+                Some(&mut control_task),
+            )
+            .await;
+            return Err(DaemonFailure::new(ExitClass::Listener, error));
+        }
+        if let Err(error) = await_listener_ready(quic_ready_rx).await {
+            shutdown_owned_tasks(
+                &state,
+                &shutdown_tx,
+                &mut transport_tasks,
+                Some(&mut control_task),
+            )
+            .await;
+            return Err(DaemonFailure::new(ExitClass::Listener, error));
+        }
+    }
 
     ww_info!(
         "CONTROL",
@@ -169,22 +309,105 @@ async fn main() -> anyhow_free::Result<()> {
         "🐺 werewolfd control socket: {}",
         args.socket
     );
-    ww_info!(
-        "FANG",
-        "TCP_LISTENER",
-        "🦷 Fang network listener: tcp://{}",
-        args.listen
-    );
-    ww_info!(
-        "QUIC",
-        "LISTENER",
-        "⚡ QUIC Fang listener: quic://{}",
-        args.quic_listen
-    );
+    if pelt_ready {
+        ww_info!(
+            "FANG",
+            "TCP_LISTENER",
+            "🦷 Fang network listener: tcp://{}",
+            args.listen
+        );
+        ww_info!(
+            "QUIC",
+            "LISTENER",
+            "⚡ QUIC Fang listener: quic://{}",
+            args.quic_listen
+        );
+    } else {
+        ww_info!(
+            "SYSTEM",
+            "WAITING_FOR_PELT",
+            "secure listeners remain unbound until local pelt.init succeeds"
+        );
+    }
     ww_info!("DEN", "HOME", "🏠 Den home: {}", home.display());
 
-    control::serve(listener, state, home).await?;
-    Ok(())
+    let authority_locked = state.lock().await.inbound_authority.is_locked();
+    if authority_locked {
+        lifecycle_state(LifecycleState::Locked);
+    } else if pelt_ready {
+        lifecycle_state(LifecycleState::Ready);
+    }
+
+    let signal = lifecycle::wait_for_shutdown();
+    tokio::pin!(signal);
+    tokio::select! {
+        reason = &mut signal => {
+            ww_info!("SYSTEM", "SHUTDOWN_SIGNAL", "{} received", reason.label());
+            shutdown_owned_tasks(
+                &state,
+                &shutdown_tx,
+                &mut transport_tasks,
+                Some(&mut control_task),
+            ).await;
+            Ok(())
+        }
+        result = &mut control_task => {
+            shutdown_owned_tasks(&state, &shutdown_tx, &mut transport_tasks, None).await;
+            result
+                .map_err(|error| DaemonFailure::new(ExitClass::Runtime, error))?
+                .map_err(|error| DaemonFailure::new(ExitClass::Runtime, error))?;
+            Ok(())
+        }
+        result = transport_tasks.join_next(), if !transport_tasks.is_empty() => {
+            let error = match result {
+                Some(Ok(Ok(()))) => io::Error::other("secure listener stopped unexpectedly"),
+                Some(Ok(Err(error))) => error,
+                Some(Err(error)) => io::Error::other(error.to_string()),
+                None => io::Error::other("all secure listener supervisors stopped"),
+            };
+            shutdown_owned_tasks(&state, &shutdown_tx, &mut transport_tasks, Some(&mut control_task)).await;
+            Err(DaemonFailure::new(ExitClass::Listener, error))
+        }
+    }
+}
+
+async fn await_listener_ready(ready: oneshot::Receiver<io::Result<()>>) -> io::Result<()> {
+    ready
+        .await
+        .map_err(|_| io::Error::other("secure listener stopped before binding"))?
+}
+
+async fn shutdown_owned_tasks(
+    state: &Arc<Mutex<DaemonState>>,
+    shutdown: &watch::Sender<bool>,
+    transports: &mut JoinSet<io::Result<()>>,
+    control: Option<&mut JoinHandle<io::Result<()>>>,
+) {
+    lifecycle_state(LifecycleState::Stopping);
+    let authority = state.lock().await.inbound_authority.clone();
+    let _ = authority.lock();
+    {
+        let mut state = state.lock().await;
+        state.fang_registry.abort_all();
+        state.fang_registry.clear_started();
+        state.fang_registry.clear_records();
+        state.status.active_fangs = 0;
+    }
+    let _ = shutdown.send(true);
+    transports.abort_all();
+    let _ = tokio::time::timeout(SHUTDOWN_DEADLINE, async {
+        while transports.join_next().await.is_some() {}
+    })
+    .await;
+    if let Some(control) = control {
+        if tokio::time::timeout(SHUTDOWN_DEADLINE, &mut *control)
+            .await
+            .is_err()
+        {
+            control.abort();
+            let _ = control.await;
+        }
+    }
 }
 
 fn generate_fang_id(peer: &str, local: &str, remote: &str, existing_count: usize) -> String {
@@ -475,10 +698,6 @@ async fn persist_activation(
         control::persist_active(home, candidate, state).await?;
     }
     Ok(())
-}
-
-mod anyhow_free {
-    pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 }
 
 #[cfg(test)]

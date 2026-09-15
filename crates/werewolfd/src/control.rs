@@ -4,7 +4,8 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::{
     io::{self, BufReader},
     net::UnixStream,
-    sync::{Mutex, Semaphore},
+    sync::{oneshot, watch, Mutex, Semaphore},
+    task::JoinSet,
 };
 use werewolf_core::{
     protocol::{ControlRequest, ControlResponse},
@@ -17,15 +18,52 @@ mod socket;
 pub(crate) use mutation::persist_active;
 pub(crate) use socket::bind as bind_socket;
 
+type MutationTasks = Arc<Mutex<JoinSet<()>>>;
+
+#[cfg(test)]
 pub(super) async fn serve(
     listener: socket::ControlListener,
     state: Arc<Mutex<DaemonState>>,
     home: PathBuf,
 ) -> io::Result<()> {
+    let (keepalive, shutdown) = watch::channel(false);
+    let result = serve_until_shutdown(listener, state, home, shutdown).await;
+    drop(keepalive);
+    result
+}
+
+/// Control clients are owned by this supervisor. The shutdown notification
+/// stops new accepts, aborts bounded client work, and removes the socket while
+/// retaining the per-instance lock. This gives SIGTERM the same local-control
+/// cleanup path as an orderly control-server exit.
+pub(super) async fn serve_until_shutdown(
+    listener: socket::ControlListener,
+    state: Arc<Mutex<DaemonState>>,
+    home: PathBuf,
+    mut shutdown: watch::Receiver<bool>,
+) -> io::Result<()> {
     let clients = Arc::new(Semaphore::new(limits::CLIENTS));
     let mutations = Arc::new(limits::Mutations::default());
-    loop {
-        let stream = listener.accept().await?;
+    let mutation_tasks: MutationTasks = Arc::new(Mutex::new(JoinSet::new()));
+    let mut tasks = JoinSet::new();
+    let result = loop {
+        if let Ok(mut owned) = mutation_tasks.try_lock() {
+            while owned.try_join_next().is_some() {}
+        }
+        let stream = tokio::select! {
+            biased;
+            Some(_) = tasks.join_next(), if !tasks.is_empty() => continue,
+            changed = shutdown.changed() => {
+                if changed.is_ok() && *shutdown.borrow() {
+                    break Ok(());
+                }
+                break Err(io::Error::other("control shutdown channel closed"));
+            }
+            stream = listener.accept() => match stream {
+                Ok(stream) => stream,
+                Err(error) => break Err(error),
+            },
+        };
         // No parsing, administrative response or task dispatch before credentials.
         if !socket::authorized(&stream) {
             drop(stream);
@@ -37,19 +75,28 @@ pub(super) async fn serve(
         let state = state.clone();
         let home = home.clone();
         let mutations = mutations.clone();
+        let mutation_tasks = mutation_tasks.clone();
 
-        tokio::spawn(async move {
+        tasks.spawn(async move {
             let _permit = permit;
             let end = tokio::time::Instant::now() + limits::LIFETIME;
             // Accepted mutations run in an independent task holding their permit;
             // expiration/disconnection of this client cannot cancel publication.
             let _ = tokio::time::timeout_at(
                 end,
-                handle_control_client(stream, state, home, mutations, end),
+                handle_control_client(stream, state, home, mutations, mutation_tasks, end),
             )
             .await;
         });
-    }
+    };
+    tasks.abort_all();
+    while tasks.join_next().await.is_some() {}
+    let mut owned_mutations = mutation_tasks.lock().await;
+    owned_mutations.abort_all();
+    while owned_mutations.join_next().await.is_some() {}
+    drop(owned_mutations);
+    listener.close()?;
+    result
 }
 
 async fn handle_control_client(
@@ -57,6 +104,7 @@ async fn handle_control_client(
     state: Arc<Mutex<DaemonState>>,
     home: PathBuf,
     mutations: Arc<limits::Mutations>,
+    mutation_tasks: MutationTasks,
     end: tokio::time::Instant,
 ) -> io::Result<()> {
     let (reader, mut writer) = stream.into_split();
@@ -81,12 +129,19 @@ async fn handle_control_client(
             let permit = mutations.admit().await?;
             let state = state.clone();
             let home = home.clone();
-            tokio::spawn(async move {
-                let _permit = permit;
-                handle_request(req, state, home).await
-            })
-            .await
-            .map_err(|_| io::Error::other("control operation failed"))?
+            let (complete, response) = oneshot::channel();
+            {
+                // This lock only owns insertion into the supervisor set; no
+                // filesystem, network, or mutation work occurs while held.
+                let mut owned = mutation_tasks.lock().await;
+                owned.spawn(async move {
+                    let _permit = permit;
+                    let _ = complete.send(handle_request(req, state, home).await);
+                });
+            }
+            response
+                .await
+                .map_err(|_| io::Error::other("control operation cancelled"))?
         } else {
             tokio::time::timeout(
                 limits::ADMISSION_WINDOW,
@@ -562,6 +617,40 @@ mod characterization_tests {
     }
 
     #[tokio::test]
+    async fn lifecycle_shutdown_removes_only_its_owned_control_socket() {
+        use std::os::unix::fs::FileTypeExt;
+
+        let fixture = Fixture::new();
+        let path = fixture.0.join("control.sock");
+        let listener = bind_socket(path.to_str().unwrap()).await.unwrap();
+        let (shutdown, receiver) = watch::channel(false);
+        let server = tokio::spawn(serve_until_shutdown(
+            listener,
+            Arc::new(Mutex::new(fixture.state())),
+            fixture.0.clone(),
+            receiver,
+        ));
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if std::fs::symlink_metadata(&path)
+                    .map(|metadata| metadata.file_type().is_socket())
+                    .unwrap_or(false)
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        shutdown.send(true).unwrap();
+        server.await.unwrap().unwrap();
+        assert!(!path.exists());
+        let replacement = bind_socket(path.to_str().unwrap()).await.unwrap();
+        drop(replacement);
+    }
+
+    #[tokio::test]
     async fn stale_socket_is_replaced_but_unlocked_active_socket_is_preserved() {
         use std::os::unix::fs::MetadataExt;
         let fixture = Fixture::new();
@@ -673,6 +762,7 @@ mod characterization_tests {
             state,
             home,
             Arc::new(limits::Mutations::default()),
+            Arc::new(Mutex::new(JoinSet::new())),
             tokio::time::Instant::now() + limits::LIFETIME,
         ));
         let mut client = BufReader::new(client);
@@ -695,6 +785,7 @@ mod characterization_tests {
             Arc::new(Mutex::new(fixture.state())),
             fixture.0.clone(),
             Arc::new(limits::Mutations::default()),
+            Arc::new(Mutex::new(JoinSet::new())),
             tokio::time::Instant::now() + std::time::Duration::from_millis(20),
         )
         .await;
@@ -721,12 +812,14 @@ mod characterization_tests {
         let state = Arc::new(Mutex::new(fixture.state()));
         let guard = state.lock().await;
         let mutations = Arc::new(limits::Mutations::default());
+        let mutation_tasks = Arc::new(Mutex::new(JoinSet::new()));
         let (mut client, server) = UnixStream::pair().unwrap();
         let task = tokio::spawn(handle_control_client(
             server,
             state.clone(),
             fixture.0.clone(),
             mutations.clone(),
+            mutation_tasks.clone(),
             tokio::time::Instant::now() + limits::LIFETIME,
         ));
         client
