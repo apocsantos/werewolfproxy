@@ -63,6 +63,11 @@ pub(super) async fn run_fang_listener(
         let state_for_client = state.clone();
         let tls_acceptor = tls_acceptor.clone();
         let mut silver = authority.silver_watch();
+        // Subscribe before this second check. A Silver transition before the
+        // subscription is caught here; one after it is caught by changed().
+        if authority.is_locked() {
+            continue;
+        }
 
         tasks.spawn(async move {
             let tls_stream = tokio::select! {

@@ -108,6 +108,12 @@ pub(super) async fn run_quic_fang_listener(
         let admission = admission.clone();
         let authority = authority.clone();
         let mut silver = authority.silver_watch();
+        // Subscribe before this second check. A Silver transition before the
+        // subscription is caught here; one after it is caught by changed().
+        if authority.is_locked() {
+            incoming.refuse();
+            continue;
+        }
         connections.spawn(async move {
             let _context_permit = context_permit;
             let result = tokio::select! {
