@@ -508,7 +508,10 @@ pub(crate) async fn persist_active(
 mod tests {
     use super::*;
     use std::{os::unix::fs::PermissionsExt, sync::Arc};
-    use werewolf_core::{local_fs::PrivateDirectory, pelt::generate_identity};
+    use werewolf_core::{
+        local_fs::{CommitOutcome, PrivateDirectory},
+        pelt::generate_identity,
+    };
 
     struct Fixture(std::path::PathBuf);
 
@@ -528,6 +531,22 @@ mod tests {
                 den: Some(Arc::new(PrivateDirectory::open(&self.0, false).unwrap())),
                 ..DaemonState::default()
             }))
+        }
+
+        fn state_with_silver_open(&self) -> Arc<Mutex<DaemonState>> {
+            Arc::new(Mutex::new(DaemonState {
+                den: Some(Arc::new(PrivateDirectory::open(&self.0, false).unwrap())),
+                inbound_authority: crate::authority::Authority::new(false),
+                ..DaemonState::default()
+            }))
+        }
+
+        fn write(&self, name: &str, bytes: &[u8]) {
+            let directory = PrivateDirectory::open(&self.0, false).unwrap();
+            assert!(matches!(
+                directory.replace(OsStr::new(name), bytes, false),
+                CommitOutcome::DurablyCommitted
+            ));
         }
     }
 
@@ -645,5 +664,59 @@ mod tests {
         assert_eq!(state.lock().await.protected_state_generation, Some(5));
         assert!(!fixture.0.join("fangs.json").exists());
         assert!(!fixture.0.join("active_fangs.json").exists());
+    }
+
+    #[tokio::test]
+    async fn silver_fences_before_manifest_commit_and_opens_only_after_it() {
+        let fixture = Fixture::new();
+        fixture.write("silver.json", br#"{"version":1,"mode":"open"}"#);
+        let state = fixture.state_with_silver_open();
+        assert!(
+            handle(
+                ControlRequest {
+                    id: "migrate".into(),
+                    cmd: "state.manifest.migrate".into(),
+                    args: json!({})
+                },
+                state.clone(),
+                fixture.0.clone()
+            )
+            .await
+            .ok
+        );
+        assert!(
+            super::super::handle_request(
+                ControlRequest {
+                    id: "on".into(),
+                    cmd: "silver.trigger".into(),
+                    args: json!({})
+                },
+                state.clone(),
+                fixture.0.clone()
+            )
+            .await
+            .ok
+        );
+        assert!(state.lock().await.inbound_authority.is_locked());
+        assert_eq!(state.lock().await.protected_state_generation, Some(2));
+        assert!(matches!(
+            protected_state::load(&PrivateDirectory::open(&fixture.0, false).unwrap()).unwrap(),
+            protected_state::Load::Manifest { state, .. } if state.silver_locked
+        ));
+        assert!(
+            super::super::handle_request(
+                ControlRequest {
+                    id: "off".into(),
+                    cmd: "silver.reset".into(),
+                    args: json!({})
+                },
+                state.clone(),
+                fixture.0.clone()
+            )
+            .await
+            .ok
+        );
+        assert!(!state.lock().await.inbound_authority.is_locked());
+        assert_eq!(state.lock().await.protected_state_generation, Some(3));
     }
 }
