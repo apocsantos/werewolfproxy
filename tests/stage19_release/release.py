@@ -89,8 +89,8 @@ def main():
         require(mode(state) == 0o700 and not any(state.iterdir()),
                 'installer created state or unsafe state mode')
         home_path = str(pathlib.Path.home()).encode()
-        require(home_path not in daemon.read_bytes() and home_path not in control.read_bytes(),
-                'release binary retained a developer-home path')
+        require(all(home_path not in path.read_bytes() for path in release.rglob('*') if path.is_file()),
+                'release artifact retained a developer-home path')
         print('PASS staging install layout and no implicit identity')
 
         sentinel = state / 'synthetic-state-sentinel'

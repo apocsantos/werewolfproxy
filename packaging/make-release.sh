@@ -53,7 +53,7 @@ git_commit=$commit
 source_date_epoch=$epoch
 rustc=$rustc_version
 target=$target
-rustflags=$release_rustflags
+rustflags=--remap-path-prefix=<checkout>=/usr/src/werewolfproxy --remap-path-prefix=<cargo-home>=/usr/local/cargo
 cargo_lock_sha256=$lock_sha
 werewolfd_sha256=$daemon_sha
 werewolfctl_sha256=$ctl_sha
