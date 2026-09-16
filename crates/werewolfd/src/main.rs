@@ -65,8 +65,13 @@ async fn main() -> ExitCode {
     let args = match Args::try_parse() {
         Ok(args) => args,
         Err(error) => {
+            let exit_code = error.exit_code();
             let _ = error.print();
-            return ExitCode::from(ExitClass::Configuration.code());
+            return ExitCode::from(if exit_code == 0 {
+                0
+            } else {
+                ExitClass::Configuration.code()
+            });
         }
     };
     match run(args).await {
