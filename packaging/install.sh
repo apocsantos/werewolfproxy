@@ -62,6 +62,7 @@ atomic_install() {
 
 ensure_dir "${ROOT}/usr" 755
 ensure_dir "${ROOT}/usr/local" 755
+ensure_dir "${ROOT}/usr/local/bin" 755
 ensure_dir "${ROOT}/usr/bin" 755
 ensure_dir "${ROOT}/usr/lib" 755
 ensure_dir "${ROOT}/usr/lib/systemd" 755
