@@ -334,6 +334,9 @@ class Campaign:
                 self.count("verified_payload_bytes", size * 2)
             if index % 25 == 0:
                 self.sample()
+            # Let orderly close propagation run between independent session
+            # cycles.  Deliberate saturation is covered in its own phase.
+            time.sleep(0.05)
 
     def mixed_transport(self, cycles: int) -> None:
         for index in range(cycles):
@@ -344,6 +347,7 @@ class Campaign:
             )
             self.count("mixed_transport_cycles")
             self.count("verified_payload_bytes", size * 2)
+            time.sleep(0.05)
 
     def strict_and_compatibility(self) -> None:
         # Fangs are explicitly secure transports.  Closing the QUIC Fang leaves
