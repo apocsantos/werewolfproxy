@@ -74,17 +74,20 @@ def main() -> int:
         h.require(b.run_ctl("status")["silver"] == "active", "Silver did not persist as locked")
         a.stop(); b.stop()
         before = {"a": digest_tree(a.den), "b": digest_tree(b.den)}
-        active_intent = (b.den / "active_fangs.json").read_bytes()
+        active_intent = {
+            path.name: path.read_bytes()
+            for path in b.den.glob("security_state_*_active-fangs.json")
+        }
+        h.require(active_intent, "manifest generation did not contain active Fang intent")
         pelt = (a.den / "pelt.json").read_bytes()
-        pack = (a.den / "pack.json").read_bytes()
-        targets = (a.den / "target_policy.json").read_bytes()
         print("PASS Stage18 baseline state and Silver lock recorded", flush=True)
 
         atomic_replace(args.stage19_daemon.resolve(), daemon)
         atomic_replace(args.stage19_control.resolve(), control)
         a.start(); b.start()
         h.require(b.run_ctl("status")["silver"] == "active", "upgrade unlocked Silver")
-        h.require((b.den / "active_fangs.json").read_bytes() == active_intent,
+        h.require({path.name: path.read_bytes() for path in b.den.glob("security_state_*_active-fangs.json")}
+                  == active_intent,
                   "upgrade changed active Fang intent")
         a.stop(); b.stop()
         h.require({"a": digest_tree(a.den), "b": digest_tree(b.den)} == before,
@@ -95,10 +98,9 @@ def main() -> int:
         atomic_replace(args.stage18_control.resolve(), control)
         a.start(); b.start()
         h.require(b.run_ctl("status")["silver"] == "active", "Stage18 downgrade rejected or unlocked state")
+        h.require({"a": digest_tree(a.den), "b": digest_tree(b.den)} == before,
+                  "Stage18 software downgrade altered protected persistent state")
         h.require((a.den / "pelt.json").read_bytes() == pelt, "downgrade changed Pelt")
-        h.require((a.den / "pack.json").read_bytes() == pack, "downgrade changed Pack")
-        h.require((a.den / "target_policy.json").read_bytes() == targets,
-                  "downgrade changed target policy")
         b.run_ctl("silver", "off")
         b.run_ctl("fang", "activate", "upgrade-route")
         h.require(h.send_echo(fang_port, b"stage19-downgrade") == b"stage19-downgrade",
