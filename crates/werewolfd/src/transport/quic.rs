@@ -15,7 +15,7 @@ impl Drop for CloseConnection {
 }
 use std::{sync::Arc, time::Duration};
 use tokio::{
-    io,
+    io::{self, AsyncWriteExt},
     sync::Mutex,
     time::{timeout, timeout_at, Instant},
 };
@@ -203,8 +203,21 @@ pub(crate) async fn run_quic_fang_listener_with_ready(
                                             let (mut read,write)=target.split();
                                             let mut write=AuthorityWriter::new(write,lease.clone());
                                             let mut send=AuthorityWriter::new(&mut send,lease.clone());
-                                            let up=tokio::io::copy(&mut recv,&mut write);
-                                            let down=tokio::io::copy(&mut read,&mut send);
+                                            let up=async {
+                                                tokio::io::copy(&mut recv,&mut write).await?;
+                                                // Propagate the client's QUIC FIN to
+                                                // a keep-alive target. Without this,
+                                                // target-side EOF never arrives and
+                                                // the authority lease survives until
+                                                // transport idle cleanup.
+                                                write.shutdown().await?;
+                                                Ok::<(),io::Error>(())
+                                            };
+                                            let down=async {
+                                                tokio::io::copy(&mut read,&mut send).await?;
+                                                send.shutdown().await?;
+                                                Ok::<(),io::Error>(())
+                                            };
                                             tokio::try_join!(up,down).map(|_|())
                                         }=>result,
                                     };

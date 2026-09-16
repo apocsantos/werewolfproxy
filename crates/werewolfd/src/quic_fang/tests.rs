@@ -14,7 +14,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::AsyncReadExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, UdpSocket},
     sync::{oneshot, Mutex},
     time::{sleep, timeout, Instant},
@@ -135,6 +135,92 @@ async fn production_correct_receiver_and_fifty_mib_integrity() {
         assert_eq!(actual_hash, expected_hash);
         connection.close(0u32.into(), b"");
         drop(listener);
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn short_lived_local_fang_connections_finish_quic_and_release_authority() {
+    timeout(Duration::from_secs(12), async {
+        let sender = generate_identity();
+        let receiver = generate_identity();
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_address = target.local_addr().unwrap();
+        let runtime_tls_identity = Arc::new(RuntimeTlsIdentity::from_pelt(&receiver).unwrap());
+        let state = Arc::new(Mutex::new(DaemonState {
+            pelt: Some(receiver.clone()),
+            runtime_tls_identity: Some(runtime_tls_identity),
+            peers: vec![peer(&sender, "sender")],
+            target_policy: TargetPolicy::Grants(HashMap::from([(
+                sender.fingerprint.clone(),
+                [target_address].into(),
+            )])),
+            ..Default::default()
+        }));
+        let quic_address = reserve_udp();
+        let listener_state = state.clone();
+        let listener = AbortOnDrop(tokio::spawn(async move {
+            crate::transport::run_quic_fang_listener(&quic_address.to_string(), listener_state)
+                .await
+        }));
+        sleep(Duration::from_millis(30)).await;
+
+        let local = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_address = local.local_addr().unwrap();
+        drop(local);
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let fang = AbortOnDrop(
+            open_quic_fang(
+                local_address.to_string(),
+                quic_address.to_string(),
+                target_address.to_string(),
+                sender,
+                crate::fang_registry::FangCancellation::default(),
+                ready_tx,
+                expected(&receiver),
+            )
+            .await
+            .unwrap(),
+        );
+        ready_rx.await.unwrap().unwrap();
+
+        let mut target_task = AbortOnDrop(tokio::spawn(async move {
+            let mut clients = tokio::task::JoinSet::new();
+            for _ in 0..65 {
+                let (mut stream, _) = target.accept().await.unwrap();
+                clients.spawn(async move {
+                    let mut byte = [0u8; 1];
+                    stream.read_exact(&mut byte).await.unwrap();
+                    stream.write_all(&byte).await.unwrap();
+                    let mut rest = [0u8; 1];
+                    let _ = stream.read(&mut rest).await;
+                });
+            }
+            while clients.join_next().await.is_some() {}
+        }));
+        for marker in 0..65u8 {
+            let mut client = tokio::net::TcpStream::connect(local_address).await.unwrap();
+            client.write_all(&[marker]).await.unwrap();
+            let mut echoed = [0u8; 1];
+            client.read_exact(&mut echoed).await.unwrap();
+            assert_eq!(echoed, [marker]);
+            // Drop instead of half-closing: this is the ordinary short-lived
+            // local client lifecycle which previously retained QUIC leases.
+            drop(client);
+        }
+        timeout(Duration::from_secs(3), async {
+            loop {
+                if state.lock().await.inbound_authority.summary()["active"] == 0 {
+                    break;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        (&mut target_task.0).await.unwrap();
+        drop((fang, listener));
     })
     .await
     .unwrap();

@@ -1,6 +1,14 @@
 use super::*;
 use base64::Engine;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    sync::oneshot,
+    time::{sleep, timeout},
+};
 use werewolf_core::pelt::generate_identity;
 
 fn selected(pelt: &PeltIdentity) -> crate::policy::ExpectedPeerIdentity {
@@ -8,6 +16,104 @@ fn selected(pelt: &PeltIdentity) -> crate::policy::ExpectedPeerIdentity {
         fingerprint: pelt.fingerprint.clone(),
         public_key_b64: Some(pelt.public_key_b64.clone()),
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn short_lived_local_fang_connections_release_tcp_authority() {
+    timeout(Duration::from_secs(12), async {
+        let sender = generate_identity();
+        let receiver = generate_identity();
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_address = target.local_addr().unwrap();
+        let state = Arc::new(Mutex::new(DaemonState {
+            pelt: Some(receiver.clone()),
+            runtime_tls_identity: Some(Arc::new(
+                crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap(),
+            )),
+            peers: vec![werewolf_core::pack::PeerRecord {
+                name: "sender".into(),
+                fingerprint: sender.fingerprint.clone(),
+                public_key_b64: Some(sender.public_key_b64.clone()),
+                address: "tcp://127.0.0.1:1".into(),
+                trust: werewolf_core::pack::TrustLevel::Packmate,
+            }],
+            target_policy: crate::target_policy::TargetPolicy::Grants(HashMap::from([(
+                sender.fingerprint.clone(),
+                [target_address].into(),
+            )])),
+            ..Default::default()
+        }));
+        let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let receiver_address = reserved.local_addr().unwrap();
+        drop(reserved);
+        let receiver_state = state.clone();
+        let receiver_task = tokio::spawn(async move {
+            run_fang_listener(&receiver_address.to_string(), receiver_state).await
+        });
+        sleep(Duration::from_millis(30)).await;
+
+        let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_address = reserved.local_addr().unwrap();
+        drop(reserved);
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let sender_identity = sender.clone();
+        let receiver_identity = selected(&receiver);
+        let local_task = tokio::spawn(async move {
+            run_local_fang_forwarder(
+                "short-lived",
+                &local_address.to_string(),
+                &receiver_address.to_string(),
+                &target_address.to_string(),
+                sender_identity,
+                crate::fang_registry::FangCancellation::default(),
+                ready_tx,
+                receiver_identity,
+            )
+            .await
+        });
+        ready_rx.await.unwrap().unwrap();
+
+        let mut target_task = tokio::spawn(async move {
+            let mut clients = tokio::task::JoinSet::new();
+            for _ in 0..65 {
+                let (mut stream, _) = target.accept().await.unwrap();
+                clients.spawn(async move {
+                    let mut byte = [0u8; 1];
+                    stream.read_exact(&mut byte).await.unwrap();
+                    stream.write_all(&byte).await.unwrap();
+                    // A realistic echo/keep-alive target does not close just
+                    // because it wrote a response; it waits for the forwarder
+                    // to propagate the local client's close.
+                    let mut rest = [0u8; 1];
+                    let _ = stream.read(&mut rest).await;
+                });
+            }
+            while clients.join_next().await.is_some() {}
+        });
+        for marker in 0..65u8 {
+            let mut client = TcpStream::connect(local_address).await.unwrap();
+            client.write_all(&[marker]).await.unwrap();
+            let mut echoed = [0u8; 1];
+            client.read_exact(&mut echoed).await.unwrap();
+            assert_eq!(echoed, [marker]);
+            drop(client);
+        }
+        timeout(Duration::from_secs(3), async {
+            loop {
+                if state.lock().await.inbound_authority.summary()["active"].as_u64() == Some(0) {
+                    break;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        (&mut target_task).await.unwrap();
+        local_task.abort();
+        receiver_task.abort();
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]

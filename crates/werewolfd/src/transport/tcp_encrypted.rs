@@ -338,6 +338,12 @@ where
             let n = in_r.read(&mut buf).await?;
             if n == 0 {
                 let _ = out_w.shutdown().await;
+                // `join!` keeps a completed branch alive while its opposite
+                // direction drains.  Move the TLS write half out now so its
+                // close state is observable by the receiver and a sequence
+                // of ordinary short-lived local clients cannot retain leases
+                // until the 60-second read timeout.
+                drop(out_w);
                 return Ok::<(), io::Error>(());
             }
 
@@ -375,8 +381,15 @@ where
         }
     };
 
-    let _ = tokio::join!(client_to_server, server_to_client);
-    Ok(())
+    // A local client close must close the whole encrypted session. Keeping the
+    // opposite TLS read half alive in `join!` made short-lived connections
+    // retain the receiver authority lease until its 60-second read timeout.
+    // Application protocols that require a prolonged half-closed response
+    // keep their local socket open until that response is complete.
+    tokio::select! {
+        result = client_to_server => result,
+        result = server_to_client => result,
+    }
 }
 
 async fn secure_copy_server_side(

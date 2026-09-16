@@ -140,10 +140,21 @@ async fn proxy_streams(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let (mut rd, mut wr) = tcp.into_split();
 
-    let up = copy(&mut rd, &mut send);
-    let down = copy(&mut recv, &mut wr);
+    let up = async {
+        copy(&mut rd, &mut send).await?;
+        // A local TCP EOF is a completed QUIC send direction.  Without this
+        // explicit FIN, the receiver's stream copy waits for its idle timeout
+        // and retains the Stage11C authority lease for every short-lived Fang
+        // connection.
+        send.finish()?;
+        Ok::<(), std::io::Error>(())
+    };
+    let down = async {
+        copy(&mut recv, &mut wr).await?;
+        Ok::<(), std::io::Error>(())
+    };
 
-    let _ = tokio::join!(up, down);
+    tokio::try_join!(up, down)?;
 
     Ok(())
 }
