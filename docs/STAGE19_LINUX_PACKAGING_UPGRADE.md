@@ -57,6 +57,10 @@ target, release version, commit metadata, and `SOURCE_DATE_EPOCH` produced
 byte-identical `werewolfd` and `werewolfctl` binaries. This is a
 characterization of that exact environment, not a claim about every toolchain.
 
+The release builder rejects caller-supplied Rust flags and remaps the checkout
+and Cargo registry paths to stable release paths. This prevents builder home
+paths from becoming release artifact metadata without stripping symbols.
+
 The release binaries dynamically use the normal Linux runtime loader,
 `libc.so.6`, `libm.so.6`, and `libgcc_s.so.1`; the builder does not claim static
 linking or compatibility with older glibc versions.

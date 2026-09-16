@@ -88,6 +88,9 @@ def main():
                 'staged binary or unit mode differs from release contract')
         require(mode(state) == 0o700 and not any(state.iterdir()),
                 'installer created state or unsafe state mode')
+        home_path = str(pathlib.Path.home()).encode()
+        require(home_path not in daemon.read_bytes() and home_path not in control.read_bytes(),
+                'release binary retained a developer-home path')
         print('PASS staging install layout and no implicit identity')
 
         sentinel = state / 'synthetic-state-sentinel'
