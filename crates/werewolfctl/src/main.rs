@@ -15,7 +15,12 @@ use werewolf_core::{
     state_validation,
 };
 
-const VERSION: &str = "v0.1.0-rc1";
+// A release build supplies a fixed external RC version; ordinary developer
+// builds deliberately remain free of timestamp-derived version metadata.
+const VERSION: &str = match option_env!("WEREWOLF_RELEASE_VERSION") {
+    Some(version) => version,
+    None => "v0.1.0-rc1",
+};
 
 #[derive(Parser)]
 #[command(
