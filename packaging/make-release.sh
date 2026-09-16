@@ -63,6 +63,6 @@ EOF
 
 parent=$(dirname "$release_dir")
 name=$(basename "$release_dir")
-(cd "$parent" && tar --sort=name --format=posix --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -cf - "$name" | gzip -n > "$archive") || fail 'archive creation failed'
+(cd "$parent" && tar --sort=name --format=posix --pax-option=delete=atime,delete=ctime --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -cf - "$name" | gzip -n > "$archive") || fail 'archive creation failed'
 printf '%s\n' "$release_dir"
 printf '%s\n' "$archive"

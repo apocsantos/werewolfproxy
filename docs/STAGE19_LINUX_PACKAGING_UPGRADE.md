@@ -59,7 +59,10 @@ characterization of that exact environment, not a claim about every toolchain.
 
 The release builder rejects caller-supplied Rust flags and remaps the checkout
 and Cargo registry paths to stable release paths. This prevents builder home
-paths from becoming release artifact metadata without stripping symbols.
+paths from becoming release artifact metadata without stripping symbols. Its
+tar writer fixes owner, group, mtime, entry order, and omits PAX access/change
+times before applying `gzip -n`, so a rebuilt archive from identical contents
+and epoch is byte-identical.
 
 The release binaries dynamically use the normal Linux runtime loader,
 `libc.so.6`, `libm.so.6`, and `libgcc_s.so.1`; the builder does not claim static
