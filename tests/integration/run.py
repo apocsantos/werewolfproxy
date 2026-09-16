@@ -67,7 +67,7 @@ def control_request(path, cmd, args=None, timeout=5):
 
 
 class Lab:
-    def __init__(self, keep=False):
+    def __init__(self, keep=False, binary_dir=None):
         self.base = pathlib.Path(tempfile.mkdtemp(prefix='wwp-lab-'))
         self.keep = keep
         self.processes = []
@@ -82,7 +82,11 @@ class Lab:
                     'TMPDIR': str(self.base), 'LANG': 'C.UTF-8',
                     'NO_PROXY': '*', 'no_proxy': '*'}
         (self.base / 'runtime').mkdir(mode=0o700)
-        self.binary = ROOT / 'target' / 'stage1-lab' / 'debug' / 'werewolfd'
+        self.binary_dir = pathlib.Path(binary_dir).resolve() if binary_dir else None
+        self.binary = (self.binary_dir / 'werewolfd' if self.binary_dir else
+                       ROOT / 'target' / 'stage1-lab' / 'debug' / 'werewolfd')
+        self.control_binary = (self.binary_dir / 'werewolfctl' if self.binary_dir else
+                               self.binary.with_name('werewolfctl'))
         self.generation = 0
 
     def spawn(self, argv, label, env=None):
@@ -283,9 +287,15 @@ class Lab:
     def run(self):
         build_env = {k: v for k, v in os.environ.items()
                      if not k.startswith('WEREWOLF_') and k not in ('BASH_ENV', 'ENV')}
-        self.command(['cargo', 'build', '--locked', '--offline', '--workspace', '--bins',
-                      '--target-dir', ROOT / 'target/stage1-lab'], 'cargo-build',
-                     timeout=600, env=build_env)
+        if self.binary_dir is None:
+            self.command(['cargo', 'build', '--locked', '--offline', '--workspace', '--bins',
+                          '--target-dir', ROOT / 'target/stage1-lab'], 'cargo-build',
+                         timeout=600, env=build_env)
+        else:
+            require(self.binary.is_file() and os.access(self.binary, os.X_OK),
+                    f'installed daemon unavailable: {self.binary}')
+            require(self.control_binary.is_file() and os.access(self.control_binary, os.X_OK),
+                    f'installed control binary unavailable: {self.control_binary}')
         self.binary_hash = digest(self.binary)
         provenance = {'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT).decode().strip(),
                       'git_status': subprocess.check_output(['git', 'status', '--short'], cwd=ROOT).decode(),
@@ -293,7 +303,8 @@ class Lab:
                       'rustc': self.command(['rustc', '-Vv'], 'rustc', env=build_env).decode(),
                       'cargo': self.command(['cargo', '-V'], 'cargo', env=build_env).decode(),
                       'exercised_daemon': str(self.binary), 'daemon_sha256': self.binary_hash,
-                      'cli_built_but_not_exercised': str(self.binary.with_name('werewolfctl')),
+                      'installed_artifacts': self.binary_dir is not None,
+                      'control_binary': str(self.control_binary),
                       'selector': str(ROOT / 'scripts/wolf-b.sh'),
                       'selector_sha256': digest(ROOT / 'scripts/wolf-b.sh')}
         write_json(self.base / 'provenance.json', provenance)
@@ -466,10 +477,12 @@ class Lab:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--keep-temp', action='store_true', help='retain private Dens, logs and payloads')
+    parser.add_argument('--binary-dir', type=pathlib.Path,
+                        help='exercise installed werewolfd/werewolfctl binaries instead of building them')
     args = parser.parse_args()
     os.umask(0o077)
     before = snapshot()
-    lab = Lab(args.keep_temp)
+    lab = Lab(args.keep_temp, args.binary_dir)
     print(f'Lab: {lab.base}', flush=True)
     def interrupted(signum, frame):
         raise RuntimeError(f'interrupted by signal {signum}')
