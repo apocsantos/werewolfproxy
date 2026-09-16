@@ -39,7 +39,7 @@ use werewolf_core::{
 
 // Release packaging supplies this fixed value. Developer builds retain the
 // historical local identifier without embedding wall-clock build metadata.
-const WEREWOLF_VERSION: &str = match option_env!("WEREWOLF_RELEASE_VERSION") {
+pub(crate) const WEREWOLF_VERSION: &str = match option_env!("WEREWOLF_RELEASE_VERSION") {
     Some(version) => version,
     None => "v0.1.0-rc1",
 };

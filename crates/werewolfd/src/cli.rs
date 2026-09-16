@@ -1,7 +1,7 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "werewolfd")]
+#[command(name = "werewolfd", version = crate::WEREWOLF_VERSION)]
 pub(super) struct Args {
     #[arg(long, default_value = "")]
     pub(super) socket: String,

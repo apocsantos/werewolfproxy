@@ -25,7 +25,8 @@ const VERSION: &str = match option_env!("WEREWOLF_RELEASE_VERSION") {
 #[derive(Parser)]
 #[command(
     name = "werewolfctl",
-    about = "WerewolfProxy local administration tool"
+    about = "WerewolfProxy local administration tool",
+    version = VERSION
 )]
 struct Cli {
     /// Explicit Unix control socket. It takes precedence over the runtime default.
