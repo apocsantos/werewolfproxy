@@ -16,3 +16,9 @@ The harness never provisions a Pelt or a Pack and writes no cryptographic
 material. Its sentinel is an inert, synthetic staging-state marker used only
 to prove that installer and uninstaller operations do not modify persistent
 state.
+
+`upgrade.py` uses exact Stage18 and Stage19 binaries in a disposable Den. It
+records an active-Fang intent and Silver lock under Stage18, atomically swaps
+the binary pair to Stage19, verifies byte-for-byte state preservation, then
+swaps back to Stage18 and re-establishes forwarding. It proves software
+compatibility only; it does not make a persistent-state freshness claim.
