@@ -1,0 +1,363 @@
+{
+  "schema": 1,
+  "method": "same Stage13A production relay, workloads, features, classifier and 275 samples",
+  "lock_sha256": "c1ba0b557cb984716c3a04b093df63917cded507fb24ae5a8fbe9f8f04e58d17",
+  "production_tcp_source_sha256": {
+    "before": "7789478db67dd8fe3fec966b5ca0183904e77c1d2ab23625bb5d1dfa9aa89280",
+    "after": "c9efad7d2b4e44fd9e0d9e8739d95316e1d77c0c5ae20b9e547ff43cc98fb7c1"
+  },
+  "before": {
+    "capture_sha256": "5a39c77a282330108d141cc5cc8af7c8a4a0f4b29fc6f288873b35dda84680d4",
+    "source_head_recorded_by_capture": "eb0ac3647e650c6b556ca1a0f3d45e883c247e31",
+    "connections": 275,
+    "tls_records": 705125,
+    "tls_application_records": 704025,
+    "tls_exact_26_byte_application_records": 351050,
+    "exact_26_percent_of_all_records": 49.785,
+    "tls_application_records_at_most_32_bytes": 351600,
+    "at_most_32_percent_of_application_records": 49.941,
+    "at_most_32_histogram": [
+      [
+        24,
+        550
+      ],
+      [
+        26,
+        351050
+      ]
+    ],
+    "tls_application_record_length_top_ten": [
+      [
+        26,
+        351050
+      ],
+      [
+        1824,
+        57789
+      ],
+      [
+        1568,
+        57624
+      ],
+      [
+        1952,
+        57591
+      ],
+      [
+        1440,
+        57519
+      ],
+      [
+        2080,
+        57463
+      ],
+      [
+        1696,
+        57371
+      ],
+      [
+        24,
+        550
+      ],
+      [
+        1318,
+        520
+      ],
+      [
+        1702,
+        510
+      ]
+    ],
+    "spearman_application_size_wire_bytes": 0.932,
+    "spearman_application_size_tls_record_count": 0.9402,
+    "classifier_full_accuracy": 0.6747,
+    "classifier_size_only_accuracy": 0.747,
+    "workloads": {
+      "handshake_only": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 849.0,
+        "median_wire_s2c_bytes": 1382.0,
+        "median_tls_record_count": 11.0,
+        "median_tls_application_record_size": 209.0,
+        "median_completion_ms": 9.764,
+        "median_first_response_ms": null,
+        "median_wire_to_application_ratio": null,
+        "exact_26_byte_application_records": 0
+      },
+      "idle": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 849.0,
+        "median_wire_s2c_bytes": 1382.0,
+        "median_tls_record_count": 11.0,
+        "median_tls_application_record_size": 209.0,
+        "median_completion_ms": 1014.654,
+        "median_first_response_ms": null,
+        "median_wire_to_application_ratio": null,
+        "exact_26_byte_application_records": 0
+      },
+      "tiny": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 2065.0,
+        "median_wire_s2c_bytes": 2854.0,
+        "median_tls_record_count": 15.0,
+        "median_tls_application_record_size": 209.0,
+        "median_completion_ms": 109.933,
+        "median_first_response_ms": 109.898,
+        "median_wire_to_application_ratio": 82.859,
+        "exact_26_byte_application_records": 60
+      },
+      "interactive": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 12625.0,
+        "median_wire_s2c_bytes": 12902.0,
+        "median_tls_record_count": 43.0,
+        "median_tls_application_record_size": 209.0,
+        "median_completion_ms": 776.323,
+        "median_first_response_ms": 110.018,
+        "median_wire_to_application_ratio": 18.085,
+        "exact_26_byte_application_records": 480
+      },
+      "request_1kib": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 2323.0,
+        "median_wire_s2c_bytes": 2920.0,
+        "median_tls_record_count": 15.0,
+        "median_tls_application_record_size": 209.0,
+        "median_completion_ms": 111.065,
+        "median_first_response_ms": 111.555,
+        "median_wire_to_application_ratio": 2.529,
+        "exact_26_byte_application_records": 60
+      },
+      "transfer_64kib": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 85103.0,
+        "median_wire_s2c_bytes": 85124.0,
+        "median_tls_record_count": 199.0,
+        "median_tls_application_record_size": 209.0,
+        "median_completion_ms": 117.778,
+        "median_first_response_ms": 118.24,
+        "median_wire_to_application_ratio": 1.298,
+        "exact_26_byte_application_records": 2820
+      },
+      "transfer_1mib": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 1345371.0,
+        "median_wire_s2c_bytes": 1343168.0,
+        "median_tls_record_count": 3025.0,
+        "median_tls_application_record_size": 209.0,
+        "median_completion_ms": 840.085,
+        "median_first_response_ms": 39.349,
+        "median_wire_to_application_ratio": 1.282,
+        "exact_26_byte_application_records": 45235
+      },
+      "bulk_50mib": {
+        "connections": 5,
+        "median_wire_c2s_bytes": 2065,
+        "median_wire_s2c_bytes": 67356928,
+        "median_tls_record_count": 75597,
+        "median_tls_application_record_size": 209.0,
+        "median_completion_ms": 18766.9,
+        "median_first_response_ms": 98.759,
+        "median_wire_to_application_ratio": 1.285,
+        "exact_26_byte_application_records": 188965
+      },
+      "asymmetric_upload": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 1348123.0,
+        "median_wire_s2c_bytes": 2918.0,
+        "median_tls_record_count": 1525.0,
+        "median_tls_application_record_size": 209.0,
+        "median_completion_ms": 451.954,
+        "median_first_response_ms": 453.027,
+        "median_wire_to_application_ratio": 1.288,
+        "exact_26_byte_application_records": 22710
+      },
+      "asymmetric_download": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 2257.0,
+        "median_wire_s2c_bytes": 5385446.0,
+        "median_tls_record_count": 6059.0,
+        "median_tls_application_record_size": 209.0,
+        "median_completion_ms": 1618.695,
+        "median_first_response_ms": 80.309,
+        "median_wire_to_application_ratio": 1.285,
+        "exact_26_byte_application_records": 90720
+      }
+    }
+  },
+  "after": {
+    "capture_sha256": "75aff9282f7d58cf88f9c42eaa9d74e21cc79412785e2151f1772dadeaca2686",
+    "source_head_recorded_by_capture": "eb0ac3647e650c6b556ca1a0f3d45e883c247e31",
+    "connections": 275,
+    "tls_records": 354072,
+    "tls_application_records": 352972,
+    "tls_exact_26_byte_application_records": 0,
+    "exact_26_percent_of_all_records": 0.0,
+    "tls_application_records_at_most_32_bytes": 550,
+    "at_most_32_percent_of_application_records": 0.156,
+    "at_most_32_histogram": [
+      [
+        24,
+        550
+      ]
+    ],
+    "tls_application_record_length_top_ten": [
+      [
+        1828,
+        58000
+      ],
+      [
+        2084,
+        57686
+      ],
+      [
+        1444,
+        57680
+      ],
+      [
+        1572,
+        57554
+      ],
+      [
+        1700,
+        57485
+      ],
+      [
+        1956,
+        56998
+      ],
+      [
+        24,
+        550
+      ],
+      [
+        2090,
+        526
+      ],
+      [
+        1578,
+        517
+      ],
+      [
+        810,
+        510
+      ]
+    ],
+    "spearman_application_size_wire_bytes": 0.9274,
+    "spearman_application_size_tls_record_count": 0.9402,
+    "classifier_full_accuracy": 0.6747,
+    "classifier_size_only_accuracy": 0.7229,
+    "workloads": {
+      "handshake_only": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 849.0,
+        "median_wire_s2c_bytes": 1382.0,
+        "median_tls_record_count": 11.0,
+        "median_tls_application_record_size": 209.0,
+        "median_completion_ms": 10.482,
+        "median_first_response_ms": null,
+        "median_wire_to_application_ratio": null,
+        "exact_26_byte_application_records": 0
+      },
+      "idle": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 849.0,
+        "median_wire_s2c_bytes": 1382.0,
+        "median_tls_record_count": 11.0,
+        "median_tls_application_record_size": 209.0,
+        "median_completion_ms": 1014.207,
+        "median_first_response_ms": null,
+        "median_wire_to_application_ratio": null,
+        "exact_26_byte_application_records": 0
+      },
+      "tiny": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 2427.0,
+        "median_wire_s2c_bytes": 2832.0,
+        "median_tls_record_count": 13.0,
+        "median_tls_application_record_size": 360.0,
+        "median_completion_ms": 11.781,
+        "median_first_response_ms": 12.132,
+        "median_wire_to_application_ratio": 81.172,
+        "exact_26_byte_application_records": 0
+      },
+      "interactive": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 12705.0,
+        "median_wire_s2c_bytes": 13558.0,
+        "median_tls_record_count": 27.0,
+        "median_tls_application_record_size": 1194.0,
+        "median_completion_ms": 28.133,
+        "median_first_response_ms": 13.04,
+        "median_wire_to_application_ratio": 18.107,
+        "exact_26_byte_application_records": 0
+      },
+      "request_1kib": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 2301.0,
+        "median_wire_s2c_bytes": 2834.0,
+        "median_tls_record_count": 13.0,
+        "median_tls_application_record_size": 360.0,
+        "median_completion_ms": 11.823,
+        "median_first_response_ms": 12.239,
+        "median_wire_to_application_ratio": 2.507,
+        "exact_26_byte_application_records": 0
+      },
+      "transfer_64kib": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 83493.0,
+        "median_wire_s2c_bytes": 84154.0,
+        "median_tls_record_count": 105.0,
+        "median_tls_application_record_size": 1700.0,
+        "median_completion_ms": 103.638,
+        "median_first_response_ms": 104.267,
+        "median_wire_to_application_ratio": 1.284,
+        "exact_26_byte_application_records": 0
+      },
+      "transfer_1mib": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 1329955.0,
+        "median_wire_s2c_bytes": 1325636.0,
+        "median_tls_record_count": 1519.0,
+        "median_tls_application_record_size": 1700.0,
+        "median_completion_ms": 810.423,
+        "median_first_response_ms": 47.73,
+        "median_wire_to_application_ratio": 1.267,
+        "exact_26_byte_application_records": 0
+      },
+      "bulk_50mib": {
+        "connections": 5,
+        "median_wire_c2s_bytes": 2043,
+        "median_wire_s2c_bytes": 66470080,
+        "median_tls_record_count": 37804,
+        "median_tls_application_record_size": 1700.0,
+        "median_completion_ms": 17842.319,
+        "median_first_response_ms": 19.854,
+        "median_wire_to_application_ratio": 1.268,
+        "exact_26_byte_application_records": 0
+      },
+      "asymmetric_upload": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 1330723.0,
+        "median_wire_s2c_bytes": 2576.0,
+        "median_tls_record_count": 768.0,
+        "median_tls_application_record_size": 1700.0,
+        "median_completion_ms": 431.127,
+        "median_first_response_ms": 432.264,
+        "median_wire_to_application_ratio": 1.272,
+        "exact_26_byte_application_records": 0
+      },
+      "asymmetric_download": {
+        "connections": 30,
+        "median_wire_c2s_bytes": 2171.0,
+        "median_wire_s2c_bytes": 5315548.0,
+        "median_tls_record_count": 3035.0,
+        "median_tls_application_record_size": 1700.0,
+        "median_completion_ms": 1489.192,
+        "median_first_response_ms": 14.854,
+        "median_wire_to_application_ratio": 1.268,
+        "exact_26_byte_application_records": 0
+      }
+    }
+  }
+}

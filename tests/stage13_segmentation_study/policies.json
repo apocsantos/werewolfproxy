@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "simulation_seed": 13,
+  "decision_rule": {
+    "minimum_frame_count_accuracy_reduction_points": 10,
+    "material_full_feature_worsening_points": 5,
+    "majority_floor_margin_points": 10
+  },
+  "current_read_limit": 1400,
+  "maximum_legal_payload": 2046,
+  "current_padding": "production formula, independently drawn with seed 13 for changed frames",
+  "classifier_ablations": {
+    "frame_count_only": ["frame_count_total"],
+    "directional_count_only": ["frame_count_c2s", "frame_count_s2c"],
+    "application_byte_total_only": ["app_total"],
+    "directional_application_bytes_only": ["app_c2s", "app_s2c"],
+    "request_response_ratio_only": ["app_up_fraction"],
+    "observed_wire_total_only": ["total_wire"],
+    "directional_observed_wire_bytes_only": ["total_c2s", "total_s2c"],
+    "observed_wire_ratio_only": ["wire_up_fraction"],
+    "frame_payload_distribution_only": ["payload_median_c2s", "payload_median_s2c", "payload_p90_c2s", "payload_p90_s2c"]
+  },
+  "policies": [
+    {"name": "A_current", "kind": "observed", "online": true},
+    {"name": "B_fixed_256", "kind": "split_each_read", "maximum_payload": 256, "online": true},
+    {"name": "B_fixed_512", "kind": "split_each_read", "maximum_payload": 512, "online": true},
+    {"name": "C_medium_1024", "kind": "split_each_read", "maximum_payload": 1024, "online": true},
+    {"name": "B_fixed_1536", "kind": "split_each_read", "maximum_payload": 1536, "online": true},
+    {"name": "B_fixed_2046", "kind": "split_each_read", "maximum_payload": 2046, "online": true},
+    {"name": "D_alternate", "kind": "alternate_each_read", "capacities": [1024, 1536], "online": true},
+    {"name": "E_random", "kind": "random_each_read", "capacities": [512, 1024, 1536, 2046], "probabilities": [0.10, 0.20, 0.40, 0.30], "online": true},
+    {"name": "F_available_current_buffer", "kind": "split_each_read", "maximum_payload": 2046, "online": true},
+    {"name": "OFFLINE_IDEAL_MAX", "kind": "offline_direction", "maximum_payload": 2046, "online": false}
+  ]
+}

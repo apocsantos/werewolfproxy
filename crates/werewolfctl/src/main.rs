@@ -1,18 +1,43 @@
+#[cfg(not(target_os = "linux"))]
+compile_error!("secure local control currently requires Linux");
+
 use clap::{Parser, Subcommand};
-use serde_json::json;
+use serde_json::{json, Value};
+use std::{ffi::OsStr, io, path::PathBuf, process::ExitCode};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
 };
-use werewolf_core::protocol::{ControlRequest, ControlResponse};
+use werewolf_core::{
+    local_fs::PrivateDirectory,
+    pelt::{fingerprint_from_public_key_b64, PeltIdentity},
+    protocol::{ControlRequest, ControlResponse},
+    state_validation,
+};
+
+// A release build supplies a fixed external RC version; ordinary developer
+// builds deliberately remain free of timestamp-derived version metadata.
+const VERSION: &str = match option_env!("WEREWOLF_RELEASE_VERSION") {
+    Some(version) => version,
+    None => "v0.1.0-rc1",
+};
 
 #[derive(Parser)]
-#[command(name = "werewolfctl")]
-#[command(about = "WerewolfProxy control tool")]
+#[command(
+    name = "werewolfctl",
+    about = "WerewolfProxy local administration tool",
+    version = VERSION
+)]
 struct Cli {
-    #[arg(long, default_value = "/tmp/werewolf.sock")]
+    /// Explicit Unix control socket. It takes precedence over the runtime default.
+    #[arg(long, default_value = "")]
     socket: String,
-
+    /// Den used only by offline commands. The daemon is authoritative online.
+    #[arg(long, default_value = "~/.config/werewolf")]
+    home: String,
+    /// Emit one bounded JSON object on stdout.
+    #[arg(long)]
+    json: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -20,60 +45,80 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Version,
+    Status,
     Health,
     Diagnose,
-    Status,
-
+    Doctor,
     Den {
         #[command(subcommand)]
         command: DenCommands,
     },
-
+    State {
+        #[command(subcommand)]
+        command: StateCommands,
+    },
     Silver {
         #[command(subcommand)]
         command: SilverCommands,
     },
-
     Pelt {
         #[command(subcommand)]
         command: PeltCommands,
     },
-
     Pack {
         #[command(subcommand)]
         command: PackCommands,
     },
-
+    Target {
+        #[command(subcommand)]
+        command: TargetCommands,
+    },
     Fang {
         #[command(subcommand)]
         command: FangCommands,
     },
 }
-
 #[derive(Subcommand)]
 enum DenCommands {
+    Init,
     Info,
 }
-
+#[derive(Subcommand)]
+enum StateCommands {
+    ManifestMigrate,
+    BackupInfo,
+    /// Compatibility-only complete document replacement. Prefer target allow/remove.
+    #[command(hide = true)]
+    SetTargetPolicy {
+        document: String,
+    },
+}
 #[derive(Subcommand)]
 enum SilverCommands {
+    Status,
+    On,
+    Off,
+    #[command(hide = true)]
     Trigger,
+    #[command(hide = true)]
     Reset,
 }
-
 #[derive(Subcommand)]
 enum PeltCommands {
     Init,
+    Show,
+    #[command(hide = true)]
     Fingerprint,
 }
-
 #[derive(Subcommand)]
 enum PackCommands {
+    /// Add a Pack peer from its public Pelt key and transport address.
     Add {
         name: String,
-        fingerprint: String,
+        public_key_b64: String,
         address: String,
     },
+    List,
     Remove {
         name: String,
     },
@@ -84,543 +129,391 @@ enum PackCommands {
         name: String,
         address: String,
     },
-    List,
 }
-
+#[derive(Subcommand)]
+enum TargetCommands {
+    /// Allow one exact IP:port target for this Pack peer name or fingerprint.
+    Allow {
+        peer: String,
+        target: String,
+    },
+    List,
+    Remove {
+        peer: String,
+        target: String,
+    },
+}
 #[derive(Subcommand)]
 enum FangCommands {
+    /// Create a persistent profile without opening a listener.
+    Create {
+        name: String,
+        peer: String,
+        local: String,
+        remote: String,
+        #[arg(long, default_value = "quic", value_parser = ["quic", "tcp", "tcp-plain"])]
+        transport: String,
+    },
+    /// List configured persistent profiles.
+    List,
+    /// List running Fangs.
+    Active,
+    Activate {
+        name: String,
+    },
+    Deactivate {
+        name: String,
+    },
+    /// Active profiles must be deactivated before removal.
+    Remove {
+        name: String,
+    },
+    #[command(hide = true)]
     Open {
         peer: String,
         local: String,
         remote: String,
     },
+    #[command(hide = true)]
     OpenProfile {
         name: String,
     },
-    Profile {
-        #[command(subcommand)]
-        command: FangProfileCommands,
-    },
-    List,
-    Cleanup,
+    #[command(hide = true)]
     Close {
         fang_id: String,
     },
+    #[command(hide = true)]
+    Cleanup,
 }
 
-#[derive(Subcommand)]
-enum FangProfileCommands {
-    Add {
-        name: String,
-        peer: String,
-        local: String,
-        remote: String,
-    },
-    List,
-    Remove {
-        name: String,
-    },
+#[derive(Clone, Copy)]
+enum ExitClass {
+    Usage = 64,
+    State = 65,
+    Conflict = 66,
+    DaemonUnavailable = 69,
+    Rejected = 70,
+}
+struct CliError {
+    class: ExitClass,
+    message: String,
+}
+impl CliError {
+    fn new(class: ExitClass, message: impl std::fmt::Display) -> Self {
+        Self {
+            class,
+            message: message.to_string(),
+        }
+    }
 }
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> ExitCode {
     let cli = Cli::parse();
-
-    let original_cmd = match &cli.command {
-        Commands::Health => "health",
-        Commands::Diagnose => "diagnose",
-        Commands::Status => "status",
-        _ => "",
-    };
-
-    let (cmd, args) = match cli.command {
-        Commands::Version => {
-            print_banner();
-            let commit = option_env!("WEREWOLF_GIT_COMMIT").unwrap_or("unknown");
-            let built = option_env!("WEREWOLF_BUILD_DATE").unwrap_or("unknown");
-
-            println!("🐺 WerewolfProxy v0.1.0-rc1");
-            println!("commit: {}", commit);
-            println!("built: {}", built);
-            println!("profile: release");
-            println!("transport: signed quic");
-            println!("persistent-fangs: enabled");
-            return Ok(());
-        }
-
-        Commands::Health => ("status".to_string(), json!({})),
-
-        Commands::Diagnose => ("status".to_string(), json!({})),
-
-        Commands::Status => ("status".to_string(), json!({})),
-        Commands::Den { command } => match command {
-            DenCommands::Info => ("den.info".to_string(), json!({})),
-        },
-
-        Commands::Silver { command } => match command {
-            SilverCommands::Trigger => ("silver.trigger".to_string(), json!({})),
-            SilverCommands::Reset => ("silver.reset".to_string(), json!({})),
-        },
-
-        Commands::Pelt { command } => match command {
-            PeltCommands::Init => ("pelt.init".to_string(), json!({})),
-            PeltCommands::Fingerprint => ("pelt.fingerprint".to_string(), json!({})),
-        },
-
-        Commands::Pack { command } => match command {
-            PackCommands::Add {
-                name,
-                fingerprint,
-                address,
-            } => (
-                "pack.add".to_string(),
-                json!({
-                    "name": name,
-                    "fingerprint": fingerprint,
-                    "address": address
-                }),
-            ),
-            PackCommands::Remove { name } => ("pack.remove".to_string(), json!({ "name": name })),
-
-            PackCommands::Revoke { name } => ("pack.revoke".to_string(), json!({ "name": name })),
-            PackCommands::SetAddress { name, address } => (
-                "pack.set_address".to_string(),
-                json!({
-                    "name": name,
-                    "address": address
-                }),
-            ),
-            PackCommands::List => ("pack.list".to_string(), json!({})),
-        },
-
-        Commands::Fang { command } => match command {
-            FangCommands::Open {
-                peer,
-                local,
-                remote,
-            } => (
-                "fang.open".to_string(),
-                json!({
-                    "peer": peer,
-                    "local": local,
-                    "remote": remote
-                }),
-            ),
-
-            FangCommands::OpenProfile { name } => {
-                ("fang.open_profile".to_string(), json!({ "name": name }))
+    let json_output = cli.json;
+    match run(cli).await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("werewolfctl: {}", error.message);
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string(
+                        &json!({"ok":false,"error":error.message,"exit_class":error.class as u8})
+                    )
+                    .unwrap()
+                );
             }
+            ExitCode::from(error.class as u8)
+        }
+    }
+}
 
-            FangCommands::Profile { command } => match command {
-                FangProfileCommands::Add {
+async fn run(cli: Cli) -> Result<(), CliError> {
+    if matches!(cli.command, Commands::Version) {
+        return print_local(
+            cli.json,
+            "version",
+            json!({"version":VERSION,"commit":option_env!("WEREWOLF_GIT_COMMIT").unwrap_or("unknown")}),
+        );
+    }
+    if matches!(
+        cli.command,
+        Commands::Den {
+            command: DenCommands::Init
+        }
+    ) {
+        let home = expand_home(&cli.home);
+        let den =
+            PrivateDirectory::open(&home, true).map_err(|e| CliError::new(ExitClass::State, e))?;
+        let _lock = den
+            .lock(OsStr::new(".den.lock"))
+            .map_err(|e| CliError::new(ExitClass::Conflict, e))?;
+        return print_local(
+            cli.json,
+            "den.init",
+            json!({"home":home,"status":"ready_for_pelt_init","pelt_created":false}),
+        );
+    }
+    if matches!(
+        cli.command,
+        Commands::State {
+            command: StateCommands::BackupInfo
+        }
+    ) {
+        let home = expand_home(&cli.home);
+        return print_local(cli.json, "state.backup-info", backup_info(home));
+    }
+    if matches!(cli.command, Commands::Doctor) {
+        return doctor(&cli).await;
+    }
+    let (command, args) = request_for(cli.command)?;
+    let socket = socket_path(&cli.socket)?;
+    let response = send_request(&socket, &command, args)
+        .await
+        .map_err(|e| CliError::new(ExitClass::DaemonUnavailable, e))?;
+    print_response(cli.json, &command, response)
+}
+
+fn request_for(command: Commands) -> Result<(String, Value), CliError> {
+    let (cmd, args) = match command {
+        Commands::Status | Commands::Health | Commands::Diagnose => ("status", json!({})),
+        Commands::Den {
+            command: DenCommands::Info,
+        } => ("den.info", json!({})),
+        Commands::State {
+            command: StateCommands::ManifestMigrate,
+        } => ("state.manifest.migrate", json!({})),
+        Commands::State {
+            command: StateCommands::SetTargetPolicy { document },
+        } => ("target.policy.set", json!({"document":document})),
+        Commands::Silver {
+            command: SilverCommands::Status,
+        } => ("status", json!({})),
+        Commands::Silver {
+            command: SilverCommands::On | SilverCommands::Trigger,
+        } => ("silver.trigger", json!({})),
+        Commands::Silver {
+            command: SilverCommands::Off | SilverCommands::Reset,
+        } => ("silver.reset", json!({})),
+        Commands::Pelt {
+            command: PeltCommands::Init,
+        } => ("pelt.init", json!({})),
+        Commands::Pelt {
+            command: PeltCommands::Show | PeltCommands::Fingerprint,
+        } => ("pelt.fingerprint", json!({})),
+        Commands::Pack {
+            command:
+                PackCommands::Add {
+                    name,
+                    public_key_b64,
+                    address,
+                },
+        } => {
+            let fingerprint = fingerprint_from_public_key_b64(&public_key_b64).map_err(|_| {
+                CliError::new(
+                    ExitClass::Usage,
+                    "public_key_b64 is not a valid public Ed25519 key",
+                )
+            })?;
+            (
+                "pack.add",
+                json!({"name":name,"fingerprint":fingerprint,"public_key_b64":public_key_b64,"address":address}),
+            )
+        }
+        Commands::Pack {
+            command: PackCommands::List,
+        } => ("pack.list", json!({})),
+        Commands::Pack {
+            command: PackCommands::Remove { name },
+        } => ("pack.remove", json!({"name":name})),
+        Commands::Pack {
+            command: PackCommands::Revoke { name },
+        } => ("pack.revoke", json!({"name":name})),
+        Commands::Pack {
+            command: PackCommands::SetAddress { name, address },
+        } => ("pack.set_address", json!({"name":name,"address":address})),
+        Commands::Target {
+            command: TargetCommands::Allow { peer, target },
+        } => ("target.allow", json!({"peer":peer,"target":target})),
+        Commands::Target {
+            command: TargetCommands::List,
+        } => ("target.list", json!({})),
+        Commands::Target {
+            command: TargetCommands::Remove { peer, target },
+        } => ("target.remove", json!({"peer":peer,"target":target})),
+        Commands::Fang {
+            command:
+                FangCommands::Create {
                     name,
                     peer,
                     local,
                     remote,
-                } => (
-                    "fang.profile.add".to_string(),
-                    json!({
-                        "name": name,
-                        "peer": peer,
-                        "local": local,
-                        "remote": remote
-                    }),
-                ),
-                FangProfileCommands::List => ("fang.profile.list".to_string(), json!({})),
-                FangProfileCommands::Remove { name } => {
-                    ("fang.profile.remove".to_string(), json!({ "name": name }))
-                }
-            },
-
-            FangCommands::Cleanup => ("fang.cleanup".to_string(), json!({})),
-            FangCommands::List => ("fang.list".to_string(), json!({})),
-            FangCommands::Close { fang_id } => {
-                ("fang.close".to_string(), json!({ "fang_id": fang_id }))
-            }
-        },
+                    transport,
+                },
+        } => (
+            "fang.profile.add",
+            json!({"name":name,"peer":peer,"local":local,"remote":remote,"transport":transport}),
+        ),
+        Commands::Fang {
+            command: FangCommands::List,
+        } => ("fang.profile.list", json!({})),
+        Commands::Fang {
+            command: FangCommands::Active,
+        } => ("fang.list", json!({})),
+        Commands::Fang {
+            command: FangCommands::Activate { name } | FangCommands::OpenProfile { name },
+        } => ("fang.open_profile", json!({"name":name})),
+        Commands::Fang {
+            command: FangCommands::Deactivate { name },
+        } => ("fang.deactivate_profile", json!({"name":name})),
+        Commands::Fang {
+            command: FangCommands::Remove { name },
+        } => ("fang.profile.remove", json!({"name":name})),
+        Commands::Fang {
+            command:
+                FangCommands::Open {
+                    peer,
+                    local,
+                    remote,
+                },
+        } => (
+            "fang.open",
+            json!({"peer":peer,"local":local,"remote":remote}),
+        ),
+        Commands::Fang {
+            command: FangCommands::Close { fang_id },
+        } => ("fang.close", json!({"fang_id":fang_id})),
+        Commands::Fang {
+            command: FangCommands::Cleanup,
+        } => ("fang.cleanup", json!({})),
+        Commands::Version
+        | Commands::Doctor
+        | Commands::Den {
+            command: DenCommands::Init,
+        }
+        | Commands::State {
+            command: StateCommands::BackupInfo,
+        } => unreachable!("handled locally"),
     };
-
-    let response = send_request(&cli.socket, &cmd, args).await?;
-    print_response(
-        if original_cmd.is_empty() {
-            &cmd
-        } else {
-            original_cmd
-        },
-        response,
-    );
-
-    Ok(())
+    Ok((cmd.to_owned(), args))
 }
 
-async fn send_request(
-    socket: &str,
-    cmd: &str,
-    args: serde_json::Value,
-) -> std::io::Result<ControlResponse> {
-    let mut stream = UnixStream::connect(socket).await?;
+fn socket_path(socket: &str) -> Result<String, CliError> {
+    if !socket.is_empty() {
+        return Ok(socket.to_owned());
+    }
+    werewolf_core::local_fs::default_control_socket()
+        .map_err(|e| CliError::new(ExitClass::DaemonUnavailable, e))?
+        .into_os_string()
+        .into_string()
+        .map_err(|_| CliError::new(ExitClass::Usage, "control socket path is not UTF-8"))
+}
+fn expand_home(input: &str) -> PathBuf {
+    if input == "~" {
+        return PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()));
+    }
+    if let Some(rest) = input.strip_prefix("~/") {
+        return PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join(rest);
+    }
+    PathBuf::from(input)
+}
+fn backup_info(home: PathBuf) -> Value {
+    json!({"home":home,"requires_daemon_stopped":true,"include":["pelt.json","security_state_manifest_mode.json","security_state_current.json","security_state_a_*","security_state_b_*"],"exclude":[".den.lock","control.sock","runtime"],"warning":"A complete historical Den remains acceptable without an external freshness anchor."})
+}
 
-    let req = ControlRequest {
-        id: "req-001".to_string(),
-        cmd: cmd.to_string(),
+async fn doctor(cli: &Cli) -> Result<(), CliError> {
+    let home = expand_home(&cli.home);
+    let den = PrivateDirectory::open(&home, false).map_err(|e| {
+        CliError::new(
+            ExitClass::State,
+            format!("ERROR: Den validation failed: {e}"),
+        )
+    })?;
+    let mut checks = vec![json!({"name":"den","level":"OK","detail":"secure Den path validated"})];
+    let mode = den
+        .read(OsStr::new("security_state_manifest_mode.json"), 4096)
+        .map_err(|e| CliError::new(ExitClass::State, e))?;
+    let current = den
+        .read(OsStr::new("security_state_current.json"), 4096)
+        .map_err(|e| CliError::new(ExitClass::State, e))?;
+    match (mode, current) {
+        (Some(mode), Some(current)) if serde_json::from_slice::<Value>(&mode).is_ok() && serde_json::from_slice::<Value>(&current).is_ok() => checks.push(json!({"name":"manifest-selector","level":"OK","detail":"manifest mode and selector present"})),
+        (None, None) => checks.push(json!({"name":"manifest-selector","level":"WARNING","detail":"legacy Den; run state manifest-migrate while daemon is running"})),
+        _ => return Err(CliError::new(ExitClass::State, "ERROR: incomplete or malformed Stage15B manifest selector")),
+    }
+    match den
+        .read(OsStr::new("pelt.json"), 4096)
+        .map_err(|e| CliError::new(ExitClass::State, e))?
+    {
+        None => {
+            checks.push(json!({"name":"pelt","level":"WARNING","detail":"Pelt is not initialized"}))
+        }
+        Some(bytes) => {
+            let pelt: PeltIdentity = serde_json::from_slice(&bytes)
+                .map_err(|_| CliError::new(ExitClass::State, "ERROR: Pelt is malformed"))?;
+            state_validation::identity(&pelt)
+                .map_err(|_| CliError::new(ExitClass::State, "ERROR: Pelt validation failed"))?;
+            checks.push(json!({"name":"pelt","level":"OK","detail":"Pelt public identity validates","fingerprint":pelt.fingerprint}));
+        }
+    }
+    print_local(
+        cli.json,
+        "doctor",
+        json!({"home":home,"checks":checks,"result":"OK_OR_WARNING"}),
+    )
+}
+
+async fn send_request(socket: &str, cmd: &str, args: Value) -> io::Result<ControlResponse> {
+    let mut stream = UnixStream::connect(socket).await?;
+    let request = ControlRequest {
+        id: "werewolfctl".into(),
+        cmd: cmd.into(),
         args,
     };
-
-    let encoded = serde_json::to_string(&req).unwrap();
-    stream.write_all(encoded.as_bytes()).await?;
+    let bytes = serde_json::to_vec(&request).map_err(io::Error::other)?;
+    stream.write_all(&bytes).await?;
     stream.write_all(b"\n").await?;
-
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
     reader.read_line(&mut line).await?;
-
-    let response: ControlResponse = serde_json::from_str(&line).unwrap();
-    Ok(response)
+    serde_json::from_str(&line)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid control response"))
 }
-
-fn print_banner() {
-    println!(
-        r#"██╗    ██╗███████╗██████╗ ███████╗██╗    ██╗ ██████╗ ██╗     ███████╗
-██║    ██║██╔════╝██╔══██╗██╔════╝██║    ██║██╔═══██╗██║     ██╔════╝
-██║ █╗ ██║█████╗  ██████╔╝█████╗  ██║ █╗ ██║██║   ██║██║     █████╗
-██║███╗██║██╔══╝  ██╔══██╗██╔══╝  ██║███╗██║██║   ██║██║     ██╔══╝
-╚███╔███╔╝███████╗██║  ██║███████╗╚███╔███╔╝╚██████╔╝███████╗██║
- ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝╚══════╝ ╚══╝╚══╝  ╚═════╝ ╚══════╝╚═╝"#
-    );
-    println!();
-    println!("🐺 WerewolfProxy");
-    println!();
+fn print_response(
+    json_output: bool,
+    command: &str,
+    response: ControlResponse,
+) -> Result<(), CliError> {
+    if !response.ok {
+        let error = response
+            .error
+            .map(|error| error.message)
+            .unwrap_or_else(|| "operation rejected".into());
+        return Err(CliError::new(ExitClass::Rejected, error));
+    }
+    print_local(
+        json_output,
+        command,
+        response.result.unwrap_or_else(|| json!({})),
+    )
 }
-
-fn print_response(cmd: &str, resp: ControlResponse) {
-    if !resp.ok {
-        println!("{}", serde_json::to_string_pretty(&resp.error).unwrap());
-        return;
+fn print_local(json_output: bool, command: &str, result: Value) -> Result<(), CliError> {
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string(&json!({"ok":true,"command":command,"result":result}))
+                .map_err(io::Error::other)
+                .map_err(|e| CliError::new(ExitClass::State, e))?
+        );
+    } else {
+        println!("{command}");
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&result)
+                .map_err(io::Error::other)
+                .map_err(|e| CliError::new(ExitClass::State, e))?
+        );
     }
-
-    let value = resp.result.unwrap_or_else(|| serde_json::json!({}));
-
-    match cmd {
-        "diagnose" => {
-            print_banner();
-            let pelt = value["pelt_ready"].as_bool().unwrap_or(false);
-            let packmates = value["packmates"].as_u64().unwrap_or(0);
-            let profiles = value["fang_profiles"].as_u64().unwrap_or(0);
-            let fangs = value["active_fangs"].as_u64().unwrap_or(0);
-
-            let commit = option_env!("WEREWOLF_GIT_COMMIT").unwrap_or("unknown");
-            let built = option_env!("WEREWOLF_BUILD_DATE").unwrap_or("unknown");
-
-            println!("🐺 Werewolf Diagnostics");
-            println!();
-
-            println!("binary:");
-            println!("  version:          v0.1.0-rc1");
-            println!("  commit:           {}", commit);
-            println!("  built:            {}", built);
-            println!("  profile:          release");
-            println!();
-
-            println!("identity:");
-            println!(
-                "  pelt:             {} {}",
-                if pelt { "loaded" } else { "missing" },
-                if pelt { "✅" } else { "❌" }
-            );
-            println!();
-
-            println!("network:");
-            if let Some(listen) = value["listen"].as_str() {
-                println!("  tcp listener:     {} ✅", listen);
-            }
-            if let Some(quic) = value["quic_listen"].as_str() {
-                println!("  quic listener:    {} ✅", quic);
-            }
-            println!();
-
-            println!("pack:");
-            println!("  packmates:        {}", packmates);
-            println!();
-
-            println!("fangs:");
-            println!("  profiles:         {}", profiles);
-            println!("  active:           {}", fangs);
-            println!("  persistent:       enabled ✅");
-            println!();
-
-            println!("security:");
-            println!("  signed quic:      enabled ✅");
-            println!("  anti-replay:      enabled ✅");
-            println!("  peer revoke:      enabled ✅");
-            println!();
-
-            println!("ops:");
-            println!("  systemd mode:     supported ✅");
-            println!("  health command:   enabled ✅");
-            println!("  structured logs:  enabled ✅");
-            println!();
-
-            println!("overall:");
-            println!("  HEALTHY 🟢");
-        }
-
-        "health" => {
-            print_banner();
-            let pelt = value["pelt_ready"].as_bool().unwrap_or(false);
-            let packmates = value["packmates"].as_u64().unwrap_or(0);
-            let profiles = value["fang_profiles"].as_u64().unwrap_or(0);
-            let fangs = value["active_fangs"].as_u64().unwrap_or(0);
-
-            println!("🐺 Werewolf Health Check");
-            println!();
-
-            println!("  daemon:              online      ✅");
-            println!("  control socket:      ok          ✅");
-            println!(
-                "  pelt:                {}      {}",
-                if pelt { "loaded" } else { "missing" },
-                if pelt { "✅" } else { "❌" }
-            );
-
-            println!(
-                "  packmates:           {}           {}",
-                packmates,
-                if packmates > 0 { "✅" } else { "⚠️" }
-            );
-
-            println!(
-                "  fang profiles:       {}           {}",
-                profiles,
-                if profiles > 0 { "✅" } else { "⚠️" }
-            );
-
-            println!("  active fangs:        {}           {}", fangs, "✅");
-
-            if let Some(listen) = value["listen"].as_str() {
-                println!("  tcp listener:        {}  ✅", listen);
-            }
-
-            if let Some(quic) = value["quic_listen"].as_str() {
-                println!("  quic listener:       {}  ✅", quic);
-            }
-
-            println!();
-            println!("overall: HEALTHY 🟢");
-        }
-
-        "status" => {
-            println!("🐺 Werewolf Status");
-            println!(
-                "  mode:         {}",
-                value["mode"].as_str().unwrap_or("unknown")
-            );
-            println!(
-                "  pelt ready:   {}",
-                value["pelt_ready"].as_bool().unwrap_or(false)
-            );
-            println!(
-                "  packmates:    {}",
-                value["packmates"].as_u64().unwrap_or(0)
-            );
-            println!(
-                "  profiles:     {}",
-                value["fang_profiles"].as_u64().unwrap_or(0)
-            );
-            println!(
-                "  active fangs: {}",
-                value["active_fangs"].as_u64().unwrap_or(0)
-            );
-            if let Some(listen) = value["listen"].as_str() {
-                println!("  tcp listen:   {}", listen);
-            }
-            if let Some(quic) = value["quic_listen"].as_str() {
-                println!("  quic listen:  {}", quic);
-            }
-            println!(
-                "  silver:       {}",
-                value["silver"].as_str().unwrap_or("unknown")
-            );
-            println!(
-                "  hide:         {}",
-                value["hide"].as_str().unwrap_or("unknown")
-            );
-        }
-
-        "den.info" => {
-            println!("🏠 Den Info");
-            println!(
-                "  socket:        {}",
-                value["socket"].as_str().unwrap_or("")
-            );
-            println!("  home:          {}", value["home"].as_str().unwrap_or(""));
-            println!(
-                "  listen:        {}",
-                value["listen"].as_str().unwrap_or("")
-            );
-            println!(
-                "  mode:          {}",
-                value["mode"].as_str().unwrap_or("unknown")
-            );
-            println!(
-                "  pelt ready:    {}",
-                value["pelt_ready"].as_bool().unwrap_or(false)
-            );
-            println!(
-                "  packmates:     {}",
-                value["packmates"].as_u64().unwrap_or(0)
-            );
-            println!(
-                "  fang profiles: {}",
-                value["fang_profiles"].as_u64().unwrap_or(0)
-            );
-            println!(
-                "  active fangs:  {}",
-                value["active_fangs"].as_u64().unwrap_or(0)
-            );
-            println!(
-                "  silver:        {}",
-                value["silver"].as_str().unwrap_or("unknown")
-            );
-            println!(
-                "  hide:          {}",
-                value["hide"].as_str().unwrap_or("unknown")
-            );
-        }
-
-        "pelt.init" | "pelt.fingerprint" => {
-            println!("🐾 Pelt");
-            println!(
-                "  fingerprint: {}",
-                value["fingerprint"].as_str().unwrap_or("")
-            );
-            if let Some(saved_to) = value["saved_to"].as_str() {
-                println!("  saved to:     {}", saved_to);
-            }
-        }
-
-        "pack.list" => {
-            println!("🐾 Packmates");
-
-            if let Some(peers) = value.as_array() {
-                if peers.is_empty() {
-                    println!("  none");
-                }
-
-                for peer in peers {
-                    println!("  - {}", peer["name"].as_str().unwrap_or("unnamed"));
-                    println!(
-                        "      fingerprint: {}",
-                        peer["fingerprint"].as_str().unwrap_or("")
-                    );
-                    println!(
-                        "      address:     {}",
-                        peer["address"].as_str().unwrap_or("")
-                    );
-                    println!(
-                        "      trust:       {}",
-                        peer["trust"].as_str().unwrap_or("")
-                    );
-                }
-            }
-        }
-
-        "pack.add" | "pack.remove" | "pack.revoke" => {
-            println!("🐾 Pack");
-            println!("  status:    {}", value["status"].as_str().unwrap_or(""));
-
-            if let Some(peer) = value["peer"].as_str() {
-                println!("  peer:      {}", peer);
-            }
-
-            if let Some(closed) = value["closed_fangs"].as_u64() {
-                println!("  closed:    {}", closed);
-            }
-
-            println!("  packmates: {}", value["packmates"].as_u64().unwrap_or(0));
-        }
-
-        "fang.list" => {
-            println!("🦷 Active Fangs");
-
-            if let Some(fangs) = value.as_array() {
-                if fangs.is_empty() {
-                    println!("  none");
-                }
-
-                for fang in fangs {
-                    println!("  - {}", fang["id"].as_str().unwrap_or(""));
-                    println!("      peer:   {}", fang["peer"].as_str().unwrap_or(""));
-                    println!("      local:  {}", fang["local"].as_str().unwrap_or(""));
-                    println!("      remote: {}", fang["remote"].as_str().unwrap_or(""));
-                    if let Some(transport) = fang["transport"].as_str() {
-                        println!("      transport: {}", transport);
-                    }
-                    if let Some(seconds) = fang["uptime_seconds"].as_u64() {
-                        let h = seconds / 3600;
-                        let m = (seconds % 3600) / 60;
-                        let s = seconds % 60;
-                        println!("      uptime: {:02}:{:02}:{:02}", h, m, s);
-                    }
-                    println!("      state:  {}", fang["state"].as_str().unwrap_or(""));
-                }
-            }
-        }
-
-        "fang.open" | "fang.open_profile" => {
-            println!("🦷 Fang Opened");
-            println!("  id:     {}", value["fang_id"].as_str().unwrap_or(""));
-            println!("  peer:   {}", value["peer"].as_str().unwrap_or(""));
-            println!("  local:  {}", value["local"].as_str().unwrap_or(""));
-            println!("  remote: {}", value["remote"].as_str().unwrap_or(""));
-            if let Some(transport) = value["transport"].as_str() {
-                println!("  transport: {}", transport);
-            }
-            println!("  state:  {}", value["state"].as_str().unwrap_or(""));
-        }
-
-        "fang.close" => {
-            println!("🦷 Fang Closed");
-            println!("  status:       {}", value["status"].as_str().unwrap_or(""));
-            println!(
-                "  active fangs: {}",
-                value["active_fangs"].as_u64().unwrap_or(0)
-            );
-        }
-
-        "fang.profile.list" => {
-            println!("🦷 Fang Profiles");
-
-            if let Some(profiles) = value.as_array() {
-                if profiles.is_empty() {
-                    println!("  none");
-                }
-
-                for profile in profiles {
-                    println!("  - {}", profile["name"].as_str().unwrap_or(""));
-                    println!("      peer:   {}", profile["peer"].as_str().unwrap_or(""));
-                    println!("      local:  {}", profile["local"].as_str().unwrap_or(""));
-                    println!("      remote: {}", profile["remote"].as_str().unwrap_or(""));
-                }
-            }
-        }
-
-        "fang.profile.add" | "fang.profile.remove" => {
-            println!("🦷 Fang Profile");
-            println!("  status:   {}", value["status"].as_str().unwrap_or(""));
-            if let Some(name) = value["name"].as_str() {
-                println!("  name:     {}", name);
-            }
-            println!("  profiles: {}", value["profiles"].as_u64().unwrap_or(0));
-        }
-
-        "silver.trigger" | "silver.reset" => {
-            println!("🥈 Silver");
-            println!("  status:  {}", value["status"].as_str().unwrap_or(""));
-            println!("  message: {}", value["message"].as_str().unwrap_or(""));
-        }
-
-        _ => {
-            println!("{}", serde_json::to_string_pretty(&value).unwrap());
-        }
-    }
+    Ok(())
 }

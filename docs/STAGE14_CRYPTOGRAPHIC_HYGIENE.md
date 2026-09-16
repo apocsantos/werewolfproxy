@@ -1,0 +1,70 @@
+# Stage 14 — cryptographic hygiene and secret lifetime
+
+## Scope and source baseline
+
+Stage 14 branches from certified Stage 13 HEAD `72147c1be2e61a532138a4744463754af8a84ed2`. The hardened source HEAD before this report is `ff46522b6ef49f4e12de1d85e90691da91379d68`. It rejects non-contributory/all-zero TCP X25519 DH results and reduces the lifetime and accidental formatting exposure of application-owned secrets. It does not alter the Stage 10 TCP/QUIC transcripts, valid-peer KDF, AEAD wire framing, TLS receiver trust, Pack/Pelt semantics, replay, authorization, authority, fallback, or Stage 13 write coalescing. No protocol version or valid-session wire format changes.
+
+## Initial inventory, before code changes
+
+The audit covered the production code paths, not merely field names. “Stack” and “heap” describe intended ownership, not a guarantee that optimizers, libraries, or the runtime made no copies. A serialized Pelt is intentionally persistent under the existing Stage 11B Den rules; Pack public keys and fingerprints are **not secrets**.
+
+| Value and initial source | Owner, copies, lifetime, location | Debug / serialization / logging | Initial drop and practical action |
+| --- | --- | --- | --- |
+| Pelt Ed25519 seed in `PeltIdentity.secret_key_b64`, `werewolf-core/src/pelt.rs` | Heap `String`; cloned with identity into daemon state, listener/connection tasks, and signing contexts; process or task lifetime. Persisted as `pelt.json` by design. | Pelt has redacted custom `Debug`; `Serialize`/`Deserialize` are required for Den; no seed-byte log call found. | String previously dropped without explicit wipe; wipe each owned clone on `Drop`. Existing field visibility and earlier copies remain limitations. |
+| Pelt decoded seed and `SigningKey`, `pelt.rs`, `state_validation.rs`, `tls_identity.rs` | Temporary decoded heap `Vec`, stack `[u8;32]`, and library signing key during sign, validation, and TLS identity construction. | No raw Debug, remote serialization, or logging; public key/fingerprint are separate. | `ed25519-dalek` signing key already zeroizes on drop; wrap application decoded vectors/arrays. |
+| PKCS#8 during `RuntimeTlsIdentity::from_pelt`, `tls_identity.rs` | `der::SecretDocument`, temporary rcgen input DER, long-lived runtime private-key DER, plus rcgen/rustls-owned copies. In memory only in the TLS layer. | Runtime identity has no `Debug`/`Serialize`; rustls PKCS#8 type's `Debug` is redacted; categorical errors. | SecretDocument already wipes on drop. Wrap temporary and retained application-owned PKCS#8 with `Zeroizing`; library-owned copies have no application wipe hook. |
+| Pelt JSON read/write buffers, `state_file.rs`, `persistence.rs`, `control/mutation.rs` | Bounded heap vectors during startup and durable mutation; persistent destination remains Den. | JSON contains the private seed by required persistence design; it is not logged or retained as test evidence. | Temporary vectors previously dropped normally; wrap them for automatic wipe, including cancellation/failure. |
+| TCP X25519 `StaticSecret` and `SharedSecret`, `transport/tcp_encrypted.rs` | Stack-like library-owned values per client/server handshake, not session-long; random input array is transient. | Neither is formatted, serialized, persisted, or logged. Peer X25519 public key is public. | Locked `x25519-dalek` has its `zeroize` feature active and zeroizes both on drop. A low-order input previously reached BLAKE3: add an explicit all-zero guard before the KDF. |
+| TCP BLAKE3-derived raw session key and ChaCha state, same file | Initial raw `[u8;32]` survived for the forwarding session and was borrowed by each frame encrypt/decrypt; ChaCha state is library-owned per operation. | No key Debug/Serialize/log output. | Raw array previously dropped normally; return and retain a `Zeroizing<[u8;32]>`. `ChaCha20Poly1305` already implements zeroization on drop. |
+| QUIC exporter **E**, `handshake::quic_binding` | Application-owned stack `[u8;32]` only while deriving channel binding **B**; rustls/Quinn own underlying TLS secrets. | E is not a wire field, log, persistent record, or Debug output. B is public, non-bearer channel-binding material. | E previously fell out of scope without explicit wipe; use `Zeroizing<[u8;32]>`, discarded immediately after B derivation. |
+| Decrypted/forwarding plaintext, TCP frame reader and copy loops | Bounded heap staging buffers; possible extra Tokio, TLS, allocator, and kernel copies. | Byte counts are logged locally; plaintext contents are not logged by the production encrypted-TCP path. | Wrap owned padded plaintext and bounded forwarding buffers; do not claim comprehensive process-memory erasure. |
+| Stage 10 challenge/nonces, identity/target transcripts, Pack keys | Bounded stack/heap; handshake/session lifetime. Public or endpoint-known metadata, not cryptographic private keys. | Encrypted on the certified secure wire; some local operational metadata may be logged. | No secret-specific zeroization needed. Counter/nonce layout and transcript serialization remain unchanged. |
+
+## Rejection, KDF, and failure paths
+
+Production has **one** X25519 DH call, in `derive_shared_key` in `transport/tcp_encrypted.rs`; both the initiating client and receiving server call it. Immediately after `diffie_hellman`, it compares the actual 32-byte result with all zero and returns the existing generic `handshake rejected` error before BLAKE3 or session-key use. Malformed base64/length inputs also get that generic local error, without echoing input bytes. The server reaches this gate before target authorization/connect; the client reaches it after the authenticated ACK and before forwarding. No downstream AEAD failure substitutes for the check.
+
+Deterministic invalid-input tests send the all-zero and order-one public encodings through the actual locked library DH with two fresh local ephemeral secrets. They first establish that each produces an all-zero result, then establish that the common production KDF gate rejects each for both role uses with the generic rejection. Since the guard is on the **result**, it covers other encodings that calculate all zero without a home-grown public-key parser. Valid client/server exchanges still derive equal keys and match `blake3::hash(shared.as_bytes())`. Existing fixed Stage 10 transcript fixtures remain unchanged. The implementation writes the same BLAKE3 digest's first 32 XOF bytes directly into a drop-wiped key owner; BLAKE3 input, domain treatment, key size, direction bytes, nonce layout, and transcript binding are unchanged. No raw test session key is committed as a fixture.
+
+On failed TLS certificate/PKCS#8 construction, temporary decoded buffers, DER document, and application-owned DER input wrappers drop and wipe. Runtime identity is still derived once per published Pelt, and Stage 12D.4 `pelt.init` validation → TLS derivation → durable persistence → coherent publication → listener activation remains unchanged. `IndeterminateAfterRename` and Silver semantics are unchanged. Invalid Pack keys still fail closed. AEAD failure, timeout, cancellation, and revoke/Silver drop owned key/buffer wrappers through ordinary Rust control flow; ciphertext already submitted cannot be recalled. The existing authority and receiver-auth tests exercise those paths. No new panic path or detailed remote crypto error was introduced.
+
+## Dependency and library boundary
+
+`zeroize 1.8.2` was already locked and active transitively, including `alloc`, `default`, and derive support; `secrecy` was not present. `werewolf-core` and `werewolfd` now take exact direct `zeroize = { version = "=1.8.2", default-features = false, features = ["alloc"] }` edges. The effective feature set and all package versions/providers remain unchanged. The **only** `Cargo.lock` semantic diff adds `zeroize` to those two workspace package dependency lists: starting SHA-256 `c1ba0b557cb984716c3a04b093df63917cded507fb24ae5a8fbe9f8f04e58d17`; final SHA-256 `09b18cac90690855e4bee28cabc59ee713f14baf50f2efbb20f2910ed46047b4`.
+
+Application code does not inspect or modify private rustls, Quinn, ring, aws-lc, rcgen, BLAKE3, or ChaCha internals. Rustls/rcgen may retain private-key copies after consuming the DER clone; their safe lifetime/zeroization behavior is a library boundary. `StaticSecret`, `SharedSecret`, `SigningKey`, `SecretDocument`, and ChaCha state use their locked libraries' drop behavior. The runtime PKCS#8 copy held by `RuntimeTlsIdentity` has an application `Zeroizing` owner and no `Debug` implementation on its container. No `unsafe` code was introduced.
+
+## Debug, errors, logs, and plaintext limit
+
+`PeltIdentity` has a custom redacted `Debug` and wipes each owned base64 secret copy on drop; it remains serializable only because Den persistence requires it. `RuntimeTlsIdentity` has no `Debug` or `Serialize`; rustls' PKCS#8 `Debug` prints an elision. Tests check Pelt redaction, PKCS#8 redaction, and safe explicit wiping without inspecting freed memory. Secret wrappers are not Debug/Display/Serialize types in the production flow. TLS identity errors are categorical; Pelt validation errors do not embed input; X25519 invalid inputs return the generic handshake error.
+
+A review of production `println!`, `eprintln!`, warning and tracing call sites found **no Pelt seed, PKCS#8, X25519 private/shared secret, raw session key, or exporter E logged**. Encrypted-TCP diagnostic lines print plaintext **length** and nonce **counter**, not contents or keys. Local listener/target addresses and failure categories can still be operationally visible; Stage 14 does not promise log anonymity. Auxiliary QUIC diagnostic binaries are separate from the production daemon's secure path. **STAGE14_SECRET_LOGGING_AUDIT = PASS.**
+
+The application now wipes uniquely owned bounded padded-plaintext buffers and 1,400-byte forwarding buffers when their scope ends. Returned plaintext can still be copied by Tokio, rustls, socket and kernel paths. No blanket large-buffer wiping, pacing, or framing change was added. Explicit application wiping does **not** erase prior copies, compiler/register spills, allocator remnants, kernel buffers, swap, crash dumps, process snapshots, or debugger-visible state. This stage makes no forensic-memory-erasure claim.
+
+## Regression and artifact audit
+
+Five new Rust tests were added: one core Pelt redaction/wipe test and four werewolfd tests for low-order DH rejection, valid KDF symmetry, owned session-key wiping, and PKCS#8 redaction/wiping. The post-change full workspace passed **156 Rust tests**: 22 werewolf-core unit, 12 core integration, and 122 werewolfd, with no failure or ignored test. Python integration discovery passed **64** tests; live acceptance passed **12/12**, including secure TCP/QUIC, 50 MiB encrypted-TCP exact SHA-256 integrity, fallback policy, and restart/profile restoration. `cargo fmt --check`, `cargo clippy --workspace --all-targets`, `cargo test --locked --offline --workspace`, both Python gates, and diff whitespace checks passed.
+
+The workspace regression includes Stage 9 target authorization, Stage 10 TCP/QUIC replay/transcript/exporter tests, Stage 11A fallback, Stage 11B Den/control and Pelt consistency, Stage 11C revoke/Silver, Stage 12 exact-SPKI/CertificateVerify and full-production TCP wire-opacity tests, and Stage 13B one-write/frame tests. The Stage 13 TCP writer still makes one contiguous outer-TLS `write_all` per unchanged inner frame. **STAGE14_WIRE_FORMAT_CHANGE = NONE** for valid sessions; only cryptographically invalid all-zero-X25519 exchanges now fail before KDF/use. No previous test was removed, renamed, ignored, or cfg-disabled.
+
+The new test and report artifacts contain no raw Pelt/private PKCS#8/X25519/shared/session/exporter key, TLS traffic secret, key log, user payload, or raw capture. Invalid **public** low-order encodings and zero-result assertions are test data, not private material. All valid test private values are generated at runtime and never printed or persisted. **STAGE14_SECRET_MATERIAL_AUDIT = PASS.**
+
+## Individual certification statements
+
+| Claim | Result | Evidence |
+| --- | --- | --- |
+| C1 — Every production X25519 result checked before KDF | **CERTIFIED** | One production DH call and immediate all-zero result guard, used by both roles. |
+| C2 — Known low-order inputs cannot establish a session | **CERTIFIED** | Zero and order-one encodings reject before key derivation; generic error. |
+| C3 — Valid Stage 10 KDF/transcripts unchanged | **CERTIFIED** | Valid DH output equals original BLAKE3 digest; fixed transcript and live secure-path tests pass. |
+| C4 — Raw X25519 shared-secret lifetime/wipe | **CERTIFIED** | Per-handshake scope; locked x25519-dalek `zeroize` drop behavior. |
+| C5 — Derived raw key lifetime/wipe | **CERTIFIED** | Direct digest into `Zeroizing<[u8;32]>`, retained only for session and wiped on drop. |
+| C6 — QUIC exporter E discarded after B | **CERTIFIED** | `Zeroizing<[u8;32]>` local to binding function; E not serialized/logged; B public. |
+| C7 — Pelt/PKCS#8 absent from Debug/log/error output | **CERTIFIED** | Redacted/no Debug, categorical errors, log audit and tests. |
+| C8 — Runtime identity lifecycle retained | **CERTIFIED** | Existing-Pelt/startup and fresh-Pelt tests plus live acceptance. |
+| C9 — No unsafe introduced | **CERTIFIED** | Stage 14 source diff contains no `unsafe` code. |
+| C10 — Valid-session wire protocol unchanged | **CERTIFIED** | Fixed vectors, receiver auth, wire-opacity and acceptance tests; no frame/transcript diff. |
+| C11 — Stage 11C and Stage 13B intact | **CERTIFIED** | Revoke/Silver and one-write/frame regression tests pass. |
+| C12 — No complete-forensic-erasure claim | **CERTIFIED** | Explicit process-memory limits above. |
+
+**STAGE14_CRYPTOGRAPHIC_HYGIENE = CERTIFIED.** The supported claim is: “WerewolfProxy explicitly rejects all-zero X25519 shared secrets and reduces the lifetime and accidental exposure of application-owned cryptographic secret material using safe zeroization where supported.”

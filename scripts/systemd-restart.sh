@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
+: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required for local control}"
 set -e
 
 echo "🛑 Stopping Werewolf services..."
 systemctl --user stop werewolf-a werewolf-b || true
 
 echo "🧹 Killing leftover werewolfd processes..."
-pkill -f "werewolfd --socket /tmp/wolf-a.sock" || true
-pkill -f "werewolfd --socket /tmp/wolf-b.sock" || true
+pkill -f "werewolfd --socket ${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/werewolf-a/control.sock" || true
+pkill -f "werewolfd --socket ${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/werewolf-b/control.sock" || true
 
-rm -f /tmp/wolf-a.sock /tmp/wolf-b.sock
 
 echo "⏳ Waiting for Werewolf ports to clear..."
 

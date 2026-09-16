@@ -3,13 +3,31 @@ use blake3::Hasher;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
-use std::{fs, io, path::Path};
+use std::{io, path::Path};
+use zeroize::{Zeroize, Zeroizing};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PeltIdentity {
     pub public_key_b64: String,
     pub secret_key_b64: String,
     pub fingerprint: String,
+}
+
+impl Drop for PeltIdentity {
+    fn drop(&mut self) {
+        // Each cloned in-memory identity owns a separate copy of this field.
+        // Persistent Den storage remains governed by Stage11B.
+        self.secret_key_b64.zeroize();
+    }
+}
+
+impl std::fmt::Debug for PeltIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PeltIdentity")
+            .field("fingerprint", &self.fingerprint)
+            .finish_non_exhaustive()
+    }
 }
 
 pub fn generate_identity() -> PeltIdentity {
@@ -17,7 +35,7 @@ pub fn generate_identity() -> PeltIdentity {
     let verifying_key = signing_key.verifying_key();
 
     let public = verifying_key.to_bytes();
-    let secret = signing_key.to_bytes();
+    let secret = Zeroizing::new(signing_key.to_bytes());
 
     let mut hasher = Hasher::new();
     hasher.update(&public);
@@ -28,50 +46,38 @@ pub fn generate_identity() -> PeltIdentity {
 
     PeltIdentity {
         public_key_b64: STANDARD.encode(public),
-        secret_key_b64: STANDARD.encode(secret),
+        secret_key_b64: STANDARD.encode(&secret[..]),
         fingerprint,
     }
 }
 
+/// Initialization only. Existing identity state is never replaced.
 pub fn save_identity(path: &Path, identity: &PeltIdentity) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let data = serde_json::to_string_pretty(identity)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-
-    fs::write(path, data)?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    }
-
-    Ok(())
+    crate::state_validation::identity(identity)?;
+    crate::state_file::write(path, identity, true)
 }
 
 pub fn load_identity(path: &Path) -> io::Result<Option<PeltIdentity>> {
-    if !path.exists() {
-        return Ok(None);
+    let identity = crate::state_file::read(path)?;
+    if let Some(identity) = &identity {
+        crate::state_validation::identity(identity)?;
     }
-
-    let data = fs::read_to_string(path)?;
-    let identity: PeltIdentity = serde_json::from_str(&data)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-
-    Ok(Some(identity))
+    Ok(identity)
 }
 
 pub fn sign_message(identity: &PeltIdentity, message: &[u8]) -> Result<String, String> {
-    let secret_bytes = STANDARD
-        .decode(&identity.secret_key_b64)
-        .map_err(|e| e.to_string())?;
+    let secret_bytes = Zeroizing::new(
+        STANDARD
+            .decode(&identity.secret_key_b64)
+            .map_err(|e| e.to_string())?,
+    );
 
-    let secret: [u8; 32] = secret_bytes
-        .try_into()
-        .map_err(|_| "invalid secret key length".to_string())?;
+    let secret: Zeroizing<[u8; 32]> = Zeroizing::new(
+        secret_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid secret key length".to_string())?,
+    );
 
     let signing_key = SigningKey::from_bytes(&secret);
     let sig = signing_key.sign(message);
@@ -122,4 +128,19 @@ fn hexish(bytes: &[u8]) -> String {
         .map(|b| format!("{:02X}", b))
         .collect::<Vec<_>>()
         .join("-")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pelt_debug_redacts_secret_and_owned_copy_can_be_wiped() {
+        let identity = generate_identity();
+        let mut copy = identity.clone();
+        assert!(!format!("{identity:?}").contains(&identity.secret_key_b64));
+        copy.secret_key_b64.zeroize();
+        assert!(copy.secret_key_b64.is_empty());
+        assert!(!identity.secret_key_b64.is_empty());
+    }
 }

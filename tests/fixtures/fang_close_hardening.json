@@ -1,0 +1,8 @@
+{
+  "close": {
+    "listener_terminates": true,
+    "owned_sessions_terminate": true,
+    "second_close_error": "FANG_NOT_FOUND",
+    "unrelated_fangs_remain": true
+  }
+}

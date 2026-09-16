@@ -1,0 +1,50 @@
+{
+  "healthy": true,
+  "failures": 0,
+  "checks": [
+    {
+      "label": "wolf-b service active",
+      "ok": true
+    },
+    {
+      "label": "wolf-a service active",
+      "ok": true
+    },
+    {
+      "label": "wolf-b socket exists",
+      "ok": true
+    },
+    {
+      "label": "wolf-a socket exists",
+      "ok": true
+    },
+    {
+      "label": "transport health json valid",
+      "ok": true
+    },
+    {
+      "label": "benchmark json valid",
+      "ok": true
+    },
+    {
+      "label": "score json valid",
+      "ok": true
+    },
+    {
+      "label": "auto secure valid",
+      "ok": true
+    },
+    {
+      "label": "auto resilience valid",
+      "ok": true
+    },
+    {
+      "label": "score history readable",
+      "ok": true
+    },
+    {
+      "label": "snapshot directory writable",
+      "ok": true
+    }
+  ]
+}

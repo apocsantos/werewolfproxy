@@ -1,0 +1,23 @@
+{
+  "requested_transport_inputs": {
+    "missing": "quic",
+    "tcp": "encrypted_tcp_v2",
+    "tcp-plain": "plain_tcp",
+    "quic": "quic",
+    "unknown": "quic"
+  },
+  "peer_address_inputs": {
+    "tcp://127.0.0.1:1": {"kind": "tcp", "address": "127.0.0.1:1"},
+    "quic://127.0.0.1:2": {"kind": "quic", "address": "127.0.0.1:2"},
+    "http://127.0.0.1:3": {"error": "peer address must start with tcp:// or quic://"}
+  },
+  "routing": {
+    "tcp": "remote_peer_encrypted_tcp_v2",
+    "tcp-plain": "direct_target_plain_tcp",
+    "quic": "remote_peer_quic"
+  },
+  "errors": {
+    "tcp_with_invalid_peer": "FANG_BAD_TCP_ADDRESS",
+    "quic_with_invalid_peer": "FANG_BAD_QUIC_ADDRESS"
+  }
+}

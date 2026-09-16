@@ -1,0 +1,7 @@
+{
+  "revoke": {
+    "associated_fangs_terminate": true,
+    "unrelated_fangs_remain": true,
+    "plain_fangs_use_existing_peer_metadata": true
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "simulation_seed": 13,
+  "observer_features": {
+    "full_volume": ["total_c2s", "total_s2c", "total_wire", "wire_up_fraction"],
+    "total_only": ["total_wire"],
+    "directional_totals": ["total_c2s", "total_s2c"],
+    "ratio_only": ["wire_up_fraction"]
+  },
+  "fixed_ratio_targets": [[1, 256], [1, 16], [1, 4], [1, 2], [3, 4], [15, 16], [255, 256]],
+  "budgets_median_percent": [1, 2, 5, 10, 25, 50, 100, 200],
+  "decision_rule": {
+    "minimum_absolute_accuracy_reduction_points": 10,
+    "maximum_median_added_percent": 25
+  },
+  "candidates": [
+    {"name": "A_current", "kind": "current", "modes": ["current"]},
+    {"name": "B_fixed", "kind": "buckets", "buckets": [4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864, 134217728], "modes": ["total_proportional", "directional", "total_ratio"]},
+    {"name": "C_power2", "kind": "power2", "modes": ["total_proportional", "directional", "total_ratio"]},
+    {"name": "D_random_upper", "kind": "random_upper", "buckets": [4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864, 134217728], "probabilities_min_next_next2": [0.7, 0.2, 0.1], "modes": ["total_proportional", "directional", "total_ratio"]},
+    {"name": "E_coarse", "kind": "buckets", "buckets": [8192, 131072, 2097152, 16777216, 134217728], "modes": ["total_proportional", "directional", "total_ratio"]},
+    {"name": "F_constant", "kind": "constant_observed_max", "modes": ["total_proportional", "directional"]},
+    {"name": "G_small64k", "kind": "small_threshold", "threshold": 65536, "target": 65536, "modes": ["total_proportional", "directional"]},
+    {"name": "H_geo1_5", "kind": "geometric", "anchor": 4096, "numerator": 3, "denominator": 2, "modes": ["total_proportional", "directional", "total_ratio"]},
+    {"name": "H_geo2", "kind": "geometric", "anchor": 4096, "numerator": 2, "denominator": 1, "modes": ["total_proportional", "directional", "total_ratio"]}
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "readiness": {
+    "open_waits_for_bind": true,
+    "bind_failure_is_synchronous": true,
+    "duplicate_busy_address_error": "FANG_ALREADY_ACTIVE"
+  }
+}

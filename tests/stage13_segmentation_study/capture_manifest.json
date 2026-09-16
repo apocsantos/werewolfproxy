@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "source_head": "bc2d3d6955fa5125b11802252c7bf90c44c1c76b",
+  "lock_sha256": "c1ba0b557cb984716c3a04b093df63917cded507fb24ae5a8fbe9f8f04e58d17",
+  "connections": 275,
+  "frames": 351054,
+  "workloads": {
+    "handshake_only": 30,
+    "tiny": 30,
+    "interactive": 30,
+    "request_1kib": 30,
+    "transfer_64kib": 30,
+    "transfer_1mib": 30,
+    "bulk_50mib": 5,
+    "asymmetric_upload": 30,
+    "asymmetric_download": 30,
+    "idle": 30
+  },
+  "retained": "ordered frame lengths and public wire metadata only"
+}

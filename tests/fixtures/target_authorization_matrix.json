@@ -1,0 +1,7 @@
+{
+  "policy_path": "target_policy.json",
+  "default_mode": "deny-by-default",
+  "schema": {"mode": ["deny-by-default", "legacy-allow"], "peers": {"fingerprint": {"targets": [{"address": "IP", "port": "u16"}]}}},
+  "cases": ["authorized IPv4", "authorized IPv6", "wrong port", "different IP", "loopback denied", "private denied", "public denied", "peer mismatch", "hostname all authorized", "hostname mixed unauthorized", "hostname unauthorized", "legacy allow", "malformed JSON", "unknown mode", "zero target attempts"],
+  "resolution": "resolve once, canonicalize/deduplicate, require every address, connect authorized SocketAddr set"
+}

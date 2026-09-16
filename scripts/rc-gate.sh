@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required for local control}"
 set -euo pipefail
 
 export PATH="$HOME/.local/bin:$PATH"
@@ -42,8 +43,8 @@ systemctl --user is-active --quiet werewolf-b && pass "werewolf-b active" || fai
 
 echo
 echo "🧰 Control sockets"
-[[ -S /tmp/wolf-a.sock ]] && pass "wolf-a socket present" || fail "wolf-a socket missing"
-[[ -S /tmp/wolf-b.sock ]] && pass "wolf-b socket present" || fail "wolf-b socket missing"
+[[ -S "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/werewolf-a/control.sock" ]] && pass "wolf-a socket present" || fail "wolf-a socket missing"
+[[ -S "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/werewolf-b/control.sock" ]] && pass "wolf-b socket present" || fail "wolf-b socket missing"
 
 echo
 echo "🌐 Target"
@@ -94,10 +95,20 @@ cat /tmp/wolf-b-auto-json.txt | jq .
 jq -e '.transport == "quic" and .healthy == true' /tmp/wolf-b-auto-json.txt >/dev/null \
   && pass "auto json selects QUIC" || fail "auto json failed"
 
-"$WOLFB" auto --policy stealth --json >/tmp/wolf-b-auto-stealth-json.txt
-cat /tmp/wolf-b-auto-stealth-json.txt | jq .
-jq -e '.transport == "tcp-encrypted-v2" and .healthy == true' /tmp/wolf-b-auto-stealth-json.txt >/dev/null \
-  && pass "stealth policy selects TCP encrypted v2" || fail "stealth policy failed"
+"$WOLFB" score-json >/tmp/wolf-b-score-json.txt
+cat /tmp/wolf-b-score-json.txt | jq .
+jq -e '.transports.quic.score != null and .transports["tcp-encrypted-v2"].score != null and .transports["tcp-plain"].score != null' /tmp/wolf-b-score-json.txt >/dev/null \
+  && pass "transport scores available" || fail "transport scores missing"
+
+"$WOLFB" auto --policy legacy --json >/tmp/wolf-b-auto-legacy-json.txt
+cat /tmp/wolf-b-auto-legacy-json.txt | jq .
+jq -e '.healthy == true and (.transport == "quic" or .transport == "tcp-encrypted-v2" or .transport == "tcp-plain")' /tmp/wolf-b-auto-legacy-json.txt >/dev/null \
+  && pass "legacy policy selects healthy transport" || fail "legacy policy failed"
+
+"$WOLFB" auto --policy strict --json >/tmp/wolf-b-auto-strict-json.txt
+cat /tmp/wolf-b-auto-strict-json.txt | jq .
+jq -e '.transport == "quic" and .healthy == true and .security_downgrade == false' /tmp/wolf-b-auto-strict-json.txt >/dev/null \
+  && pass "strict policy selects QUIC" || fail "strict policy failed"
 
 echo
 echo "🟡 Failover simulation"
@@ -120,6 +131,25 @@ sleep 1
 "$WOLFB" auto >/tmp/wolf-b-auto-restored.txt
 cat /tmp/wolf-b-auto-restored.txt
 grep -q "transport: QUIC" /tmp/wolf-b-auto-restored.txt && pass "auto returns to QUIC" || fail "auto did not return to QUIC"
+
+echo
+echo "🩺 Doctor"
+"$WOLFB" doctor && pass "wolf-b doctor healthy" || fail "wolf-b doctor failed"
+
+"$WOLFB" doctor --json >/tmp/wolf-b-doctor-json.txt
+cat /tmp/wolf-b-doctor-json.txt | jq .
+jq -e '.healthy == true and .failures == 0 and (.checks | length) > 0' /tmp/wolf-b-doctor-json.txt >/dev/null \
+  && pass "wolf-b doctor json healthy" || fail "wolf-b doctor json failed"
+
+"$WOLFB" ready --json >/tmp/wolf-b-ready-json.txt
+cat /tmp/wolf-b-ready-json.txt | jq .
+jq -e '.ready == true and .doctor.healthy == true and .selected.healthy == true' /tmp/wolf-b-ready-json.txt >/dev/null \
+  && pass "wolf-b ready json healthy" || fail "wolf-b ready json failed"
+
+"$WOLFB" selftest --json >/tmp/wolf-b-selftest-json.txt
+cat /tmp/wolf-b-selftest-json.txt | jq .
+jq -e '.ok == true and .doctor.healthy == true and .ready.ready == true' /tmp/wolf-b-selftest-json.txt >/dev/null \
+  && pass "wolf-b selftest json healthy" || fail "wolf-b selftest json failed"
 
 echo
 echo "📊 Benchmark"

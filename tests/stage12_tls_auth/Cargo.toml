@@ -1,0 +1,15 @@
+[package]
+name = "stage12-tls-auth-certification"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Deliberately independent: no production workspace or protocol changes.
+[workspace]
+
+[dependencies]
+rustls = { version = "=0.23.40", default-features = false, features = ["std", "ring"] }
+rustls-webpki = { version = "=0.103.13", default-features = false, features = ["std", "ring"] }
+rcgen = "=0.13.2"
+serde_json = "=1.0.149"
+ring = "=0.17.14"

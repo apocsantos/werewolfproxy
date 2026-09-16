@@ -1,0 +1,1950 @@
+{
+  "schema": 1,
+  "capture_sha256": "75aff9282f7d58cf88f9c42eaa9d74e21cc79412785e2151f1772dadeaca2686",
+  "source_head": "eb0ac3647e650c6b556ca1a0f3d45e883c247e31",
+  "lock_sha256": "c1ba0b557cb984716c3a04b093df63917cded507fb24ae5a8fbe9f8f04e58d17",
+  "capture_unit": {
+    "tcp": "transparent relay recv calls; TLS record lengths parsed from byte stream",
+    "quic": "transparent UDP relay datagrams"
+  },
+  "burst_gap_ms": 20,
+  "sample_counts": {
+    "regular_per_workload_per_transport": 30,
+    "bulk_per_transport": 5
+  },
+  "workload_application_bytes_up_down": {
+    "handshake_only": [
+      0,
+      0
+    ],
+    "idle": [
+      0,
+      0
+    ],
+    "tiny": [
+      32,
+      32
+    ],
+    "interactive": [
+      704,
+      704
+    ],
+    "request_1kib": [
+      1024,
+      1024
+    ],
+    "transfer_64kib": [
+      65536,
+      65536
+    ],
+    "transfer_1mib": [
+      1048576,
+      1048576
+    ],
+    "bulk_50mib": [
+      32,
+      52428800
+    ],
+    "asymmetric_upload": [
+      1048576,
+      32
+    ],
+    "asymmetric_download": [
+      32,
+      4194304
+    ]
+  },
+  "transports": {
+    "tcp": {
+      "sample_count": 275,
+      "workloads": {
+        "handshake_only": {
+          "n": 30,
+          "median_wire_c2s_bytes": 849.0,
+          "median_wire_s2c_bytes": 1382.0,
+          "median_unit_count_c2s": 4.0,
+          "median_unit_count_s2c": 5.0,
+          "median_duration_ms": 10.482,
+          "median_response_ms": null,
+          "p90_response_ms": null,
+          "median_secure_handshake_to_target_ms": 7.858,
+          "median_burst_count": 1.0,
+          "median_largest_unit": 656.0,
+          "median_direction_changes": 7.0,
+          "median_tls_record_count": 11.0,
+          "median_wire_to_app_bytes_ratio": null,
+          "median_idle_units_after_target_accept": null,
+          "first_four_lengths_each_direction_from_first_16": {
+            "c2s": [
+              194,
+              80,
+              551,
+              24
+            ],
+            "s2c": [
+              127,
+              366,
+              209,
+              656
+            ]
+          }
+        },
+        "idle": {
+          "n": 30,
+          "median_wire_c2s_bytes": 849.0,
+          "median_wire_s2c_bytes": 1382.0,
+          "median_unit_count_c2s": 4.0,
+          "median_unit_count_s2c": 5.0,
+          "median_duration_ms": 1014.207,
+          "median_response_ms": null,
+          "p90_response_ms": null,
+          "median_secure_handshake_to_target_ms": 12.462,
+          "median_burst_count": 2.0,
+          "median_largest_unit": 656.0,
+          "median_direction_changes": 7.0,
+          "median_tls_record_count": 11.0,
+          "median_wire_to_app_bytes_ratio": null,
+          "median_idle_units_after_target_accept": 3.0,
+          "first_four_lengths_each_direction_from_first_16": {
+            "c2s": [
+              194,
+              80,
+              551,
+              24
+            ],
+            "s2c": [
+              127,
+              366,
+              209,
+              656
+            ]
+          }
+        },
+        "tiny": {
+          "n": 30,
+          "median_wire_c2s_bytes": 2427.0,
+          "median_wire_s2c_bytes": 2832.0,
+          "median_unit_count_c2s": 5.0,
+          "median_unit_count_s2c": 6.0,
+          "median_duration_ms": 11.781,
+          "median_response_ms": 12.132,
+          "p90_response_ms": 14.14,
+          "median_secure_handshake_to_target_ms": 6.855,
+          "median_burst_count": 1.0,
+          "median_largest_unit": 1834.0,
+          "median_direction_changes": 9.0,
+          "median_tls_record_count": 13.0,
+          "median_wire_to_app_bytes_ratio": 81.172,
+          "median_idle_units_after_target_accept": null,
+          "first_four_lengths_each_direction_from_first_16": {
+            "c2s": [
+              194,
+              80,
+              551,
+              1706
+            ],
+            "s2c": [
+              127,
+              366,
+              209,
+              656
+            ]
+          }
+        },
+        "interactive": {
+          "n": 30,
+          "median_wire_c2s_bytes": 12705.0,
+          "median_wire_s2c_bytes": 13558.0,
+          "median_unit_count_c2s": 12.0,
+          "median_unit_count_s2c": 13.0,
+          "median_duration_ms": 28.133,
+          "median_response_ms": 13.04,
+          "p90_response_ms": 15.624,
+          "median_secure_handshake_to_target_ms": 7.687,
+          "median_burst_count": 1.0,
+          "median_largest_unit": 2090.0,
+          "median_direction_changes": 23.0,
+          "median_tls_record_count": 27.0,
+          "median_wire_to_app_bytes_ratio": 18.107,
+          "median_idle_units_after_target_accept": null,
+          "first_four_lengths_each_direction_from_first_16": {
+            "c2s": [
+              194,
+              80,
+              551,
+              810
+            ],
+            "s2c": [
+              493,
+              209,
+              656,
+              2090
+            ]
+          }
+        },
+        "request_1kib": {
+          "n": 30,
+          "median_wire_c2s_bytes": 2301.0,
+          "median_wire_s2c_bytes": 2834.0,
+          "median_unit_count_c2s": 5.0,
+          "median_unit_count_s2c": 6.0,
+          "median_duration_ms": 11.823,
+          "median_response_ms": 12.239,
+          "p90_response_ms": 13.051,
+          "median_secure_handshake_to_target_ms": 6.964,
+          "median_burst_count": 1.0,
+          "median_largest_unit": 1708.0,
+          "median_direction_changes": 9.0,
+          "median_tls_record_count": 13.0,
+          "median_wire_to_app_bytes_ratio": 2.507,
+          "median_idle_units_after_target_accept": null,
+          "first_four_lengths_each_direction_from_first_16": {
+            "c2s": [
+              194,
+              80,
+              551,
+              1580
+            ],
+            "s2c": [
+              127,
+              366,
+              209,
+              656
+            ]
+          }
+        },
+        "transfer_64kib": {
+          "n": 30,
+          "median_wire_c2s_bytes": 83493.0,
+          "median_wire_s2c_bytes": 84154.0,
+          "median_unit_count_c2s": 25.0,
+          "median_unit_count_s2c": 27.5,
+          "median_duration_ms": 103.638,
+          "median_response_ms": 104.267,
+          "p90_response_ms": 118.414,
+          "median_secure_handshake_to_target_ms": 8.149,
+          "median_burst_count": 2.0,
+          "median_largest_unit": 44032.0,
+          "median_direction_changes": 49.0,
+          "median_tls_record_count": 105.0,
+          "median_wire_to_app_bytes_ratio": 1.284,
+          "median_idle_units_after_target_accept": null,
+          "first_four_lengths_each_direction_from_first_16": {
+            "c2s": [
+              194,
+              80,
+              551,
+              1828
+            ],
+            "s2c": [
+              493,
+              209,
+              656,
+              1700
+            ]
+          }
+        },
+        "transfer_1mib": {
+          "n": 30,
+          "median_wire_c2s_bytes": 1329955.0,
+          "median_wire_s2c_bytes": 1325636.0,
+          "median_unit_count_c2s": 224.5,
+          "median_unit_count_s2c": 241.0,
+          "median_duration_ms": 810.423,
+          "median_response_ms": 47.73,
+          "p90_response_ms": 59.424,
+          "median_secure_handshake_to_target_ms": 8.726,
+          "median_burst_count": 10.0,
+          "median_largest_unit": 65536.0,
+          "median_direction_changes": 416.0,
+          "median_tls_record_count": 1519.0,
+          "median_wire_to_app_bytes_ratio": 1.267,
+          "median_idle_units_after_target_accept": null,
+          "first_four_lengths_each_direction_from_first_16": {
+            "c2s": [
+              194,
+              80,
+              551,
+              1444
+            ],
+            "s2c": [
+              493,
+              209,
+              656,
+              2084
+            ]
+          }
+        },
+        "bulk_50mib": {
+          "n": 5,
+          "median_wire_c2s_bytes": 2043,
+          "median_wire_s2c_bytes": 66470080,
+          "median_unit_count_c2s": 5,
+          "median_unit_count_s2c": 1987,
+          "median_duration_ms": 17842.319,
+          "median_response_ms": 19.854,
+          "p90_response_ms": 40.155,
+          "median_secure_handshake_to_target_ms": 7.319,
+          "median_burst_count": 34,
+          "median_largest_unit": 65536,
+          "median_direction_changes": 8,
+          "median_tls_record_count": 37804,
+          "median_wire_to_app_bytes_ratio": 1.268,
+          "median_idle_units_after_target_accept": null,
+          "first_four_lengths_each_direction_from_first_16": {
+            "c2s": [
+              194,
+              80,
+              551,
+              1706
+            ],
+            "s2c": [
+              127,
+              366,
+              209,
+              656
+            ]
+          }
+        },
+        "asymmetric_upload": {
+          "n": 30,
+          "median_wire_c2s_bytes": 1330723.0,
+          "median_wire_s2c_bytes": 2576.0,
+          "median_unit_count_c2s": 46.0,
+          "median_unit_count_s2c": 6.0,
+          "median_duration_ms": 431.127,
+          "median_response_ms": 432.264,
+          "p90_response_ms": 457.679,
+          "median_secure_handshake_to_target_ms": 8.655,
+          "median_burst_count": 3.0,
+          "median_largest_unit": 65536.0,
+          "median_direction_changes": 8.0,
+          "median_tls_record_count": 768.0,
+          "median_wire_to_app_bytes_ratio": 1.272,
+          "median_idle_units_after_target_accept": null,
+          "first_four_lengths_each_direction_from_first_16": {
+            "c2s": [
+              194,
+              80,
+              551,
+              2084
+            ],
+            "s2c": [
+              127,
+              366,
+              209,
+              656
+            ]
+          }
+        },
+        "asymmetric_download": {
+          "n": 30,
+          "median_wire_c2s_bytes": 2171.0,
+          "median_wire_s2c_bytes": 5315548.0,
+          "median_unit_count_c2s": 5.0,
+          "median_unit_count_s2c": 165.5,
+          "median_duration_ms": 1489.192,
+          "median_response_ms": 14.854,
+          "p90_response_ms": 21.272,
+          "median_secure_handshake_to_target_ms": 8.569,
+          "median_burst_count": 5.0,
+          "median_largest_unit": 65536.0,
+          "median_direction_changes": 8.0,
+          "median_tls_record_count": 3035.0,
+          "median_wire_to_app_bytes_ratio": 1.268,
+          "median_idle_units_after_target_accept": null,
+          "first_four_lengths_each_direction_from_first_16": {
+            "c2s": [
+              194,
+              80,
+              551,
+              1066
+            ],
+            "s2c": [
+              127,
+              366,
+              209,
+              656
+            ]
+          }
+        }
+      },
+      "size_leakage_spearman": {
+        "total_c2s": 0.2269,
+        "total_s2c": 0.6844,
+        "count_c2s": 0.2952,
+        "count_s2c": 0.6613,
+        "largest_unit": 0.8828,
+        "burst_count": 0.8645,
+        "total_wire_bytes": 0.9274,
+        "total_observed_units": 0.8791,
+        "tls_record_count": 0.9402
+      },
+      "classifier": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.625,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 10,
+            "medium": 0,
+            "tiny_interactive": 8
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 1,
+            "medium": 9,
+            "tiny_interactive": 8
+          }
+        }
+      },
+      "classifier_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7229,
+        "accuracy_wilson_95": [
+          0.6184,
+          0.8077
+        ],
+        "balanced_accuracy": 0.6806,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 4,
+            "medium": 9,
+            "tiny_interactive": 5
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 5,
+            "medium": 9,
+            "tiny_interactive": 4
+          }
+        }
+      },
+      "client_hello_fingerprints": {
+        "sample_count": 275,
+        "unique_full_public_profile_count": 272,
+        "handshake_bytes": [
+          {
+            "value": 189,
+            "count": 275
+          }
+        ],
+        "legacy_record_version": [
+          {
+            "value": "0301",
+            "count": 275
+          }
+        ],
+        "legacy_hello_version": [
+          {
+            "value": "0303",
+            "count": 275
+          }
+        ],
+        "cipher_suite_lists": [
+          {
+            "value": [
+              "1302",
+              "1301",
+              "1303",
+              "c02c",
+              "c02b",
+              "cca9",
+              "c030",
+              "c02f",
+              "cca8"
+            ],
+            "count": 275
+          }
+        ],
+        "extension_order_unique_count": 272,
+        "extension_order_top_five": [
+          {
+            "value": [
+              5,
+              51,
+              43,
+              45,
+              23,
+              13,
+              10,
+              11
+            ],
+            "count": 2
+          },
+          {
+            "value": [
+              11,
+              5,
+              45,
+              13,
+              10,
+              51,
+              23,
+              43
+            ],
+            "count": 2
+          },
+          {
+            "value": [
+              10,
+              5,
+              11,
+              13,
+              43,
+              23,
+              45,
+              51
+            ],
+            "count": 2
+          },
+          {
+            "value": [
+              13,
+              51,
+              5,
+              11,
+              43,
+              10,
+              45,
+              23
+            ],
+            "count": 1
+          },
+          {
+            "value": [
+              10,
+              45,
+              11,
+              5,
+              23,
+              43,
+              13,
+              51
+            ],
+            "count": 1
+          }
+        ],
+        "extension_type_sets": [
+          {
+            "value": [
+              5,
+              10,
+              11,
+              13,
+              23,
+              43,
+              45,
+              51
+            ],
+            "count": 275
+          }
+        ],
+        "supported_groups": [
+          {
+            "value": [
+              29,
+              23,
+              24
+            ],
+            "count": 275
+          }
+        ],
+        "signature_algorithms": [
+          {
+            "value": [
+              2055
+            ],
+            "count": 275
+          }
+        ],
+        "key_share_groups_and_lengths": [
+          {
+            "value": [
+              {
+                "group": 29,
+                "public_key_length": 32
+              }
+            ],
+            "count": 275
+          }
+        ],
+        "supported_versions_raw": [
+          {
+            "value": [
+              2,
+              3,
+              4
+            ],
+            "count": 275
+          }
+        ],
+        "sni_present": [
+          {
+            "value": false,
+            "count": 275
+          }
+        ],
+        "alpn_present": [
+          {
+            "value": false,
+            "count": 275
+          }
+        ]
+      },
+      "server_hello_fingerprints": {
+        "sample_count": 275,
+        "unique_full_public_profile_count": 1,
+        "handshake_bytes": [
+          {
+            "value": 122,
+            "count": 275
+          }
+        ],
+        "legacy_record_version": [
+          {
+            "value": "0303",
+            "count": 275
+          }
+        ],
+        "legacy_hello_version": [
+          {
+            "value": "0303",
+            "count": 275
+          }
+        ],
+        "cipher_suite_lists": [
+          {
+            "value": [
+              "1302"
+            ],
+            "count": 275
+          }
+        ],
+        "extension_order_unique_count": 1,
+        "extension_order_top_five": [
+          {
+            "value": [
+              51,
+              43
+            ],
+            "count": 275
+          }
+        ],
+        "extension_type_sets": [
+          {
+            "value": [
+              43,
+              51
+            ],
+            "count": 275
+          }
+        ],
+        "supported_groups": [
+          {
+            "value": [],
+            "count": 275
+          }
+        ],
+        "signature_algorithms": [
+          {
+            "value": [],
+            "count": 275
+          }
+        ],
+        "key_share_groups_and_lengths": [
+          {
+            "value": [],
+            "count": 275
+          }
+        ],
+        "supported_versions_raw": [
+          {
+            "value": [
+              3,
+              4
+            ],
+            "count": 275
+          }
+        ],
+        "sni_present": [
+          {
+            "value": false,
+            "count": 275
+          }
+        ],
+        "alpn_present": [
+          {
+            "value": false,
+            "count": 275
+          }
+        ]
+      },
+      "public_quic_initial_headers": [],
+      "sampled_first_16_tls_record_lengths": [
+        [
+          6,
+          550
+        ],
+        [
+          194,
+          275
+        ],
+        [
+          127,
+          275
+        ],
+        [
+          360,
+          275
+        ],
+        [
+          74,
+          275
+        ],
+        [
+          209,
+          275
+        ],
+        [
+          551,
+          275
+        ],
+        [
+          656,
+          275
+        ],
+        [
+          24,
+          240
+        ],
+        [
+          1956,
+          164
+        ],
+        [
+          1572,
+          155
+        ],
+        [
+          2084,
+          135
+        ],
+        [
+          1828,
+          130
+        ],
+        [
+          1444,
+          130
+        ],
+        [
+          1700,
+          126
+        ],
+        [
+          810,
+          34
+        ],
+        [
+          1194,
+          34
+        ],
+        [
+          1578,
+          32
+        ],
+        [
+          1706,
+          31
+        ],
+        [
+          1450,
+          30
+        ]
+      ],
+      "full_unit_metadata": {
+        "handshake_only": {
+          "interarrival_p50_ms": 1.451,
+          "interarrival_p90_ms": 3.092,
+          "interarrival_p99_ms": 42.925,
+          "burst_size_p50_bytes": 2231.0,
+          "burst_size_p90_bytes": 2231,
+          "unit_length_top_ten": [
+            [
+              24,
+              60
+            ],
+            [
+              194,
+              30
+            ],
+            [
+              209,
+              30
+            ],
+            [
+              551,
+              30
+            ],
+            [
+              656,
+              30
+            ],
+            [
+              80,
+              26
+            ],
+            [
+              127,
+              18
+            ],
+            [
+              366,
+              18
+            ],
+            [
+              493,
+              6
+            ],
+            [
+              133,
+              6
+            ]
+          ],
+          "tls_record_length_top_ten": [
+            [
+              6,
+              60
+            ],
+            [
+              24,
+              60
+            ],
+            [
+              194,
+              30
+            ],
+            [
+              127,
+              30
+            ],
+            [
+              360,
+              30
+            ],
+            [
+              74,
+              30
+            ],
+            [
+              209,
+              30
+            ],
+            [
+              551,
+              30
+            ],
+            [
+              656,
+              30
+            ]
+          ],
+          "tls_record_content_type_counts": {
+            "22": 60,
+            "20": 60,
+            "23": 210
+          },
+          "tls_26_byte_application_record_count": 0,
+          "tls_application_record_count": 210,
+          "tls_application_record_median_size": 209.0,
+          "tls_application_record_at_most_32_count": 60,
+          "tls_application_record_at_most_32_histogram": [
+            [
+              24,
+              60
+            ]
+          ]
+        },
+        "idle": {
+          "interarrival_p50_ms": 1.867,
+          "interarrival_p90_ms": 998.843,
+          "interarrival_p99_ms": 1000.159,
+          "burst_size_p50_bytes": 1115.5,
+          "burst_size_p90_bytes": 2183,
+          "unit_length_top_ten": [
+            [
+              24,
+              60
+            ],
+            [
+              194,
+              30
+            ],
+            [
+              80,
+              30
+            ],
+            [
+              209,
+              30
+            ],
+            [
+              551,
+              30
+            ],
+            [
+              656,
+              30
+            ],
+            [
+              127,
+              16
+            ],
+            [
+              366,
+              16
+            ],
+            [
+              493,
+              10
+            ],
+            [
+              133,
+              4
+            ]
+          ],
+          "tls_record_length_top_ten": [
+            [
+              6,
+              60
+            ],
+            [
+              24,
+              60
+            ],
+            [
+              194,
+              30
+            ],
+            [
+              127,
+              30
+            ],
+            [
+              360,
+              30
+            ],
+            [
+              74,
+              30
+            ],
+            [
+              209,
+              30
+            ],
+            [
+              551,
+              30
+            ],
+            [
+              656,
+              30
+            ]
+          ],
+          "tls_record_content_type_counts": {
+            "22": 60,
+            "20": 60,
+            "23": 210
+          },
+          "tls_26_byte_application_record_count": 0,
+          "tls_application_record_count": 210,
+          "tls_application_record_median_size": 209.0,
+          "tls_application_record_at_most_32_count": 60,
+          "tls_application_record_at_most_32_histogram": [
+            [
+              24,
+              60
+            ]
+          ]
+        },
+        "tiny": {
+          "interarrival_p50_ms": 1.151,
+          "interarrival_p90_ms": 2.608,
+          "interarrival_p99_ms": 3.572,
+          "burst_size_p50_bytes": 5067.0,
+          "burst_size_p90_bytes": 5771,
+          "unit_length_top_ten": [
+            [
+              24,
+              60
+            ],
+            [
+              194,
+              30
+            ],
+            [
+              209,
+              30
+            ],
+            [
+              551,
+              30
+            ],
+            [
+              656,
+              30
+            ],
+            [
+              80,
+              28
+            ],
+            [
+              127,
+              18
+            ],
+            [
+              366,
+              18
+            ],
+            [
+              493,
+              9
+            ],
+            [
+              1834,
+              8
+            ]
+          ],
+          "tls_record_length_top_ten": [
+            [
+              6,
+              60
+            ],
+            [
+              24,
+              60
+            ],
+            [
+              194,
+              30
+            ],
+            [
+              127,
+              30
+            ],
+            [
+              360,
+              30
+            ],
+            [
+              74,
+              30
+            ],
+            [
+              209,
+              30
+            ],
+            [
+              551,
+              30
+            ],
+            [
+              656,
+              30
+            ],
+            [
+              1834,
+              8
+            ]
+          ],
+          "tls_record_content_type_counts": {
+            "22": 60,
+            "20": 60,
+            "23": 270
+          },
+          "tls_26_byte_application_record_count": 0,
+          "tls_application_record_count": 270,
+          "tls_application_record_median_size": 360.0,
+          "tls_application_record_at_most_32_count": 60,
+          "tls_application_record_at_most_32_histogram": [
+            [
+              24,
+              60
+            ]
+          ]
+        },
+        "interactive": {
+          "interarrival_p50_ms": 1.134,
+          "interarrival_p90_ms": 2.022,
+          "interarrival_p99_ms": 3.899,
+          "burst_size_p50_bytes": 25431,
+          "burst_size_p90_bytes": 27991,
+          "unit_length_top_ten": [
+            [
+              24,
+              60
+            ],
+            [
+              2090,
+              53
+            ],
+            [
+              1450,
+              49
+            ],
+            [
+              1578,
+              48
+            ],
+            [
+              1706,
+              46
+            ],
+            [
+              1322,
+              45
+            ],
+            [
+              1194,
+              45
+            ],
+            [
+              810,
+              42
+            ],
+            [
+              1962,
+              40
+            ],
+            [
+              1834,
+              40
+            ]
+          ],
+          "tls_record_length_top_ten": [
+            [
+              6,
+              60
+            ],
+            [
+              24,
+              60
+            ],
+            [
+              2090,
+              53
+            ],
+            [
+              1450,
+              49
+            ],
+            [
+              1578,
+              48
+            ],
+            [
+              1706,
+              46
+            ],
+            [
+              1322,
+              45
+            ],
+            [
+              1194,
+              45
+            ],
+            [
+              810,
+              42
+            ],
+            [
+              1962,
+              40
+            ]
+          ],
+          "tls_record_content_type_counts": {
+            "22": 60,
+            "20": 60,
+            "23": 690
+          },
+          "tls_26_byte_application_record_count": 0,
+          "tls_application_record_count": 690,
+          "tls_application_record_median_size": 1194.0,
+          "tls_application_record_at_most_32_count": 60,
+          "tls_application_record_at_most_32_histogram": [
+            [
+              24,
+              60
+            ]
+          ]
+        },
+        "request_1kib": {
+          "interarrival_p50_ms": 1.166,
+          "interarrival_p90_ms": 2.532,
+          "interarrival_p99_ms": 3.137,
+          "burst_size_p50_bytes": 5135.0,
+          "burst_size_p90_bytes": 5775,
+          "unit_length_top_ten": [
+            [
+              24,
+              60
+            ],
+            [
+              194,
+              30
+            ],
+            [
+              80,
+              30
+            ],
+            [
+              209,
+              30
+            ],
+            [
+              551,
+              30
+            ],
+            [
+              656,
+              30
+            ],
+            [
+              127,
+              14
+            ],
+            [
+              366,
+              14
+            ],
+            [
+              1452,
+              13
+            ],
+            [
+              1196,
+              9
+            ]
+          ],
+          "tls_record_length_top_ten": [
+            [
+              6,
+              60
+            ],
+            [
+              24,
+              60
+            ],
+            [
+              194,
+              30
+            ],
+            [
+              127,
+              30
+            ],
+            [
+              360,
+              30
+            ],
+            [
+              74,
+              30
+            ],
+            [
+              209,
+              30
+            ],
+            [
+              551,
+              30
+            ],
+            [
+              656,
+              30
+            ],
+            [
+              1452,
+              13
+            ]
+          ],
+          "tls_record_content_type_counts": {
+            "22": 60,
+            "20": 60,
+            "23": 270
+          },
+          "tls_26_byte_application_record_count": 0,
+          "tls_application_record_count": 270,
+          "tls_application_record_median_size": 360.0,
+          "tls_application_record_at_most_32_count": 60,
+          "tls_application_record_at_most_32_histogram": [
+            [
+              24,
+              60
+            ]
+          ]
+        },
+        "transfer_64kib": {
+          "interarrival_p50_ms": 0.421,
+          "interarrival_p90_ms": 3.326,
+          "interarrival_p99_ms": 42.498,
+          "burst_size_p50_bytes": 45728,
+          "burst_size_p90_bytes": 167855,
+          "unit_length_top_ten": [
+            [
+              2084,
+              200
+            ],
+            [
+              1828,
+              173
+            ],
+            [
+              1572,
+              168
+            ],
+            [
+              1700,
+              163
+            ],
+            [
+              1956,
+              163
+            ],
+            [
+              1444,
+              136
+            ],
+            [
+              24,
+              60
+            ],
+            [
+              194,
+              30
+            ],
+            [
+              209,
+              30
+            ],
+            [
+              551,
+              30
+            ]
+          ],
+          "tls_record_length_top_ten": [
+            [
+              1956,
+              474
+            ],
+            [
+              2084,
+              468
+            ],
+            [
+              1828,
+              464
+            ],
+            [
+              1572,
+              457
+            ],
+            [
+              1444,
+              451
+            ],
+            [
+              1700,
+              446
+            ],
+            [
+              6,
+              60
+            ],
+            [
+              24,
+              60
+            ],
+            [
+              194,
+              30
+            ],
+            [
+              127,
+              30
+            ]
+          ],
+          "tls_record_content_type_counts": {
+            "22": 60,
+            "20": 60,
+            "23": 3030
+          },
+          "tls_26_byte_application_record_count": 0,
+          "tls_application_record_count": 3030,
+          "tls_application_record_median_size": 1700.0,
+          "tls_application_record_at_most_32_count": 60,
+          "tls_application_record_at_most_32_histogram": [
+            [
+              24,
+              60
+            ]
+          ]
+        },
+        "transfer_1mib": {
+          "interarrival_p50_ms": 0.295,
+          "interarrival_p90_ms": 1.187,
+          "interarrival_p99_ms": 28.758,
+          "burst_size_p50_bytes": 229337.0,
+          "burst_size_p90_bytes": 465217,
+          "unit_length_top_ten": [
+            [
+              1828,
+              2070
+            ],
+            [
+              2084,
+              2053
+            ],
+            [
+              1956,
+              2005
+            ],
+            [
+              1700,
+              2002
+            ],
+            [
+              1572,
+              1981
+            ],
+            [
+              1444,
+              1946
+            ],
+            [
+              65483,
+              278
+            ],
+            [
+              65536,
+              150
+            ],
+            [
+              3528,
+              62
+            ],
+            [
+              24,
+              60
+            ]
+          ],
+          "tls_record_length_top_ten": [
+            [
+              1828,
+              7590
+            ],
+            [
+              1572,
+              7518
+            ],
+            [
+              1700,
+              7469
+            ],
+            [
+              1956,
+              7435
+            ],
+            [
+              2084,
+              7367
+            ],
+            [
+              1444,
+              7364
+            ],
+            [
+              6,
+              60
+            ],
+            [
+              24,
+              60
+            ],
+            [
+              1962,
+              50
+            ],
+            [
+              1834,
+              49
+            ]
+          ],
+          "tls_record_content_type_counts": {
+            "22": 60,
+            "20": 60,
+            "23": 45442
+          },
+          "tls_26_byte_application_record_count": 0,
+          "tls_application_record_count": 45442,
+          "tls_application_record_median_size": 1700.0,
+          "tls_application_record_at_most_32_count": 60,
+          "tls_application_record_at_most_32_histogram": [
+            [
+              24,
+              60
+            ]
+          ]
+        },
+        "bulk_50mib": {
+          "interarrival_p50_ms": 0.465,
+          "interarrival_p90_ms": 17.334,
+          "interarrival_p99_ms": 21.094,
+          "burst_size_p50_bytes": 131602,
+          "burst_size_p90_bytes": 5448788,
+          "unit_length_top_ten": [
+            [
+              65536,
+              3173
+            ],
+            [
+              65483,
+              1553
+            ],
+            [
+              2084,
+              1067
+            ],
+            [
+              1700,
+              1061
+            ],
+            [
+              1956,
+              1051
+            ],
+            [
+              1444,
+              1010
+            ],
+            [
+              1572,
+              976
+            ],
+            [
+              1828,
+              974
+            ],
+            [
+              1118,
+              83
+            ],
+            [
+              1246,
+              81
+            ]
+          ],
+          "tls_record_length_top_ten": [
+            [
+              1828,
+              31216
+            ],
+            [
+              1444,
+              31184
+            ],
+            [
+              2084,
+              31159
+            ],
+            [
+              1700,
+              30989
+            ],
+            [
+              1572,
+              30966
+            ],
+            [
+              1956,
+              30666
+            ],
+            [
+              810,
+              268
+            ],
+            [
+              1450,
+              264
+            ],
+            [
+              2090,
+              263
+            ],
+            [
+              1194,
+              260
+            ]
+          ],
+          "tls_record_content_type_counts": {
+            "22": 10,
+            "20": 10,
+            "23": 189000
+          },
+          "tls_26_byte_application_record_count": 0,
+          "tls_application_record_count": 189000,
+          "tls_application_record_median_size": 1700.0,
+          "tls_application_record_at_most_32_count": 10,
+          "tls_application_record_at_most_32_histogram": [
+            [
+              24,
+              10
+            ]
+          ]
+        },
+        "asymmetric_upload": {
+          "interarrival_p50_ms": 1.915,
+          "interarrival_p90_ms": 17.676,
+          "interarrival_p99_ms": 43.317,
+          "burst_size_p50_bytes": 65347.0,
+          "burst_size_p90_bytes": 1280541,
+          "unit_length_top_ten": [
+            [
+              65536,
+              479
+            ],
+            [
+              24,
+              60
+            ],
+            [
+              47168,
+              40
+            ],
+            [
+              65483,
+              36
+            ],
+            [
+              194,
+              30
+            ],
+            [
+              80,
+              30
+            ],
+            [
+              209,
+              30
+            ],
+            [
+              551,
+              30
+            ],
+            [
+              656,
+              30
+            ],
+            [
+              127,
+              18
+            ]
+          ],
+          "tls_record_length_top_ten": [
+            [
+              1956,
+              3765
+            ],
+            [
+              1828,
+              3734
+            ],
+            [
+              1572,
+              3733
+            ],
+            [
+              2084,
+              3732
+            ],
+            [
+              1444,
+              3710
+            ],
+            [
+              1700,
+              3676
+            ],
+            [
+              6,
+              60
+            ],
+            [
+              24,
+              60
+            ],
+            [
+              938,
+              48
+            ],
+            [
+              1578,
+              44
+            ]
+          ],
+          "tls_record_content_type_counts": {
+            "22": 60,
+            "20": 60,
+            "23": 22920
+          },
+          "tls_26_byte_application_record_count": 0,
+          "tls_application_record_count": 22920,
+          "tls_application_record_median_size": 1700.0,
+          "tls_application_record_at_most_32_count": 60,
+          "tls_application_record_at_most_32_histogram": [
+            [
+              24,
+              60
+            ]
+          ]
+        },
+        "asymmetric_download": {
+          "interarrival_p50_ms": 2.127,
+          "interarrival_p90_ms": 17.803,
+          "interarrival_p99_ms": 41.329,
+          "burst_size_p50_bytes": 66413.0,
+          "burst_size_p90_bytes": 2714836,
+          "unit_length_top_ten": [
+            [
+              65536,
+              1628
+            ],
+            [
+              65483,
+              586
+            ],
+            [
+              2084,
+              86
+            ],
+            [
+              1956,
+              81
+            ],
+            [
+              1700,
+              80
+            ],
+            [
+              1572,
+              80
+            ],
+            [
+              1828,
+              80
+            ],
+            [
+              1444,
+              78
+            ],
+            [
+              47168,
+              63
+            ],
+            [
+              442,
+              40
+            ]
+          ],
+          "tls_record_length_top_ten": [
+            [
+              1828,
+              14996
+            ],
+            [
+              1444,
+              14971
+            ],
+            [
+              2084,
+              14960
+            ],
+            [
+              1700,
+              14905
+            ],
+            [
+              1572,
+              14880
+            ],
+            [
+              1956,
+              14658
+            ],
+            [
+              2090,
+              141
+            ],
+            [
+              1578,
+              132
+            ],
+            [
+              1962,
+              124
+            ],
+            [
+              1322,
+              119
+            ]
+          ],
+          "tls_record_content_type_counts": {
+            "22": 60,
+            "20": 60,
+            "23": 90930
+          },
+          "tls_26_byte_application_record_count": 0,
+          "tls_application_record_count": 90930,
+          "tls_application_record_median_size": 1700.0,
+          "tls_application_record_at_most_32_count": 60,
+          "tls_application_record_at_most_32_histogram": [
+            [
+              24,
+              60
+            ]
+          ]
+        }
+      },
+      "all_unit_count": 41045,
+      "all_tls_record_count": 354072,
+      "all_tls_application_record_count": 352972,
+      "all_tls_26_byte_application_record_count": 0,
+      "all_tls_application_record_at_most_32_count": 550,
+      "all_tls_application_record_at_most_32_histogram": [
+        [
+          24,
+          550
+        ]
+      ],
+      "all_tls_application_record_length_top_ten": [
+        [
+          1828,
+          58000
+        ],
+        [
+          2084,
+          57686
+        ],
+        [
+          1444,
+          57680
+        ],
+        [
+          1572,
+          57554
+        ],
+        [
+          1700,
+          57485
+        ],
+        [
+          1956,
+          56998
+        ],
+        [
+          24,
+          550
+        ],
+        [
+          2090,
+          526
+        ],
+        [
+          1578,
+          517
+        ],
+        [
+          810,
+          510
+        ]
+      ]
+    }
+  }
+}

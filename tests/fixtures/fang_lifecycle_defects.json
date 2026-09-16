@@ -1,0 +1,7 @@
+{
+  "close": {"listener_abort": true, "child_sessions_terminate": false},
+  "pack_revoke": {"records_removed": true, "tracked_listener_aborted": false, "child_sessions_terminate": false},
+  "silver": {"tracked_listener_aborted": true, "child_sessions_terminate": false, "reset_resurrects_tasks": false},
+  "readiness": {"open_waits_for_bind": false, "bind_failure_is_synchronous": false},
+  "notes": "These values characterize the Stage 5 implementation before lifecycle hardening."
+}

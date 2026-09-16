@@ -1,0 +1,2180 @@
+{
+  "majority_baseline": 0.3494,
+  "frame_count_only": {
+    "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+    "size_only_ablation": false,
+    "classes": {
+      "handshake_only": "idle_or_empty",
+      "idle": "idle_or_empty",
+      "tiny": "tiny_interactive",
+      "interactive": "tiny_interactive",
+      "request_1kib": "medium",
+      "transfer_64kib": "medium",
+      "transfer_1mib": "bulk_or_asymmetric",
+      "bulk_50mib": "bulk_or_asymmetric",
+      "asymmetric_upload": "bulk_or_asymmetric",
+      "asymmetric_download": "bulk_or_asymmetric"
+    },
+    "features": [
+      "frame_count_total"
+    ],
+    "split": "deterministic seed 13, 70/30 per-workload independent connections",
+    "train_count": 192,
+    "test_count": 83,
+    "accuracy": 0.7831,
+    "accuracy_wilson_95": [
+      0.683,
+      0.8582
+    ],
+    "balanced_accuracy": 0.75,
+    "majority_test_baseline": 0.3494,
+    "confusion_actual_by_predicted": {
+      "bulk_or_asymmetric": {
+        "bulk_or_asymmetric": 29,
+        "idle_or_empty": 0,
+        "medium": 0,
+        "tiny_interactive": 0
+      },
+      "idle_or_empty": {
+        "bulk_or_asymmetric": 0,
+        "idle_or_empty": 18,
+        "medium": 0,
+        "tiny_interactive": 0
+      },
+      "medium": {
+        "bulk_or_asymmetric": 0,
+        "idle_or_empty": 0,
+        "medium": 9,
+        "tiny_interactive": 9
+      },
+      "tiny_interactive": {
+        "bulk_or_asymmetric": 0,
+        "idle_or_empty": 0,
+        "medium": 9,
+        "tiny_interactive": 9
+      }
+    }
+  },
+  "directional_frame_counts": {
+    "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+    "size_only_ablation": false,
+    "classes": {
+      "handshake_only": "idle_or_empty",
+      "idle": "idle_or_empty",
+      "tiny": "tiny_interactive",
+      "interactive": "tiny_interactive",
+      "request_1kib": "medium",
+      "transfer_64kib": "medium",
+      "transfer_1mib": "bulk_or_asymmetric",
+      "bulk_50mib": "bulk_or_asymmetric",
+      "asymmetric_upload": "bulk_or_asymmetric",
+      "asymmetric_download": "bulk_or_asymmetric"
+    },
+    "features": [
+      "frame_count_c2s",
+      "frame_count_s2c"
+    ],
+    "split": "deterministic seed 13, 70/30 per-workload independent connections",
+    "train_count": 192,
+    "test_count": 83,
+    "accuracy": 0.5663,
+    "accuracy_wilson_95": [
+      0.4591,
+      0.6676
+    ],
+    "balanced_accuracy": 0.5,
+    "majority_test_baseline": 0.3494,
+    "confusion_actual_by_predicted": {
+      "bulk_or_asymmetric": {
+        "bulk_or_asymmetric": 29,
+        "idle_or_empty": 0,
+        "medium": 0,
+        "tiny_interactive": 0
+      },
+      "idle_or_empty": {
+        "bulk_or_asymmetric": 0,
+        "idle_or_empty": 18,
+        "medium": 0,
+        "tiny_interactive": 0
+      },
+      "medium": {
+        "bulk_or_asymmetric": 9,
+        "idle_or_empty": 9,
+        "medium": 0,
+        "tiny_interactive": 0
+      },
+      "tiny_interactive": {
+        "bulk_or_asymmetric": 0,
+        "idle_or_empty": 9,
+        "medium": 9,
+        "tiny_interactive": 0
+      }
+    }
+  },
+  "candidate_results": {
+    "A_current": {
+      "full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.625,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.747,
+        "accuracy_wilson_95": [
+          0.644,
+          0.8281
+        ],
+        "balanced_accuracy": 0.7083,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 3,
+            "medium": 9,
+            "tiny_interactive": 6
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 3,
+            "medium": 9,
+            "tiny_interactive": 6
+          }
+        }
+      },
+      "directional_bytes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "frame_wire_c2s",
+          "frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5474,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 20,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "final_frame_sizes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "final_frame_wire_c2s",
+          "final_frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5685,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 16,
+            "idle_or_empty": 0,
+            "medium": 8,
+            "tiny_interactive": 5
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 4,
+            "idle_or_empty": 0,
+            "medium": 11,
+            "tiny_interactive": 3
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 8,
+            "idle_or_empty": 0,
+            "medium": 8,
+            "tiny_interactive": 2
+          }
+        }
+      },
+      "forwarding_only_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "forwarding_only_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      }
+    },
+    "B_power_two": {
+      "full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 18
+          }
+        }
+      },
+      "size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "directional_bytes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "frame_wire_c2s",
+          "frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.6724,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 20,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 18
+          }
+        }
+      },
+      "final_frame_sizes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "final_frame_wire_c2s",
+          "final_frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6506,
+        "accuracy_wilson_95": [
+          0.5434,
+          0.7444
+        ],
+        "balanced_accuracy": 0.7026,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 2,
+            "tiny_interactive": 18
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 18,
+            "tiny_interactive": 0
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "forwarding_only_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.8916,
+        "accuracy_wilson_95": [
+          0.8066,
+          0.9419
+        ],
+        "balanced_accuracy": 0.875,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 18
+          }
+        }
+      },
+      "forwarding_only_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.8916,
+        "accuracy_wilson_95": [
+          0.8066,
+          0.9419
+        ],
+        "balanced_accuracy": 0.875,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 18
+          }
+        }
+      }
+    },
+    "C_coarse": {
+      "full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6867,
+        "accuracy_wilson_95": [
+          0.5806,
+          0.7764
+        ],
+        "balanced_accuracy": 0.6389,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 8,
+            "tiny_interactive": 10
+          }
+        }
+      },
+      "size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.625,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 9,
+            "tiny_interactive": 0
+          }
+        }
+      },
+      "directional_bytes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "frame_wire_c2s",
+          "frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5474,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 20,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "final_frame_sizes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "final_frame_wire_c2s",
+          "final_frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6867,
+        "accuracy_wilson_95": [
+          0.5806,
+          0.7764
+        ],
+        "balanced_accuracy": 0.7759,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 3,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 26
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 18,
+            "tiny_interactive": 0
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 18
+          }
+        }
+      },
+      "forwarding_only_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "forwarding_only_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      }
+    },
+    "D_random_upper": {
+      "full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.625,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6867,
+        "accuracy_wilson_95": [
+          0.5806,
+          0.7764
+        ],
+        "balanced_accuracy": 0.6389,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 8,
+            "medium": 9,
+            "tiny_interactive": 1
+          }
+        }
+      },
+      "directional_bytes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "frame_wire_c2s",
+          "frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5474,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 20,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "final_frame_sizes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "final_frame_wire_c2s",
+          "final_frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6145,
+        "accuracy_wilson_95": [
+          0.5069,
+          0.7119
+        ],
+        "balanced_accuracy": 0.682,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 5,
+            "idle_or_empty": 0,
+            "medium": 6,
+            "tiny_interactive": 18
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 18,
+            "tiny_interactive": 0
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 5,
+            "idle_or_empty": 0,
+            "medium": 3,
+            "tiny_interactive": 10
+          }
+        }
+      },
+      "forwarding_only_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "forwarding_only_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      }
+    },
+    "E_small_flatten": {
+      "full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.625,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.759,
+        "accuracy_wilson_95": [
+          0.6569,
+          0.8383
+        ],
+        "balanced_accuracy": 0.7222,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 5,
+            "medium": 9,
+            "tiny_interactive": 4
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 2,
+            "medium": 9,
+            "tiny_interactive": 7
+          }
+        }
+      },
+      "directional_bytes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "frame_wire_c2s",
+          "frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5474,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 20,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "final_frame_sizes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "final_frame_wire_c2s",
+          "final_frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5783,
+        "accuracy_wilson_95": [
+          0.4709,
+          0.6788
+        ],
+        "balanced_accuracy": 0.6193,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 11
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 6,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 3
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 1,
+            "idle_or_empty": 0,
+            "medium": 5,
+            "tiny_interactive": 12
+          }
+        }
+      },
+      "forwarding_only_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "forwarding_only_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      }
+    },
+    "F_constant_max": {
+      "full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.625,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "directional_bytes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "frame_wire_c2s",
+          "frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5474,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 20,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "final_frame_sizes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "final_frame_wire_c2s",
+          "final_frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 18,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 18,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          }
+        }
+      },
+      "forwarding_only_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "forwarding_only_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      }
+    }
+  }
+}

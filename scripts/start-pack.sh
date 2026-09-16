@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required for local control}"
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,7 +17,6 @@ fi
 pkill -f "werewolfd.*wolf-a" || true
 pkill -f "werewolfd.*wolf-b" || true
 
-rm -f /tmp/wolf-a.sock /tmp/wolf-b.sock
 
 echo "🐺 starting wolf-a..."
 konsole --workdir "$ROOT" -e bash -c "./scripts/start-wolf-a.sh; exec bash" &

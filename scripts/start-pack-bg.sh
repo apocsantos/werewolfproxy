@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required for local control}"
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,7 +19,6 @@ mkdir -p logs
 pkill -f "werewolfd.*wolf-a" || true
 pkill -f "werewolfd.*wolf-b" || true
 
-rm -f /tmp/wolf-a.sock /tmp/wolf-b.sock
 
 echo "🐺 starting wolf-a..."
 nohup ./scripts/start-wolf-a.sh > logs/wolf-a.log 2>&1 &
@@ -31,7 +31,7 @@ nohup ./scripts/start-wolf-b.sh > logs/wolf-b.log 2>&1 &
 sleep 3
 
 echo "sockets:"
-ls -l /tmp/wolf-a.sock /tmp/wolf-b.sock
+ls -l "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/werewolf-a/control.sock" "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}/werewolf-b/control.sock"
 
 echo "✅ Pack started in background"
 echo "logs/wolf-a.log"

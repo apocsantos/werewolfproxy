@@ -1,0 +1,4226 @@
+{
+  "schema": 1,
+  "policy_definition_sha256": "779a896d902af8c15b1e8710d2caa889d932fe92a6b369316eeff049644fcecf",
+  "dataset": {
+    "schema": 1,
+    "source_head": "af0a02dea2f11f157eaf81080acb869e15e11426",
+    "lock_sha256": "c1ba0b557cb984716c3a04b093df63917cded507fb24ae5a8fbe9f8f04e58d17",
+    "connections": 275,
+    "frames": 351055,
+    "grouped_rows": 2933,
+    "workloads": {
+      "handshake_only": 30,
+      "tiny": 30,
+      "interactive": 30,
+      "request_1kib": 30,
+      "transfer_64kib": 30,
+      "transfer_1mib": 30,
+      "bulk_50mib": 5,
+      "asymmetric_upload": 30,
+      "asymmetric_download": 30,
+      "idle": 30
+    },
+    "capture": "existing local payload-length diagnostics + passive TLS record lengths",
+    "record_overhead": {
+      "ciphertext": 16,
+      "inner_length": 4,
+      "outer_tls": 22
+    }
+  },
+  "model_validation": {
+    "all_frames_match_production_payload_padding_formula": true,
+    "all_ciphertext_inner_and_tls_lengths_match": true,
+    "all_275_connections_reconstruct_exact_observed_wire_bytes": true,
+    "dominant_payload_1400_frames": 345403,
+    "dominant_payload_1400_bucket_counts": {
+      "1402": 57668,
+      "1530": 57601,
+      "1658": 57808,
+      "1786": 57391,
+      "1914": 57400,
+      "2042": 57535
+    },
+    "dominant_payload_1400_uniform_total_variation": 0.00109,
+    "payload_length_top_twenty": [
+      [
+        1400,
+        345403
+      ],
+      [
+        536,
+        4588
+      ],
+      [
+        32,
+        185
+      ],
+      [
+        128,
+        123
+      ],
+      [
+        16,
+        120
+      ],
+      [
+        64,
+        120
+      ],
+      [
+        528,
+        84
+      ],
+      [
+        224,
+        61
+      ],
+      [
+        256,
+        60
+      ],
+      [
+        1024,
+        60
+      ],
+      [
+        1136,
+        60
+      ],
+      [
+        1104,
+        50
+      ],
+      [
+        88,
+        30
+      ],
+      [
+        400,
+        11
+      ],
+      [
+        416,
+        10
+      ],
+      [
+        496,
+        8
+      ],
+      [
+        352,
+        7
+      ],
+      [
+        576,
+        4
+      ],
+      [
+        1088,
+        4
+      ],
+      [
+        456,
+        3
+      ]
+    ],
+    "payload_length_unique_count": 65,
+    "payload_at_most_256_frames": 710,
+    "stage13b_observed_full_accuracy": 0.6747,
+    "stage13b_observed_size_only_accuracy": 0.7229,
+    "stage13b_observed_wire_spearman": 0.9274,
+    "fresh_current_wire_spearman": 0.9267
+  },
+  "frame_count_only_classifier": {
+    "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+    "size_only_ablation": false,
+    "classes": {
+      "handshake_only": "idle_or_empty",
+      "idle": "idle_or_empty",
+      "tiny": "tiny_interactive",
+      "interactive": "tiny_interactive",
+      "request_1kib": "medium",
+      "transfer_64kib": "medium",
+      "transfer_1mib": "bulk_or_asymmetric",
+      "bulk_50mib": "bulk_or_asymmetric",
+      "asymmetric_upload": "bulk_or_asymmetric",
+      "asymmetric_download": "bulk_or_asymmetric"
+    },
+    "features": [
+      "frame_count_total"
+    ],
+    "split": "deterministic seed 13, 70/30 per-workload independent connections",
+    "train_count": 192,
+    "test_count": 83,
+    "accuracy": 0.7831,
+    "accuracy_wilson_95": [
+      0.683,
+      0.8582
+    ],
+    "balanced_accuracy": 0.75,
+    "majority_test_baseline": 0.3494,
+    "confusion_actual_by_predicted": {
+      "bulk_or_asymmetric": {
+        "bulk_or_asymmetric": 29,
+        "idle_or_empty": 0,
+        "medium": 0,
+        "tiny_interactive": 0
+      },
+      "idle_or_empty": {
+        "bulk_or_asymmetric": 0,
+        "idle_or_empty": 18,
+        "medium": 0,
+        "tiny_interactive": 0
+      },
+      "medium": {
+        "bulk_or_asymmetric": 0,
+        "idle_or_empty": 0,
+        "medium": 9,
+        "tiny_interactive": 9
+      },
+      "tiny_interactive": {
+        "bulk_or_asymmetric": 0,
+        "idle_or_empty": 0,
+        "medium": 9,
+        "tiny_interactive": 9
+      }
+    }
+  },
+  "directional_frame_count_classifier": {
+    "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+    "size_only_ablation": false,
+    "classes": {
+      "handshake_only": "idle_or_empty",
+      "idle": "idle_or_empty",
+      "tiny": "tiny_interactive",
+      "interactive": "tiny_interactive",
+      "request_1kib": "medium",
+      "transfer_64kib": "medium",
+      "transfer_1mib": "bulk_or_asymmetric",
+      "bulk_50mib": "bulk_or_asymmetric",
+      "asymmetric_upload": "bulk_or_asymmetric",
+      "asymmetric_download": "bulk_or_asymmetric"
+    },
+    "features": [
+      "frame_count_c2s",
+      "frame_count_s2c"
+    ],
+    "split": "deterministic seed 13, 70/30 per-workload independent connections",
+    "train_count": 192,
+    "test_count": 83,
+    "accuracy": 0.5663,
+    "accuracy_wilson_95": [
+      0.4591,
+      0.6676
+    ],
+    "balanced_accuracy": 0.5,
+    "majority_test_baseline": 0.3494,
+    "confusion_actual_by_predicted": {
+      "bulk_or_asymmetric": {
+        "bulk_or_asymmetric": 29,
+        "idle_or_empty": 0,
+        "medium": 0,
+        "tiny_interactive": 0
+      },
+      "idle_or_empty": {
+        "bulk_or_asymmetric": 0,
+        "idle_or_empty": 18,
+        "medium": 0,
+        "tiny_interactive": 0
+      },
+      "medium": {
+        "bulk_or_asymmetric": 9,
+        "idle_or_empty": 9,
+        "medium": 0,
+        "tiny_interactive": 0
+      },
+      "tiny_interactive": {
+        "bulk_or_asymmetric": 0,
+        "idle_or_empty": 9,
+        "medium": 9,
+        "tiny_interactive": 0
+      }
+    }
+  },
+  "final_frames": {
+    "count": 430,
+    "partial_below_1400_count": 430,
+    "record_size_top_ten": [
+      [
+        2090,
+        33
+      ],
+      [
+        1706,
+        33
+      ],
+      [
+        1578,
+        32
+      ],
+      [
+        1322,
+        31
+      ],
+      [
+        810,
+        30
+      ],
+      [
+        1194,
+        30
+      ],
+      [
+        1962,
+        26
+      ],
+      [
+        1834,
+        26
+      ],
+      [
+        1450,
+        24
+      ],
+      [
+        1066,
+        22
+      ]
+    ],
+    "by_workload": {
+      "handshake_only": {
+        "count": 0,
+        "partial_below_1400_count": 0,
+        "payload_bytes_top_five": []
+      },
+      "idle": {
+        "count": 0,
+        "partial_below_1400_count": 0,
+        "payload_bytes_top_five": []
+      },
+      "tiny": {
+        "count": 60,
+        "partial_below_1400_count": 60,
+        "payload_bytes_top_five": [
+          [
+            32,
+            60
+          ]
+        ]
+      },
+      "interactive": {
+        "count": 60,
+        "partial_below_1400_count": 60,
+        "payload_bytes_top_five": [
+          [
+            128,
+            60
+          ]
+        ]
+      },
+      "request_1kib": {
+        "count": 60,
+        "partial_below_1400_count": 60,
+        "payload_bytes_top_five": [
+          [
+            1024,
+            60
+          ]
+        ]
+      },
+      "transfer_64kib": {
+        "count": 60,
+        "partial_below_1400_count": 60,
+        "payload_bytes_top_five": [
+          [
+            1136,
+            60
+          ]
+        ]
+      },
+      "transfer_1mib": {
+        "count": 60,
+        "partial_below_1400_count": 60,
+        "payload_bytes_top_five": [
+          [
+            224,
+            31
+          ],
+          [
+            304,
+            3
+          ],
+          [
+            456,
+            2
+          ],
+          [
+            848,
+            2
+          ],
+          [
+            640,
+            1
+          ]
+        ]
+      },
+      "bulk_50mib": {
+        "count": 10,
+        "partial_below_1400_count": 10,
+        "payload_bytes_top_five": [
+          [
+            32,
+            5
+          ],
+          [
+            352,
+            5
+          ]
+        ]
+      },
+      "asymmetric_upload": {
+        "count": 60,
+        "partial_below_1400_count": 60,
+        "payload_bytes_top_five": [
+          [
+            224,
+            30
+          ],
+          [
+            32,
+            30
+          ]
+        ]
+      },
+      "asymmetric_download": {
+        "count": 60,
+        "partial_below_1400_count": 60,
+        "payload_bytes_top_five": [
+          [
+            32,
+            30
+          ],
+          [
+            88,
+            30
+          ]
+        ]
+      }
+    },
+    "current_size_only_accuracy": 0.747,
+    "flatten_only_final_frame_size_only_accuracy": 0.7831
+  },
+  "candidates": {
+    "A_current": {
+      "definition": {
+        "kind": "observed_current",
+        "rationale": "Exact measured Stage13B control; stochastic production bucket rule separately validated"
+      },
+      "total_inner_submitted_bytes": 609695208,
+      "total_forwarding_outer_tls_bytes": 617418418,
+      "total_outer_estimated_bytes": 618031943,
+      "frame_count": 351055,
+      "unique_observable_forwarding_frame_sizes": 64,
+      "forwarding_frame_size_entropy_bits": 2.7225,
+      "largest_size_share_percent": 16.467,
+      "forwarding_record_size_top_ten": [
+        [
+          1700,
+          57808
+        ],
+        [
+          1444,
+          57668
+        ],
+        [
+          1572,
+          57601
+        ],
+        [
+          2084,
+          57535
+        ],
+        [
+          1956,
+          57400
+        ],
+        [
+          1828,
+          57391
+        ],
+        [
+          2090,
+          510
+        ],
+        [
+          1706,
+          509
+        ],
+        [
+          1322,
+          504
+        ],
+        [
+          938,
+          503
+        ]
+      ],
+      "spearman_application_size_vs_wire_estimate": 0.9267,
+      "spearman_application_size_vs_frame_count": 0.9402,
+      "classifier_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.625,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.747,
+        "accuracy_wilson_95": [
+          0.644,
+          0.8281
+        ],
+        "balanced_accuracy": 0.7083,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 3,
+            "medium": 9,
+            "tiny_interactive": 6
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 3,
+            "medium": 9,
+            "tiny_interactive": 6
+          }
+        }
+      },
+      "classifier_forwarding_only_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_forwarding_only_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_directional_bytes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "frame_wire_c2s",
+          "frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5474,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 20,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_final_frame_sizes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "final_frame_wire_c2s",
+          "final_frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5685,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 16,
+            "idle_or_empty": 0,
+            "medium": 8,
+            "tiny_interactive": 5
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 4,
+            "idle_or_empty": 0,
+            "medium": 11,
+            "tiny_interactive": 3
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 8,
+            "idle_or_empty": 0,
+            "medium": 8,
+            "tiny_interactive": 2
+          }
+        }
+      },
+      "overhead_percent_all_connections": {
+        "p50": 0.0,
+        "p90": 0.0,
+        "p95": 0.0,
+        "p99": 0.0
+      },
+      "max_median_additional_wire_percent_nonempty_workloads": 0.0,
+      "worst_case_amplification": {
+        "max_ratio_to_current_minimum_record": 2.58,
+        "payload_bytes_at_max": 1,
+        "one_byte_payload_max_wire_bytes": 2090
+      },
+      "workloads": {
+        "handshake_only": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": null,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": null,
+          "median_total_wire_bytes": 2231.0,
+          "median_frame_count": 0.0,
+          "unique_forwarding_record_sizes": 0,
+          "forwarding_record_size_top_five": []
+        },
+        "idle": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": null,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": null,
+          "median_total_wire_bytes": 2231.0,
+          "median_frame_count": 0.0,
+          "unique_forwarding_record_sizes": 0,
+          "forwarding_record_size_top_five": []
+        },
+        "tiny": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": 0.0,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": 83.172,
+          "median_total_wire_bytes": 5323.0,
+          "median_frame_count": 2.0,
+          "unique_forwarding_record_sizes": 11,
+          "forwarding_record_size_top_five": [
+            [
+              1322,
+              8
+            ],
+            [
+              1706,
+              8
+            ],
+            [
+              1450,
+              7
+            ],
+            [
+              2090,
+              7
+            ],
+            [
+              1962,
+              7
+            ]
+          ]
+        },
+        "interactive": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": 0.0,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": 18.107,
+          "median_total_wire_bytes": 25495.0,
+          "median_frame_count": 16.0,
+          "unique_forwarding_record_sizes": 11,
+          "forwarding_record_size_top_five": [
+            [
+              938,
+              54
+            ],
+            [
+              2090,
+              49
+            ],
+            [
+              1962,
+              47
+            ],
+            [
+              1066,
+              47
+            ],
+            [
+              1578,
+              46
+            ]
+          ]
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": 0.0,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": 2.601,
+          "median_total_wire_bytes": 5327.0,
+          "median_frame_count": 2.0,
+          "unique_forwarding_record_sizes": 8,
+          "forwarding_record_size_top_five": [
+            [
+              1452,
+              11
+            ],
+            [
+              1964,
+              9
+            ],
+            [
+              1324,
+              8
+            ],
+            [
+              1836,
+              8
+            ],
+            [
+              1708,
+              7
+            ]
+          ]
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": 0.0,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": 1.276,
+          "median_total_wire_bytes": 167263.0,
+          "median_frame_count": 94.0,
+          "unique_forwarding_record_sizes": 14,
+          "forwarding_record_size_top_five": [
+            [
+              1444,
+              486
+            ],
+            [
+              1572,
+              469
+            ],
+            [
+              2084,
+              468
+            ],
+            [
+              1956,
+              457
+            ],
+            [
+              1828,
+              444
+            ]
+          ]
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": 0.0,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": 1.267,
+          "median_total_wire_bytes": 2657757.0,
+          "median_frame_count": 1508.0,
+          "unique_forwarding_record_sizes": 50,
+          "forwarding_record_size_top_five": [
+            [
+              1700,
+              7574
+            ],
+            [
+              1572,
+              7458
+            ],
+            [
+              1956,
+              7458
+            ],
+            [
+              1444,
+              7454
+            ],
+            [
+              2084,
+              7409
+            ]
+          ]
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_added_wire_bytes_per_connection": 0,
+          "median_added_wire_bytes_per_one_way_message": 0.0,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": 1.268,
+          "median_total_wire_bytes": 66475707,
+          "median_frame_count": 37793,
+          "unique_forwarding_record_sizes": 22,
+          "forwarding_record_size_top_five": [
+            [
+              1444,
+              31173
+            ],
+            [
+              1700,
+              31124
+            ],
+            [
+              2084,
+              31037
+            ],
+            [
+              1828,
+              31024
+            ],
+            [
+              1572,
+              31000
+            ]
+          ]
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": 0.0,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": 1.273,
+          "median_total_wire_bytes": 1334835.0,
+          "median_frame_count": 757.0,
+          "unique_forwarding_record_sizes": 17,
+          "forwarding_record_size_top_five": [
+            [
+              2084,
+              3808
+            ],
+            [
+              1828,
+              3744
+            ],
+            [
+              1956,
+              3738
+            ],
+            [
+              1700,
+              3713
+            ],
+            [
+              1572,
+              3677
+            ]
+          ]
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": 0.0,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": 1.269,
+          "median_total_wire_bytes": 5323543.0,
+          "median_frame_count": 3024.0,
+          "unique_forwarding_record_sizes": 25,
+          "forwarding_record_size_top_five": [
+            [
+              1572,
+              14997
+            ],
+            [
+              1700,
+              14961
+            ],
+            [
+              1956,
+              14925
+            ],
+            [
+              1444,
+              14885
+            ],
+            [
+              2084,
+              14813
+            ]
+          ]
+        }
+      }
+    },
+    "B_power_two": {
+      "definition": {
+        "kind": "smallest_bucket",
+        "buckets": [
+          128,
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "rationale": "Requested power-of-two counterfactual; 128-512 are wire-format feasible but below the current 768-byte privacy floor"
+      },
+      "total_inner_submitted_bytes": 719777196,
+      "total_forwarding_outer_tls_bytes": 727500406,
+      "total_outer_estimated_bytes": 728113931,
+      "frame_count": 351055,
+      "unique_observable_forwarding_frame_sizes": 5,
+      "forwarding_frame_size_entropy_bits": 0.1276,
+      "largest_size_share_percent": 98.445,
+      "forwarding_record_size_top_ten": [
+        [
+          2090,
+          345595
+        ],
+        [
+          1066,
+          4701
+        ],
+        [
+          170,
+          457
+        ],
+        [
+          298,
+          193
+        ],
+        [
+          554,
+          109
+        ]
+      ],
+      "spearman_application_size_vs_wire_estimate": 0.9986,
+      "spearman_application_size_vs_frame_count": 0.9402,
+      "classifier_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 18
+          }
+        }
+      },
+      "classifier_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_forwarding_only_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.8916,
+        "accuracy_wilson_95": [
+          0.8066,
+          0.9419
+        ],
+        "balanced_accuracy": 0.875,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 18
+          }
+        }
+      },
+      "classifier_forwarding_only_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.8916,
+        "accuracy_wilson_95": [
+          0.8066,
+          0.9419
+        ],
+        "balanced_accuracy": 0.875,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 18
+          }
+        }
+      },
+      "classifier_directional_bytes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "frame_wire_c2s",
+          "frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.6724,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 20,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 18
+          }
+        }
+      },
+      "classifier_final_frame_sizes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "final_frame_wire_c2s",
+          "final_frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6506,
+        "accuracy_wilson_95": [
+          0.5434,
+          0.7444
+        ],
+        "balanced_accuracy": 0.7026,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 2,
+            "tiny_interactive": 18
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 18,
+            "tiny_interactive": 0
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "overhead_percent_all_connections": {
+        "p50": 16.625,
+        "p90": 18.972,
+        "p95": 21.813,
+        "p99": 34.94
+      },
+      "max_median_additional_wire_percent_nonempty_workloads": 20.367,
+      "worst_case_amplification": {
+        "max_ratio_to_current_minimum_record": 1.959,
+        "payload_bytes_at_max": 1023,
+        "one_byte_payload_max_wire_bytes": 170
+      },
+      "workloads": {
+        "handshake_only": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": null,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": null,
+          "median_total_wire_bytes": 2231.0,
+          "median_frame_count": 0.0,
+          "unique_forwarding_record_sizes": 0,
+          "forwarding_record_size_top_five": []
+        },
+        "idle": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": null,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": null,
+          "median_total_wire_bytes": 2231.0,
+          "median_frame_count": 0.0,
+          "unique_forwarding_record_sizes": 0,
+          "forwarding_record_size_top_five": []
+        },
+        "tiny": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": -2752.0,
+          "median_added_wire_bytes_per_one_way_message": -1376.0,
+          "median_additional_wire_percent": -51.693,
+          "p90_additional_wire_percent": -47.262,
+          "median_wire_to_application_ratio": 40.172,
+          "median_total_wire_bytes": 2571.0,
+          "median_frame_count": 2.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              170,
+              60
+            ]
+          ]
+        },
+        "interactive": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": -19264.0,
+          "median_added_wire_bytes_per_one_way_message": -1204.0,
+          "median_additional_wire_percent": -75.56,
+          "p90_additional_wire_percent": -73.923,
+          "median_wire_to_application_ratio": 4.425,
+          "median_total_wire_bytes": 6231.0,
+          "median_frame_count": 16.0,
+          "unique_forwarding_record_sizes": 3,
+          "forwarding_record_size_top_five": [
+            [
+              170,
+              300
+            ],
+            [
+              298,
+              120
+            ],
+            [
+              554,
+              60
+            ]
+          ]
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 1084.0,
+          "median_added_wire_bytes_per_one_way_message": 542.0,
+          "median_additional_wire_percent": 20.367,
+          "p90_additional_wire_percent": 34.94,
+          "median_wire_to_application_ratio": 3.13,
+          "median_total_wire_bytes": 6411.0,
+          "median_frame_count": 2.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              60
+            ]
+          ]
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 31428.0,
+          "median_added_wire_bytes_per_one_way_message": 15714.0,
+          "median_additional_wire_percent": 18.79,
+          "p90_additional_wire_percent": 20.542,
+          "median_wire_to_application_ratio": 1.516,
+          "median_total_wire_bytes": 198691.0,
+          "median_frame_count": 94.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              2820
+            ]
+          ]
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 478670.0,
+          "median_added_wire_bytes_per_one_way_message": 239335.0,
+          "median_additional_wire_percent": 18.013,
+          "p90_additional_wire_percent": 18.458,
+          "median_wire_to_application_ratio": 1.495,
+          "median_total_wire_bytes": 3136266.0,
+          "median_frame_count": 1508.0,
+          "unique_forwarding_record_sizes": 5,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              44780
+            ],
+            [
+              1066,
+              371
+            ],
+            [
+              554,
+              44
+            ],
+            [
+              298,
+              43
+            ],
+            [
+              170,
+              2
+            ]
+          ]
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_added_wire_bytes_per_connection": 11943142,
+          "median_added_wire_bytes_per_one_way_message": 5971571.0,
+          "median_additional_wire_percent": 17.966,
+          "p90_additional_wire_percent": 18.041,
+          "median_wire_to_application_ratio": 1.496,
+          "median_total_wire_bytes": 78418849,
+          "median_frame_count": 37793,
+          "unique_forwarding_record_sizes": 4,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              186185
+            ],
+            [
+              1066,
+              2770
+            ],
+            [
+              170,
+              5
+            ],
+            [
+              554,
+              5
+            ]
+          ]
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 235574.0,
+          "median_added_wire_bytes_per_one_way_message": 117787.0,
+          "median_additional_wire_percent": 17.648,
+          "p90_additional_wire_percent": 18.266,
+          "median_wire_to_application_ratio": 1.498,
+          "median_total_wire_bytes": 1570409.0,
+          "median_frame_count": 757.0,
+          "unique_forwarding_record_sizes": 4,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              22350
+            ],
+            [
+              1066,
+              300
+            ],
+            [
+              298,
+              30
+            ],
+            [
+              170,
+              30
+            ]
+          ]
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 952000.0,
+          "median_added_wire_bytes_per_one_way_message": 476000.0,
+          "median_additional_wire_percent": 17.883,
+          "p90_additional_wire_percent": 18.271,
+          "median_wire_to_application_ratio": 1.496,
+          "median_total_wire_bytes": 6275543.0,
+          "median_frame_count": 3024.0,
+          "unique_forwarding_record_sizes": 3,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              89400
+            ],
+            [
+              1066,
+              1260
+            ],
+            [
+              170,
+              60
+            ]
+          ]
+        }
+      }
+    },
+    "C_coarse": {
+      "definition": {
+        "kind": "smallest_bucket",
+        "buckets": [
+          768,
+          1024,
+          1536,
+          2048
+        ],
+        "rationale": "Four round coarse buckets preserving the current 768-byte minimum; dominant 1400-byte payload fits 1536"
+      },
+      "total_inner_submitted_bytes": 542051116,
+      "total_forwarding_outer_tls_bytes": 549774326,
+      "total_outer_estimated_bytes": 550387851,
+      "frame_count": 351055,
+      "unique_observable_forwarding_frame_sizes": 3,
+      "forwarding_frame_size_entropy_bits": 0.116,
+      "largest_size_share_percent": 98.445,
+      "forwarding_record_size_top_ten": [
+        [
+          1578,
+          345595
+        ],
+        [
+          810,
+          5449
+        ],
+        [
+          1066,
+          11
+        ]
+      ],
+      "spearman_application_size_vs_wire_estimate": 0.9654,
+      "spearman_application_size_vs_frame_count": 0.9402,
+      "classifier_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6867,
+        "accuracy_wilson_95": [
+          0.5806,
+          0.7764
+        ],
+        "balanced_accuracy": 0.6389,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 8,
+            "tiny_interactive": 10
+          }
+        }
+      },
+      "classifier_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.625,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 9,
+            "tiny_interactive": 0
+          }
+        }
+      },
+      "classifier_forwarding_only_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_forwarding_only_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_directional_bytes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "frame_wire_c2s",
+          "frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5474,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 20,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_final_frame_sizes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "final_frame_wire_c2s",
+          "final_frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6867,
+        "accuracy_wilson_95": [
+          0.5806,
+          0.7764
+        ],
+        "balanced_accuracy": 0.7759,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 3,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 26
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 18,
+            "tiny_interactive": 0
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 18
+          }
+        }
+      },
+      "overhead_percent_all_connections": {
+        "p50": -10.746,
+        "p90": 0.0,
+        "p95": 2.356,
+        "p99": 13.387
+      },
+      "max_median_additional_wire_percent_nonempty_workloads": 1.141,
+      "worst_case_amplification": {
+        "max_ratio_to_current_minimum_record": 1.479,
+        "payload_bytes_at_max": 1023,
+        "one_byte_payload_max_wire_bytes": 810
+      },
+      "workloads": {
+        "handshake_only": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": null,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": null,
+          "median_total_wire_bytes": 2231.0,
+          "median_frame_count": 0.0,
+          "unique_forwarding_record_sizes": 0,
+          "forwarding_record_size_top_five": []
+        },
+        "idle": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": null,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": null,
+          "median_total_wire_bytes": 2231.0,
+          "median_frame_count": 0.0,
+          "unique_forwarding_record_sizes": 0,
+          "forwarding_record_size_top_five": []
+        },
+        "tiny": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": -1472.0,
+          "median_added_wire_bytes_per_one_way_message": -736.0,
+          "median_additional_wire_percent": -27.643,
+          "p90_additional_wire_percent": -21.005,
+          "median_wire_to_application_ratio": 60.172,
+          "median_total_wire_bytes": 3851.0,
+          "median_frame_count": 2.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              810,
+              60
+            ]
+          ]
+        },
+        "interactive": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": -10304.0,
+          "median_added_wire_bytes_per_one_way_message": -644.0,
+          "median_additional_wire_percent": -40.415,
+          "p90_additional_wire_percent": -36.426,
+          "median_wire_to_application_ratio": 10.789,
+          "median_total_wire_bytes": 15191.0,
+          "median_frame_count": 16.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              810,
+              480
+            ]
+          ]
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 60.0,
+          "median_added_wire_bytes_per_one_way_message": 30.0,
+          "median_additional_wire_percent": 1.141,
+          "p90_additional_wire_percent": 13.387,
+          "median_wire_to_application_ratio": 2.63,
+          "median_total_wire_bytes": 5387.0,
+          "median_frame_count": 2.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              60
+            ]
+          ]
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": -16700.0,
+          "median_added_wire_bytes_per_one_way_message": -8350.0,
+          "median_additional_wire_percent": -9.984,
+          "p90_additional_wire_percent": -8.656,
+          "median_wire_to_application_ratio": 1.149,
+          "median_total_wire_bytes": 150563.0,
+          "median_frame_count": 94.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              2820
+            ]
+          ]
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": -288046.0,
+          "median_added_wire_bytes_per_one_way_message": -144023.0,
+          "median_additional_wire_percent": -10.835,
+          "p90_additional_wire_percent": -10.485,
+          "median_wire_to_application_ratio": 1.13,
+          "median_total_wire_bytes": 2370335.0,
+          "median_frame_count": 1508.0,
+          "unique_forwarding_record_sizes": 3,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              44780
+            ],
+            [
+              810,
+              449
+            ],
+            [
+              1066,
+              11
+            ]
+          ]
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_added_wire_bytes_per_connection": -7263130,
+          "median_added_wire_bytes_per_one_way_message": -3631565.0,
+          "median_additional_wire_percent": -10.926,
+          "p90_additional_wire_percent": -10.869,
+          "median_wire_to_application_ratio": 1.129,
+          "median_total_wire_bytes": 59212577,
+          "median_frame_count": 37793,
+          "unique_forwarding_record_sizes": 2,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              186185
+            ],
+            [
+              810,
+              2780
+            ]
+          ]
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": -147274.0,
+          "median_added_wire_bytes_per_one_way_message": -73637.0,
+          "median_additional_wire_percent": -11.033,
+          "p90_additional_wire_percent": -10.566,
+          "median_wire_to_application_ratio": 1.133,
+          "median_total_wire_bytes": 1187561.0,
+          "median_frame_count": 757.0,
+          "unique_forwarding_record_sizes": 2,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              22350
+            ],
+            [
+              810,
+              360
+            ]
+          ]
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": -583232.0,
+          "median_added_wire_bytes_per_one_way_message": -291616.0,
+          "median_additional_wire_percent": -10.956,
+          "p90_additional_wire_percent": -10.663,
+          "median_wire_to_application_ratio": 1.13,
+          "median_total_wire_bytes": 4740311.0,
+          "median_frame_count": 3024.0,
+          "unique_forwarding_record_sizes": 2,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              89400
+            ],
+            [
+              810,
+              1320
+            ]
+          ]
+        }
+      }
+    },
+    "D_random_upper": {
+      "definition": {
+        "kind": "random_upper",
+        "buckets": [
+          768,
+          1024,
+          1536,
+          2048
+        ],
+        "probabilities_min_next_max": [
+          0.55,
+          0.3,
+          0.15
+        ],
+        "rationale": "Fixed distribution before classification; candidate is clamped to the next or maximum feasible bucket"
+      },
+      "total_inner_submitted_bytes": 623158060,
+      "total_forwarding_outer_tls_bytes": 630881270,
+      "total_outer_estimated_bytes": 631494795,
+      "frame_count": 351055,
+      "unique_observable_forwarding_frame_sizes": 4,
+      "forwarding_frame_size_entropy_bits": 1.0942,
+      "largest_size_share_percent": 54.125,
+      "forwarding_record_size_top_ten": [
+        [
+          1578,
+          190008
+        ],
+        [
+          2090,
+          156390
+        ],
+        [
+          810,
+          3011
+        ],
+        [
+          1066,
+          1646
+        ]
+      ],
+      "spearman_application_size_vs_wire_estimate": 0.9577,
+      "spearman_application_size_vs_frame_count": 0.9402,
+      "classifier_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.625,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6867,
+        "accuracy_wilson_95": [
+          0.5806,
+          0.7764
+        ],
+        "balanced_accuracy": 0.6389,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 8,
+            "medium": 9,
+            "tiny_interactive": 1
+          }
+        }
+      },
+      "classifier_forwarding_only_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_forwarding_only_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_directional_bytes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "frame_wire_c2s",
+          "frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5474,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 20,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_final_frame_sizes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "final_frame_wire_c2s",
+          "final_frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6145,
+        "accuracy_wilson_95": [
+          0.5069,
+          0.7119
+        ],
+        "balanced_accuracy": 0.682,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 5,
+            "idle_or_empty": 0,
+            "medium": 6,
+            "tiny_interactive": 18
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 18,
+            "tiny_interactive": 0
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 5,
+            "idle_or_empty": 0,
+            "medium": 3,
+            "tiny_interactive": 10
+          }
+        }
+      },
+      "overhead_percent_all_connections": {
+        "p50": 1.495,
+        "p90": 5.251,
+        "p95": 13.387,
+        "p99": 21.813
+      },
+      "max_median_additional_wire_percent_nonempty_workloads": 12.736,
+      "worst_case_amplification": {
+        "max_ratio_to_current_minimum_record": 2.58,
+        "payload_bytes_at_max": 1,
+        "one_byte_payload_max_wire_bytes": 2090
+      },
+      "workloads": {
+        "handshake_only": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": null,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": null,
+          "median_total_wire_bytes": 2231.0,
+          "median_frame_count": 0.0,
+          "unique_forwarding_record_sizes": 0,
+          "forwarding_record_size_top_five": []
+        },
+        "idle": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": null,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": null,
+          "median_total_wire_bytes": 2231.0,
+          "median_frame_count": 0.0,
+          "unique_forwarding_record_sizes": 0,
+          "forwarding_record_size_top_five": []
+        },
+        "tiny": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": -1152.0,
+          "median_added_wire_bytes_per_one_way_message": -576.0,
+          "median_additional_wire_percent": -23.026,
+          "p90_additional_wire_percent": -11.085,
+          "median_wire_to_application_ratio": 64.172,
+          "median_total_wire_bytes": 4107.0,
+          "median_frame_count": 2.0,
+          "unique_forwarding_record_sizes": 3,
+          "forwarding_record_size_top_five": [
+            [
+              810,
+              35
+            ],
+            [
+              1066,
+              22
+            ],
+            [
+              2090,
+              3
+            ]
+          ]
+        },
+        "interactive": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": -6336.0,
+          "median_added_wire_bytes_per_one_way_message": -396.0,
+          "median_additional_wire_percent": -24.609,
+          "p90_additional_wire_percent": -16.27,
+          "median_wire_to_application_ratio": 13.335,
+          "median_total_wire_bytes": 18775.0,
+          "median_frame_count": 16.0,
+          "unique_forwarding_record_sizes": 3,
+          "forwarding_record_size_top_five": [
+            [
+              810,
+              267
+            ],
+            [
+              1066,
+              152
+            ],
+            [
+              2090,
+              61
+            ]
+          ]
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 636.0,
+          "median_added_wire_bytes_per_one_way_message": 318.0,
+          "median_additional_wire_percent": 12.736,
+          "p90_additional_wire_percent": 21.813,
+          "median_wire_to_application_ratio": 2.88,
+          "median_total_wire_bytes": 5899.0,
+          "median_frame_count": 2.0,
+          "unique_forwarding_record_sizes": 2,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              31
+            ],
+            [
+              1578,
+              29
+            ]
+          ]
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 4484.0,
+          "median_added_wire_bytes_per_one_way_message": 2242.0,
+          "median_additional_wire_percent": 2.676,
+          "p90_additional_wire_percent": 5.256,
+          "median_wire_to_application_ratio": 1.313,
+          "median_total_wire_bytes": 172067.0,
+          "median_frame_count": 94.0,
+          "unique_forwarding_record_sizes": 2,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              1559
+            ],
+            [
+              2090,
+              1261
+            ]
+          ]
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 56537.0,
+          "median_added_wire_bytes_per_one_way_message": 28268.5,
+          "median_additional_wire_percent": 2.122,
+          "p90_additional_wire_percent": 2.895,
+          "median_wire_to_application_ratio": 1.296,
+          "median_total_wire_bytes": 2717087.0,
+          "median_frame_count": 1508.0,
+          "unique_forwarding_record_sizes": 4,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              24631
+            ],
+            [
+              2090,
+              20227
+            ],
+            [
+              810,
+              240
+            ],
+            [
+              1066,
+              142
+            ]
+          ]
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_added_wire_bytes_per_connection": 1435110,
+          "median_added_wire_bytes_per_one_way_message": 717555.0,
+          "median_additional_wire_percent": 2.16,
+          "p90_additional_wire_percent": 2.296,
+          "median_wire_to_application_ratio": 1.296,
+          "median_total_wire_bytes": 67928609,
+          "median_frame_count": 37793,
+          "unique_forwarding_record_sizes": 4,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              102506
+            ],
+            [
+              2090,
+              84094
+            ],
+            [
+              810,
+              1523
+            ],
+            [
+              1066,
+              842
+            ]
+          ]
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 26422.0,
+          "median_added_wire_bytes_per_one_way_message": 13211.0,
+          "median_additional_wire_percent": 1.982,
+          "p90_additional_wire_percent": 3.11,
+          "median_wire_to_application_ratio": 1.298,
+          "median_total_wire_bytes": 1361513.0,
+          "median_frame_count": 757.0,
+          "unique_forwarding_record_sizes": 4,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              12249
+            ],
+            [
+              2090,
+              10148
+            ],
+            [
+              810,
+              201
+            ],
+            [
+              1066,
+              112
+            ]
+          ]
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 118912.0,
+          "median_added_wire_bytes_per_one_way_message": 59456.0,
+          "median_additional_wire_percent": 2.234,
+          "p90_additional_wire_percent": 2.695,
+          "median_wire_to_application_ratio": 1.297,
+          "median_total_wire_bytes": 5441111.0,
+          "median_frame_count": 3024.0,
+          "unique_forwarding_record_sizes": 4,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              49034
+            ],
+            [
+              2090,
+              40565
+            ],
+            [
+              810,
+              745
+            ],
+            [
+              1066,
+              376
+            ]
+          ]
+        }
+      }
+    },
+    "E_small_flatten": {
+      "definition": {
+        "kind": "small_flatten",
+        "threshold_payload_bytes": 256,
+        "small_buckets": [
+          1536,
+          2048
+        ],
+        "small_probabilities": [
+          0.5,
+          0.5
+        ],
+        "larger_frame_policy": "retain measured current padded size",
+        "rationale": "Baseline length histogram has 16/32/64/128/224/256-byte small frames and no 257-399-byte frames; only 710 of 351055 frames qualify"
+      },
+      "total_inner_submitted_bytes": 609953768,
+      "total_forwarding_outer_tls_bytes": 617676978,
+      "total_outer_estimated_bytes": 618290503,
+      "frame_count": 351055,
+      "unique_observable_forwarding_frame_sizes": 64,
+      "forwarding_frame_size_entropy_bits": 2.7217,
+      "largest_size_share_percent": 16.467,
+      "forwarding_record_size_top_ten": [
+        [
+          1700,
+          57808
+        ],
+        [
+          1444,
+          57668
+        ],
+        [
+          1572,
+          57601
+        ],
+        [
+          2084,
+          57535
+        ],
+        [
+          1956,
+          57400
+        ],
+        [
+          1828,
+          57391
+        ],
+        [
+          1578,
+          799
+        ],
+        [
+          2090,
+          780
+        ],
+        [
+          1706,
+          447
+        ],
+        [
+          1322,
+          438
+        ]
+      ],
+      "spearman_application_size_vs_wire_estimate": 0.9064,
+      "spearman_application_size_vs_frame_count": 0.9402,
+      "classifier_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.625,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.759,
+        "accuracy_wilson_95": [
+          0.6569,
+          0.8383
+        ],
+        "balanced_accuracy": 0.7222,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 5,
+            "medium": 9,
+            "tiny_interactive": 4
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 2,
+            "medium": 9,
+            "tiny_interactive": 7
+          }
+        }
+      },
+      "classifier_forwarding_only_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_forwarding_only_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_directional_bytes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "frame_wire_c2s",
+          "frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5474,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 20,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_final_frame_sizes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "final_frame_wire_c2s",
+          "final_frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5783,
+        "accuracy_wilson_95": [
+          0.4709,
+          0.6788
+        ],
+        "balanced_accuracy": 0.6193,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 11
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 6,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 3
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 1,
+            "idle_or_empty": 0,
+            "medium": 5,
+            "tiny_interactive": 12
+          }
+        }
+      },
+      "overhead_percent_all_connections": {
+        "p50": 0.0,
+        "p90": 19.934,
+        "p95": 26.607,
+        "p99": 35.738
+      },
+      "max_median_additional_wire_percent_nonempty_workloads": 22.838,
+      "worst_case_amplification": {
+        "max_ratio_to_current_minimum_record": 2.58,
+        "payload_bytes_at_max": 1,
+        "one_byte_payload_max_wire_bytes": 2090
+      },
+      "workloads": {
+        "handshake_only": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": null,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": null,
+          "median_total_wire_bytes": 2231.0,
+          "median_frame_count": 0.0,
+          "unique_forwarding_record_sizes": 0,
+          "forwarding_record_size_top_five": []
+        },
+        "idle": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": null,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": null,
+          "median_total_wire_bytes": 2231.0,
+          "median_frame_count": 0.0,
+          "unique_forwarding_record_sizes": 0,
+          "forwarding_record_size_top_five": []
+        },
+        "tiny": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 512.0,
+          "median_added_wire_bytes_per_one_way_message": 256.0,
+          "median_additional_wire_percent": 10.003,
+          "p90_additional_wire_percent": 24.946,
+          "median_wire_to_application_ratio": 92.172,
+          "median_total_wire_bytes": 5899.0,
+          "median_frame_count": 2.0,
+          "unique_forwarding_record_sizes": 2,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              33
+            ],
+            [
+              2090,
+              27
+            ]
+          ]
+        },
+        "interactive": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 5696.0,
+          "median_added_wire_bytes_per_one_way_message": 356.0,
+          "median_additional_wire_percent": 22.838,
+          "p90_additional_wire_percent": 35.738,
+          "median_wire_to_application_ratio": 22.425,
+          "median_total_wire_bytes": 31575.0,
+          "median_frame_count": 16.0,
+          "unique_forwarding_record_sizes": 2,
+          "forwarding_record_size_top_five": [
+            [
+              1578,
+              244
+            ],
+            [
+              2090,
+              236
+            ]
+          ]
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": 0.0,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": 2.601,
+          "median_total_wire_bytes": 5327.0,
+          "median_frame_count": 2.0,
+          "unique_forwarding_record_sizes": 8,
+          "forwarding_record_size_top_five": [
+            [
+              1452,
+              11
+            ],
+            [
+              1964,
+              9
+            ],
+            [
+              1324,
+              8
+            ],
+            [
+              1836,
+              8
+            ],
+            [
+              1708,
+              7
+            ]
+          ]
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": 0.0,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": 1.276,
+          "median_total_wire_bytes": 167263.0,
+          "median_frame_count": 94.0,
+          "unique_forwarding_record_sizes": 14,
+          "forwarding_record_size_top_five": [
+            [
+              1444,
+              486
+            ],
+            [
+              1572,
+              469
+            ],
+            [
+              2084,
+              468
+            ],
+            [
+              1956,
+              457
+            ],
+            [
+              1828,
+              444
+            ]
+          ]
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 704.0,
+          "median_added_wire_bytes_per_one_way_message": 352.0,
+          "median_additional_wire_percent": 0.026,
+          "p90_additional_wire_percent": 0.053,
+          "median_wire_to_application_ratio": 1.268,
+          "median_total_wire_bytes": 2659037.0,
+          "median_frame_count": 1508.0,
+          "unique_forwarding_record_sizes": 50,
+          "forwarding_record_size_top_five": [
+            [
+              1700,
+              7574
+            ],
+            [
+              1572,
+              7458
+            ],
+            [
+              1956,
+              7458
+            ],
+            [
+              1444,
+              7454
+            ],
+            [
+              2084,
+              7409
+            ]
+          ]
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_added_wire_bytes_per_connection": 256,
+          "median_added_wire_bytes_per_one_way_message": 128.0,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.001,
+          "median_wire_to_application_ratio": 1.268,
+          "median_total_wire_bytes": 66476219,
+          "median_frame_count": 37793,
+          "unique_forwarding_record_sizes": 22,
+          "forwarding_record_size_top_five": [
+            [
+              1444,
+              31173
+            ],
+            [
+              1700,
+              31124
+            ],
+            [
+              2084,
+              31037
+            ],
+            [
+              1828,
+              31024
+            ],
+            [
+              1572,
+              31000
+            ]
+          ]
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 832.0,
+          "median_added_wire_bytes_per_one_way_message": 416.0,
+          "median_additional_wire_percent": 0.062,
+          "p90_additional_wire_percent": 0.096,
+          "median_wire_to_application_ratio": 1.274,
+          "median_total_wire_bytes": 1335603.0,
+          "median_frame_count": 757.0,
+          "unique_forwarding_record_sizes": 17,
+          "forwarding_record_size_top_five": [
+            [
+              2084,
+              3808
+            ],
+            [
+              1828,
+              3744
+            ],
+            [
+              1956,
+              3738
+            ],
+            [
+              1700,
+              3713
+            ],
+            [
+              1572,
+              3677
+            ]
+          ]
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 512.0,
+          "median_added_wire_bytes_per_one_way_message": 256.0,
+          "median_additional_wire_percent": 0.01,
+          "p90_additional_wire_percent": 0.029,
+          "median_wire_to_application_ratio": 1.269,
+          "median_total_wire_bytes": 5323671.0,
+          "median_frame_count": 3024.0,
+          "unique_forwarding_record_sizes": 25,
+          "forwarding_record_size_top_five": [
+            [
+              1572,
+              14997
+            ],
+            [
+              1700,
+              14961
+            ],
+            [
+              1956,
+              14925
+            ],
+            [
+              1444,
+              14885
+            ],
+            [
+              2084,
+              14813
+            ]
+          ]
+        }
+      }
+    },
+    "F_constant_max": {
+      "definition": {
+        "kind": "constant_max",
+        "padded_plaintext_bytes": 2048,
+        "rationale": "Simulation-only upper bound for per-frame padding with frozen frame count"
+      },
+      "total_inner_submitted_bytes": 725981740,
+      "total_forwarding_outer_tls_bytes": 733704950,
+      "total_outer_estimated_bytes": 734318475,
+      "frame_count": 351055,
+      "unique_observable_forwarding_frame_sizes": 1,
+      "forwarding_frame_size_entropy_bits": -0.0,
+      "largest_size_share_percent": 100.0,
+      "forwarding_record_size_top_ten": [
+        [
+          2090,
+          351055
+        ]
+      ],
+      "spearman_application_size_vs_wire_estimate": 0.9402,
+      "spearman_application_size_vs_frame_count": 0.9402,
+      "classifier_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.6747,
+        "accuracy_wilson_95": [
+          0.5681,
+          0.7658
+        ],
+        "balanced_accuracy": 0.625,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 9,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_forwarding_only_full": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count",
+          "duration_ms"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_forwarding_only_size_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": true,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "total_c2s",
+          "total_s2c",
+          "tls_record_count"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.7831,
+        "accuracy_wilson_95": [
+          0.683,
+          0.8582
+        ],
+        "balanced_accuracy": 0.75,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_directional_bytes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "frame_wire_c2s",
+          "frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5474,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 20,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 9,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 9
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 0,
+            "medium": 9,
+            "tiny_interactive": 9
+          }
+        }
+      },
+      "classifier_final_frame_sizes_only": {
+        "method": "log1p features; train-only standardization; Euclidean nearest four-class centroid",
+        "size_only_ablation": false,
+        "classes": {
+          "handshake_only": "idle_or_empty",
+          "idle": "idle_or_empty",
+          "tiny": "tiny_interactive",
+          "interactive": "tiny_interactive",
+          "request_1kib": "medium",
+          "transfer_64kib": "medium",
+          "transfer_1mib": "bulk_or_asymmetric",
+          "bulk_50mib": "bulk_or_asymmetric",
+          "asymmetric_upload": "bulk_or_asymmetric",
+          "asymmetric_download": "bulk_or_asymmetric"
+        },
+        "features": [
+          "final_frame_wire_c2s",
+          "final_frame_wire_s2c"
+        ],
+        "split": "deterministic seed 13, 70/30 per-workload independent connections",
+        "train_count": 192,
+        "test_count": 83,
+        "accuracy": 0.5663,
+        "accuracy_wilson_95": [
+          0.4591,
+          0.6676
+        ],
+        "balanced_accuracy": 0.5,
+        "majority_test_baseline": 0.3494,
+        "confusion_actual_by_predicted": {
+          "bulk_or_asymmetric": {
+            "bulk_or_asymmetric": 29,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "idle_or_empty": {
+            "bulk_or_asymmetric": 0,
+            "idle_or_empty": 18,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "medium": {
+            "bulk_or_asymmetric": 18,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          },
+          "tiny_interactive": {
+            "bulk_or_asymmetric": 18,
+            "idle_or_empty": 0,
+            "medium": 0,
+            "tiny_interactive": 0
+          }
+        }
+      },
+      "overhead_percent_all_connections": {
+        "p50": 18.669,
+        "p90": 34.94,
+        "p95": 40.266,
+        "p99": 49.282
+      },
+      "max_median_additional_wire_percent_nonempty_workloads": 39.915,
+      "worst_case_amplification": {
+        "max_ratio_to_current_minimum_record": 2.58,
+        "payload_bytes_at_max": 1,
+        "one_byte_payload_max_wire_bytes": 2090
+      },
+      "workloads": {
+        "handshake_only": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": null,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": null,
+          "median_total_wire_bytes": 2231.0,
+          "median_frame_count": 0.0,
+          "unique_forwarding_record_sizes": 0,
+          "forwarding_record_size_top_five": []
+        },
+        "idle": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 0.0,
+          "median_added_wire_bytes_per_one_way_message": null,
+          "median_additional_wire_percent": 0.0,
+          "p90_additional_wire_percent": 0.0,
+          "median_wire_to_application_ratio": null,
+          "median_total_wire_bytes": 2231.0,
+          "median_frame_count": 0.0,
+          "unique_forwarding_record_sizes": 0,
+          "forwarding_record_size_top_five": []
+        },
+        "tiny": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 1088.0,
+          "median_added_wire_bytes_per_one_way_message": 544.0,
+          "median_additional_wire_percent": 20.457,
+          "p90_additional_wire_percent": 31.508,
+          "median_wire_to_application_ratio": 100.172,
+          "median_total_wire_bytes": 6411.0,
+          "median_frame_count": 2.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              60
+            ]
+          ]
+        },
+        "interactive": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 10176.0,
+          "median_added_wire_bytes_per_one_way_message": 636.0,
+          "median_additional_wire_percent": 39.915,
+          "p90_additional_wire_percent": 49.282,
+          "median_wire_to_application_ratio": 25.335,
+          "median_total_wire_bytes": 35671.0,
+          "median_frame_count": 16.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              480
+            ]
+          ]
+        },
+        "request_1kib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 1084.0,
+          "median_added_wire_bytes_per_one_way_message": 542.0,
+          "median_additional_wire_percent": 20.367,
+          "p90_additional_wire_percent": 34.94,
+          "median_wire_to_application_ratio": 3.13,
+          "median_total_wire_bytes": 6411.0,
+          "median_frame_count": 2.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              60
+            ]
+          ]
+        },
+        "transfer_64kib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 31428.0,
+          "median_added_wire_bytes_per_one_way_message": 15714.0,
+          "median_additional_wire_percent": 18.79,
+          "p90_additional_wire_percent": 20.542,
+          "median_wire_to_application_ratio": 1.516,
+          "median_total_wire_bytes": 198691.0,
+          "median_frame_count": 94.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              2820
+            ]
+          ]
+        },
+        "transfer_1mib": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 496466.0,
+          "median_added_wire_bytes_per_one_way_message": 248233.0,
+          "median_additional_wire_percent": 18.667,
+          "p90_additional_wire_percent": 19.115,
+          "median_wire_to_application_ratio": 1.504,
+          "median_total_wire_bytes": 3153951.0,
+          "median_frame_count": 1508.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              45240
+            ]
+          ]
+        },
+        "bulk_50mib": {
+          "connections": 5,
+          "median_added_wire_bytes_per_connection": 12513894,
+          "median_added_wire_bytes_per_one_way_message": 6256947.0,
+          "median_additional_wire_percent": 18.825,
+          "p90_additional_wire_percent": 18.901,
+          "median_wire_to_application_ratio": 1.507,
+          "median_total_wire_bytes": 78989601,
+          "median_frame_count": 37793,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              188965
+            ]
+          ]
+        },
+        "asymmetric_upload": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 249526.0,
+          "median_added_wire_bytes_per_one_way_message": 124763.0,
+          "median_additional_wire_percent": 18.693,
+          "p90_additional_wire_percent": 19.317,
+          "median_wire_to_application_ratio": 1.511,
+          "median_total_wire_bytes": 1584361.0,
+          "median_frame_count": 757.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              22710
+            ]
+          ]
+        },
+        "asymmetric_download": {
+          "connections": 30,
+          "median_added_wire_bytes_per_connection": 998848.0,
+          "median_added_wire_bytes_per_one_way_message": 499424.0,
+          "median_additional_wire_percent": 18.763,
+          "p90_additional_wire_percent": 19.154,
+          "median_wire_to_application_ratio": 1.507,
+          "median_total_wire_bytes": 6322391.0,
+          "median_frame_count": 3024.0,
+          "unique_forwarding_record_sizes": 1,
+          "forwarding_record_size_top_five": [
+            [
+              2090,
+              90720
+            ]
+          ]
+        }
+      }
+    }
+  },
+  "budget_frontier": {
+    "2": {
+      "best_by_frozen_classifier_score": "C_coarse",
+      "size_only_accuracy": 0.6747,
+      "full_accuracy": 0.6867,
+      "max_workload_median_additional_wire_percent": 1.141,
+      "eligible_candidates": [
+        "A_current",
+        "C_coarse"
+      ],
+      "warning": "Classifier score alone does not establish protocol fingerprint safety"
+    },
+    "5": {
+      "best_by_frozen_classifier_score": "C_coarse",
+      "size_only_accuracy": 0.6747,
+      "full_accuracy": 0.6867,
+      "max_workload_median_additional_wire_percent": 1.141,
+      "eligible_candidates": [
+        "A_current",
+        "C_coarse"
+      ],
+      "warning": "Classifier score alone does not establish protocol fingerprint safety"
+    },
+    "10": {
+      "best_by_frozen_classifier_score": "C_coarse",
+      "size_only_accuracy": 0.6747,
+      "full_accuracy": 0.6867,
+      "max_workload_median_additional_wire_percent": 1.141,
+      "eligible_candidates": [
+        "A_current",
+        "C_coarse"
+      ],
+      "warning": "Classifier score alone does not establish protocol fingerprint safety"
+    },
+    "25": {
+      "best_by_frozen_classifier_score": "C_coarse",
+      "size_only_accuracy": 0.6747,
+      "full_accuracy": 0.6867,
+      "max_workload_median_additional_wire_percent": 1.141,
+      "eligible_candidates": [
+        "A_current",
+        "B_power_two",
+        "C_coarse",
+        "D_random_upper",
+        "E_small_flatten"
+      ],
+      "warning": "Classifier score alone does not establish protocol fingerprint safety"
+    },
+    "50": {
+      "best_by_frozen_classifier_score": "C_coarse",
+      "size_only_accuracy": 0.6747,
+      "full_accuracy": 0.6867,
+      "max_workload_median_additional_wire_percent": 1.141,
+      "eligible_candidates": [
+        "A_current",
+        "B_power_two",
+        "C_coarse",
+        "D_random_upper",
+        "E_small_flatten",
+        "F_constant_max"
+      ],
+      "warning": "Classifier score alone does not establish protocol fingerprint safety"
+    }
+  },
+  "majority_baseline": 0.3494,
+  "verdict": "PADDING_ONLY_INSUFFICIENT",
+  "recommended_next_stage": "Stage13D frame segmentation morphology study"
+}
