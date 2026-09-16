@@ -200,6 +200,77 @@ pub(super) fn canonical_from_runtime(policy: &TargetPolicy) -> std::io::Result<V
         .map_err(|_| std::io::Error::other("target policy serialization failed"))
 }
 
+/// Apply one exact, literal endpoint grant without exposing the policy JSON
+/// document to an administrative client. Host names, ranges, and scoped IPv6
+/// addresses are intentionally not accepted here: Stage9 grants are exact IP
+/// address and port pairs.
+pub(super) fn allow_exact(
+    policy: &TargetPolicy,
+    fingerprint: &str,
+    endpoint: SocketAddr,
+) -> std::io::Result<TargetPolicy> {
+    if !valid_fingerprint(fingerprint) || !supported_endpoint(&endpoint) {
+        return Err(invalid_document());
+    }
+    let mut grants = match policy {
+        TargetPolicy::Deny => HashMap::new(),
+        TargetPolicy::Grants(grants) => grants.clone(),
+        // A legacy-allow policy is deliberately never silently narrowed or
+        // converted by an incremental command.
+        TargetPolicy::LegacyAllow | TargetPolicy::Invalid => return Err(invalid_document()),
+    };
+    grants
+        .entry(fingerprint.to_owned())
+        .or_default()
+        .insert(endpoint);
+    Ok(TargetPolicy::Grants(grants))
+}
+
+/// Remove exactly one literal endpoint grant. Removing the final endpoint
+/// keeps no empty peer entry, preserving the canonical deny-by-default model.
+pub(super) fn remove_exact(
+    policy: &TargetPolicy,
+    fingerprint: &str,
+    endpoint: SocketAddr,
+) -> std::io::Result<TargetPolicy> {
+    if !valid_fingerprint(fingerprint) || !supported_endpoint(&endpoint) {
+        return Err(invalid_document());
+    }
+    let mut grants = match policy {
+        TargetPolicy::Grants(grants) => grants.clone(),
+        TargetPolicy::Deny | TargetPolicy::LegacyAllow | TargetPolicy::Invalid => {
+            return Err(invalid_document())
+        }
+    };
+    let Some(targets) = grants.get_mut(fingerprint) else {
+        return Err(invalid_document());
+    };
+    if !targets.remove(&endpoint) {
+        return Err(invalid_document());
+    }
+    if targets.is_empty() {
+        grants.remove(fingerprint);
+    }
+    Ok(TargetPolicy::Grants(grants))
+}
+
+pub(super) fn grants_for_display(policy: &TargetPolicy) -> Vec<(String, Vec<SocketAddr>)> {
+    let mut grants: Vec<_> = match policy {
+        TargetPolicy::Grants(grants) => grants
+            .iter()
+            .map(|(fingerprint, endpoints)| {
+                (
+                    fingerprint.clone(),
+                    endpoints.iter().copied().collect::<Vec<_>>(),
+                )
+            })
+            .collect(),
+        TargetPolicy::Deny | TargetPolicy::LegacyAllow | TargetPolicy::Invalid => Vec::new(),
+    };
+    grants.sort_by(|left, right| left.0.cmp(&right.0));
+    grants
+}
+
 fn valid_fingerprint(fp: &str) -> bool {
     fp.strip_prefix("wwp1:").is_some_and(|suffix| {
         suffix.len() == 23
@@ -335,6 +406,20 @@ mod tests {
             PEER.into(),
             addresses.iter().map(|a| a.parse().unwrap()).collect(),
         )]))
+    }
+
+    #[test]
+    fn incremental_exact_grants_are_literal_and_canonical() {
+        let endpoint: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let policy = allow_exact(&TargetPolicy::Deny, PEER, endpoint).unwrap();
+        assert_eq!(
+            grants_for_display(&policy),
+            vec![(PEER.to_owned(), vec![endpoint])]
+        );
+        let policy = remove_exact(&policy, PEER, endpoint).unwrap();
+        assert!(grants_for_display(&policy).is_empty());
+        assert!(allow_exact(&TargetPolicy::Deny, PEER, "[fe80::1]:8080".parse().unwrap()).is_err());
+        assert!(allow_exact(&TargetPolicy::LegacyAllow, PEER, endpoint).is_err());
     }
 
     #[tokio::test]

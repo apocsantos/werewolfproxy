@@ -34,6 +34,8 @@ pub(super) fn handles(command: &str) -> bool {
             | "pack.revoke"
             | "pack.remove"
             | "target.policy.set"
+            | "target.allow"
+            | "target.remove"
             | "fang.profile.add"
             | "fang.profile.remove"
             | "state.manifest.migrate"
@@ -271,14 +273,51 @@ pub(super) async fn handle(
             }
         }
     }
-    if req.cmd == "target.policy.set" {
-        let document = arg(&req, "document");
-        let canonical = match target_policy::canonicalize(&document) {
-            Ok(canonical) => canonical,
-            Err(_) => return error(&req.id, "TARGET_POLICY_INVALID"),
+    if matches!(
+        req.cmd.as_str(),
+        "target.policy.set" | "target.allow" | "target.remove"
+    ) {
+        let parsed = if req.cmd == "target.policy.set" {
+            let document = arg(&req, "document");
+            let canonical = match target_policy::canonicalize(&document) {
+                Ok(canonical) => canonical,
+                Err(_) => return error(&req.id, "TARGET_POLICY_INVALID"),
+            };
+            match target_policy::parse_canonical(&canonical) {
+                Ok(policy) => policy,
+                Err(_) => return error(&req.id, "TARGET_POLICY_INVALID"),
+            }
+        } else {
+            let peer = arg(&req, "peer");
+            let target = match arg(&req, "target").parse() {
+                Ok(target) => target,
+                Err(_) => return error(&req.id, "TARGET_INVALID"),
+            };
+            let (fingerprint, current) = {
+                let live = state.lock().await;
+                let fingerprint = live
+                    .peers
+                    .iter()
+                    .find(|record| record.name == peer || record.fingerprint == peer)
+                    .map(|record| record.fingerprint.clone());
+                (fingerprint, live.target_policy.clone())
+            };
+            let Some(fingerprint) = fingerprint else {
+                return error(&req.id, "PACK_NOT_FOUND");
+            };
+            let result = if req.cmd == "target.allow" {
+                target_policy::allow_exact(&current, &fingerprint, target)
+            } else {
+                target_policy::remove_exact(&current, &fingerprint, target)
+            };
+            match result {
+                Ok(policy) => policy,
+                Err(_) if req.cmd == "target.remove" => return error(&req.id, "TARGET_NOT_FOUND"),
+                Err(_) => return error(&req.id, "TARGET_POLICY_INVALID"),
+            }
         };
-        let parsed = match target_policy::parse_canonical(&canonical) {
-            Ok(policy) => policy,
+        let canonical = match target_policy::canonical_from_runtime(&parsed) {
+            Ok(canonical) => canonical,
             Err(_) => return error(&req.id, "TARGET_POLICY_INVALID"),
         };
         let (generation, mut candidate) = {
@@ -296,7 +335,10 @@ pub(super) async fn handle(
             return error(&req.id, "TARGET_POLICY_SAVE_FAILED");
         }
         state.lock().await.target_policy = parsed;
-        return ControlResponse::ok(req.id, json!({"status":"target_policy_updated"}));
+        return ControlResponse::ok(
+            req.id,
+            json!({"status": if req.cmd == "target.allow" { "target_allowed" } else if req.cmd == "target.remove" { "target_removed" } else { "target_policy_updated" }}),
+        );
     }
     if req.cmd.starts_with("pack.") {
         let (mut candidate, protected_generation) = {
@@ -315,15 +357,21 @@ pub(super) async fn handle(
         };
         let status = match req.cmd.as_str() {
             "pack.add" => {
+                let public_key_b64 = arg(&req, "public_key_b64");
+                if public_key_b64.is_empty()
+                    || werewolf_core::pelt::fingerprint_from_public_key_b64(&public_key_b64)
+                        .ok()
+                        .as_deref()
+                        != Some(arg(&req, "fingerprint").as_str())
+                {
+                    return error(&req.id, "PACK_PUBLIC_KEY_INVALID");
+                }
                 candidate.push(PeerRecord {
                     name: name.clone(),
                     fingerprint: arg(&req, "fingerprint"),
                     address: arg(&req, "address"),
                     trust: TrustLevel::Packmate,
-                    public_key_b64: {
-                        let value = arg(&req, "public_key_b64");
-                        (!value.is_empty()).then_some(value)
-                    },
+                    public_key_b64: Some(public_key_b64),
                 });
                 "added"
             }
@@ -664,6 +712,60 @@ mod tests {
         assert_eq!(state.lock().await.protected_state_generation, Some(5));
         assert!(!fixture.0.join("fangs.json").exists());
         assert!(!fixture.0.join("active_fangs.json").exists());
+    }
+
+    #[tokio::test]
+    async fn incremental_target_mutations_use_the_protected_generation() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        assert!(
+            handle(
+                ControlRequest {
+                    id: "migrate".into(),
+                    cmd: "state.manifest.migrate".into(),
+                    args: json!({})
+                },
+                state.clone(),
+                fixture.0.clone()
+            )
+            .await
+            .ok
+        );
+        let peer = generate_identity();
+        assert!(handle(
+            ControlRequest { id: "pack".into(), cmd: "pack.add".into(), args: json!({
+                "name":"peer", "fingerprint":peer.fingerprint, "address":"tcp://127.0.0.1:1",
+                "public_key_b64":peer.public_key_b64
+            }) }, state.clone(), fixture.0.clone()
+        ).await.ok);
+        assert!(
+            handle(
+                ControlRequest {
+                    id: "allow".into(),
+                    cmd: "target.allow".into(),
+                    args: json!({"peer":"peer","target":"127.0.0.1:1"})
+                },
+                state.clone(),
+                fixture.0.clone()
+            )
+            .await
+            .ok
+        );
+        assert_eq!(state.lock().await.protected_state_generation, Some(3));
+        assert!(
+            handle(
+                ControlRequest {
+                    id: "remove".into(),
+                    cmd: "target.remove".into(),
+                    args: json!({"peer":"peer","target":"127.0.0.1:1"})
+                },
+                state.clone(),
+                fixture.0.clone()
+            )
+            .await
+            .ok
+        );
+        assert_eq!(state.lock().await.protected_state_generation, Some(4));
     }
 
     #[tokio::test]

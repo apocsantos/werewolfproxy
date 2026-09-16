@@ -175,11 +175,16 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
     let allowed: &[&str] = match request.cmd.as_str() {
         "pack.add" => &["name", "fingerprint", "address", "public_key_b64"],
         "pack.set_address" => &["name", "address"],
-        "pack.remove" | "pack.revoke" | "fang.profile.remove" | "fang.open_profile" => &["name"],
+        "pack.remove"
+        | "pack.revoke"
+        | "fang.profile.remove"
+        | "fang.open_profile"
+        | "fang.deactivate_profile" => &["name"],
         "fang.open" => &["peer", "local", "remote", "transport"],
         "fang.profile.add" => &["name", "peer", "local", "remote", "transport"],
         "fang.close" => &["fang_id"],
         "target.policy.set" => &["document"],
+        "target.allow" | "target.remove" => &["peer", "target"],
         _ => &[],
     };
     for (key, value) in args {
@@ -189,7 +194,7 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
         let value = value.as_str().ok_or_else(rejected)?;
         let limit = match key.as_str() {
             "name" | "peer" => 128,
-            "local" | "remote" | "address" | "public_key_b64" => 512,
+            "local" | "remote" | "address" | "public_key_b64" | "target" => 512,
             "document" => 12 * 1024,
             _ => 128,
         };
@@ -269,11 +274,14 @@ pub(super) fn mutates(cmd: &str) -> bool {
             | "pack.revoke"
             | "pack.remove"
             | "target.policy.set"
+            | "target.allow"
+            | "target.remove"
             | "state.manifest.migrate"
             | "fang.open"
             | "fang.profile.add"
             | "fang.profile.remove"
             | "fang.open_profile"
+            | "fang.deactivate_profile"
             | "fang.close"
             | "silver.trigger"
             | "silver.reset"

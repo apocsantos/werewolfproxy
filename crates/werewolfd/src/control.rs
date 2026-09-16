@@ -193,21 +193,38 @@ async fn handle_request(
             let mut st = state.lock().await;
             st.status.packmates = st.peers.len();
             st.status.active_fangs = st.fang_registry.len();
+            let lifecycle = if matches!(st.status.mode, WolfMode::Silver) {
+                "LOCKED"
+            } else {
+                // Control is started only after persistent-state validation;
+                // it is therefore the daemon's observable post-startup state.
+                "READY"
+            };
+            let listener_state = if st.status.pelt_ready {
+                "configured"
+            } else {
+                "waiting_for_pelt"
+            };
 
             ControlResponse::ok(
                 req.id,
                 json!({
+                    "lifecycle": lifecycle,
                     "storage_degraded": st.storage_degraded,
                     "inbound_authority": st.inbound_authority.summary(),
                     "mode": st.status.mode,
                     "pelt_ready": st.status.pelt_ready,
+                    "fingerprint": st.pelt.as_ref().map(|pelt| &pelt.fingerprint),
+                    "protected_state_generation": st.protected_state_generation,
                     "packmates": st.peers.len(),
                     "fang_profiles": st.fang_profiles.len(),
                     "active_fangs": st.fang_registry.len(),
                     "silver": st.status.silver,
                     "hide": st.status.hide,
                     "listen": st.den_listen,
-                    "quic_listen": st.den_quic_listen
+                    "quic_listen": st.den_quic_listen,
+                    "tcp_listener_state": listener_state,
+                    "quic_listener_state": listener_state
                 }),
             )
         }
@@ -218,7 +235,8 @@ async fn handle_request(
                 Some(pelt) => ControlResponse::ok(
                     req.id,
                     json!({
-                        "fingerprint": pelt.fingerprint
+                        "fingerprint": pelt.fingerprint,
+                        "public_key_b64": pelt.public_key_b64
                     }),
                 ),
                 None => ControlResponse::err(
@@ -232,6 +250,20 @@ async fn handle_request(
         "pack.list" => {
             let st = state.lock().await;
             ControlResponse::ok(req.id, json!(st.peers))
+        }
+
+        "target.list" => {
+            let st = state.lock().await;
+            let grants: Vec<_> = crate::target_policy::grants_for_display(&st.target_policy)
+                .into_iter()
+                .map(|(peer, targets)| {
+                    json!({
+                        "peer_fingerprint": peer,
+                        "targets": targets.into_iter().map(|target| target.to_string()).collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            ControlResponse::ok(req.id, json!(grants))
         }
 
         "fang.open" => {
@@ -280,6 +312,67 @@ async fn handle_request(
                 Some((home, profile_name)),
             )
             .await
+        }
+
+        "fang.deactivate_profile" => {
+            let name = req.args["name"].as_str().unwrap_or("").trim().to_owned();
+            if name.is_empty() {
+                return ControlResponse::err(req.id, "FANG_PROFILE_INVALID", "name is required");
+            }
+            let (home, candidate) = {
+                let st = state.lock().await;
+                if !st.active_profiles.contains(&name) {
+                    return ControlResponse::err(
+                        req.id,
+                        "FANG_PROFILE_NOT_ACTIVE",
+                        "Fang profile is not active",
+                    );
+                }
+                (
+                    home.clone(),
+                    st.active_profiles
+                        .iter()
+                        .filter(|profile| *profile != &name)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                )
+            };
+            // Persistence is the activation intent boundary. It is committed
+            // before cancellation so a restart cannot resurrect the profile.
+            if mutation::persist_active(&home, candidate, &state)
+                .await
+                .is_err()
+            {
+                return ControlResponse::err(
+                    req.id,
+                    "ACTIVE_SAVE_FAILED",
+                    "activation change rejected",
+                );
+            }
+            let mut st = state.lock().await;
+            let ids = st
+                .fang_registry
+                .records()
+                .iter()
+                .filter(|fang| {
+                    st.fang_profiles.iter().any(|profile| {
+                        profile.name == name
+                            && profile.peer == fang.peer
+                            && profile.local == fang.local
+                            && profile.remote == fang.remote
+                    })
+                })
+                .map(|fang| fang.id.clone())
+                .collect::<Vec<_>>();
+            st.fang_registry.terminate_ids(&ids);
+            st.status.active_fangs = st.fang_registry.len();
+            if st.fang_registry.is_empty() && !matches!(st.status.mode, WolfMode::Silver) {
+                st.status.mode = WolfMode::Human;
+            }
+            ControlResponse::ok(
+                req.id,
+                json!({"status":"profile_deactivated","name":name,"closed_fangs":ids.len()}),
+            )
         }
 
         "silver.trigger" => {
