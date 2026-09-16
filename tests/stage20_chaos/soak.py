@@ -663,6 +663,9 @@ class Campaign:
             self.count("verified_payload_bytes", size * 2)
             if index % 50 == 0:
                 self.sample()
+            # Keep an hours-long run a bounded sequential soak rather than a
+            # synthetic high-rate connection flood.
+            time.sleep(0.05)
 
     def run(self) -> dict[str, Any]:
         private(self.args.tmp_parent)
