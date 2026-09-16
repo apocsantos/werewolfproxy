@@ -325,6 +325,7 @@ class Campaign:
     def reconnects(self, cycles: int) -> None:
         for index in range(cycles):
             for transport in ("tcp", "quic"):
+                self.phase = f"reconnects/{transport}/{index}"
                 size = (1, 17, 127, 1500, 4097)[index % 5]
                 digest = secure_roundtrip(
                     self.small_ports[transport], deterministic_payload(self.args.seed, index, size)
@@ -334,6 +335,14 @@ class Campaign:
                 self.count("verified_payload_bytes", size * 2)
             if index % 25 == 0:
                 self.sample()
+                assert self.a is not None
+                authority = self.a.run_ctl("status")["inbound_authority"]
+                self.counters["max_authority_active"] = max(
+                    self.counters.get("max_authority_active", 0), int(authority["active"])
+                )
+                self.counters["max_authority_establishing"] = max(
+                    self.counters.get("max_authority_establishing", 0), int(authority["establishing"])
+                )
             # Let orderly close propagation run between independent session
             # cycles.  Deliberate saturation is covered in its own phase.
             time.sleep(0.05)
@@ -693,7 +702,7 @@ class Campaign:
         try:
             self.exercise("bootstrap", self.bootstrap)
             baseline = proc_metrics(self.b.process)
-            disk_baseline = tree_bytes(self.root)
+            disk_baseline = tree_bytes(self.a.den) + tree_bytes(self.b.den)
             self.exercise("reconnects", self.reconnects, reconnects)
             self.exercise("mixed transport", self.mixed_transport, mixed)
             self.exercise("strict fallback", self.strict_and_compatibility)
@@ -717,7 +726,7 @@ class Campaign:
             time.sleep(35.0)
             post = proc_metrics(self.b.process)
             self.sample()
-            disk_post = tree_bytes(self.root)
+            disk_post = tree_bytes(self.a.den) + tree_bytes(self.b.den)
             cpu_before = proc_metrics(self.b.process)["cpu_ticks"]
             time.sleep(1.0)
             cpu_after = proc_metrics(self.b.process)["cpu_ticks"]
@@ -725,7 +734,10 @@ class Campaign:
                 post["fd"] <= baseline["fd"] + 16,
                 f"post-soak FD count grew beyond bounded neighborhood: {baseline['fd']} -> {post['fd']}",
             )
-            require(disk_post <= disk_baseline + 256 * 1024, "disposable Den grew unexpectedly")
+            require(
+                disk_post <= disk_baseline + 256 * 1024,
+                f"disposable Den grew unexpectedly: {disk_baseline} -> {disk_post}",
+            )
             return {
                 "stage": "stage20",
                 "result": "PASS",
@@ -745,7 +757,7 @@ class Campaign:
                 },
             }
         except Exception as error:
-            raise RuntimeError(f"{self.phase}: {error}") from error
+            raise RuntimeError(f"{self.phase}: {error}; counters={self.counters}") from error
         finally:
             if self.a is not None:
                 self.a.destroy()
