@@ -551,7 +551,6 @@ fn process_binaries() -> &'static (std::path::PathBuf, std::path::PathBuf) {
                 .args([
                     "build",
                     "--locked",
-                    "--offline",
                     "-p",
                     "werewolfd",
                     "--bin",
