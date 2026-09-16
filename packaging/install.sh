@@ -17,8 +17,12 @@ esac
 
 # A staging root is an installation boundary too; never traverse a caller-
 # supplied symlink before creating system-layout descendants beneath it.
-if [ -n "$ROOT" ] && [ -e "$ROOT" ]; then
-    [ ! -L "$ROOT" ] && [ -d "$ROOT" ] || fail "unsafe DESTDIR: $ROOT"
+if [ -n "$ROOT" ]; then
+    if [ -e "$ROOT" ]; then
+        [ ! -L "$ROOT" ] && [ -d "$ROOT" ] || fail "unsafe DESTDIR: $ROOT"
+    else
+        mkdir -m 755 "$ROOT" || fail "cannot create DESTDIR: $ROOT"
+    fi
 fi
 
 [ -f "$SOURCE_DIR/SHA256SUMS" ] || fail 'missing SHA256SUMS'
