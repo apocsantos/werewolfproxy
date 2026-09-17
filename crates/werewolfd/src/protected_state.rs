@@ -271,7 +271,7 @@ fn decode_digest(value: &str) -> io::Result<[u8; 32]> {
         return Err(invalid());
     }
     let mut output = [0u8; 32];
-    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let Some(high) = decode_nibble(pair[0]) else {
             return Err(invalid());
         };

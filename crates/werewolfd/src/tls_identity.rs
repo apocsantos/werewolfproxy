@@ -318,7 +318,7 @@ mod tests {
         let mut copy = Zeroizing::new(PrivatePkcs8KeyDer::from(
             tls.private_key.secret_pkcs8_der().to_vec(),
         ));
-        assert!(format!("{:?}", &*copy).contains("secret key elided"));
+        assert!(format!("{:?}", *copy).contains("secret key elided"));
         copy.zeroize();
         assert!(copy.secret_pkcs8_der().is_empty());
     }

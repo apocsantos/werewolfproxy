@@ -42,7 +42,7 @@ pub(super) fn hex(bytes: &[u8]) -> String {
 pub(super) fn unhex<const N: usize>(text: &str) -> io::Result<[u8; N]> {
     require(text.len() == 2 * N)?;
     let mut result = [0; N];
-    for (i, pair) in text.as_bytes().chunks_exact(2).enumerate() {
+    for (i, pair) in text.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let digit = |b| match b {
             b'0'..=b'9' => Ok(b - b'0'),
             b'a'..=b'f' => Ok(b - b'a' + 10),
