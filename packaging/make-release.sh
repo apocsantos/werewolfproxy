@@ -7,10 +7,13 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/packaging/release.env"
 OUTPUT=${1:-"$ROOT/dist"}
 case "$OUTPUT" in /*) ;; *) fail 'output directory must be absolute' ;; esac
+TARGET_DIR=${CARGO_TARGET_DIR:-"$ROOT/target"}
+case "$TARGET_DIR" in /*) ;; *) fail 'CARGO_TARGET_DIR must be absolute' ;; esac
 
 commit=$(git -C "$ROOT" rev-parse HEAD) || fail 'Git commit unavailable'
 git -C "$ROOT" diff --quiet || fail 'working tree has unstaged changes'
 git -C "$ROOT" diff --cached --quiet || fail 'working tree has staged changes'
+git -C "$ROOT" merge-base --is-ancestor "$PRODUCTION_CODE_COMMIT" "$commit" || fail 'release source does not contain the certified production-code commit'
 epoch=${SOURCE_DATE_EPOCH:-$(git -C "$ROOT" show -s --format=%ct HEAD)}
 case "$epoch" in *[!0-9]*) fail 'SOURCE_DATE_EPOCH must be numeric' ;; esac
 [ -z "${RUSTFLAGS:-}" ] || fail 'RUSTFLAGS must be unset for a certified release build'
@@ -20,15 +23,18 @@ case "$cargo_home" in /*) ;; *) fail 'CARGO_HOME must be absolute for a certifie
 release_rustflags="--remap-path-prefix=$ROOT=/usr/src/werewolfproxy --remap-path-prefix=$cargo_home=/usr/local/cargo"
 
 mkdir -p "$OUTPUT"
+mkdir -p "$TARGET_DIR"
 release_dir="$OUTPUT/werewolfproxy-$RELEASE_VERSION-linux-x86_64"
 archive="$OUTPUT/werewolfproxy-$RELEASE_VERSION-linux-x86_64.tar.gz"
 [ ! -e "$release_dir" ] || fail "release directory already exists: $release_dir"
 [ ! -e "$archive" ] || fail "release archive already exists: $archive"
+[ ! -e "$OUTPUT/SHA256SUMS" ] && [ ! -L "$OUTPUT/SHA256SUMS" ] || fail "refusing existing outer checksum path: $OUTPUT/SHA256SUMS"
 
 (cd "$ROOT" && env \
     WEREWOLF_RELEASE_VERSION="$RELEASE_VERSION" \
     WEREWOLF_GIT_COMMIT="$commit" \
     SOURCE_DATE_EPOCH="$epoch" \
+    CARGO_TARGET_DIR="$TARGET_DIR" \
     RUSTFLAGS="$release_rustflags" \
     cargo build --locked --offline --release --workspace) || fail 'locked offline release build failed'
 
@@ -40,11 +46,19 @@ install -m 644 "$ROOT/packaging/systemd/werewolfd.service" "$release_dir/systemd
 install -m 755 "$ROOT/packaging/install.sh" "$release_dir/install.sh"
 install -m 755 "$ROOT/packaging/uninstall.sh" "$release_dir/uninstall.sh"
 install -m 644 "$ROOT/packaging/INSTALL.md" "$release_dir/INSTALL.md"
+install -m 644 "$ROOT/README.md" "$release_dir/README.md"
+install -m 644 "$ROOT/QUICKSTART.md" "$release_dir/QUICKSTART.md"
+install -m 644 "$ROOT/SECURITY.md" "$release_dir/SECURITY.md"
+install -m 644 "$ROOT/RELEASE_NOTES_1.0.0-rc.1.md" "$release_dir/RELEASE_NOTES.md"
+install -m 644 "$ROOT/packaging/SBOM.json" "$release_dir/SBOM.json"
+install -m 644 "$ROOT/packaging/THIRD_PARTY_NOTICES" "$release_dir/THIRD_PARTY_NOTICES"
 
 rustc_version=$(rustc -V | tr '\n' ' ')
 target=$(rustc -Vv | sed -n 's/^host: //p')
 [ "$target" = "$RELEASE_TARGET" ] || fail "toolchain target $target does not match release target $RELEASE_TARGET"
+libc_version=$(ldd --version 2>&1 | sed -n '1p')
 lock_sha=$(sha256sum "$ROOT/Cargo.lock" | awk '{print $1}')
+grep -F "\"cargo_lock_sha256\": \"$lock_sha\"" "$ROOT/packaging/SBOM.json" >/dev/null || fail 'SBOM does not match Cargo.lock'
 daemon_sha=$(sha256sum "$release_dir/bin/werewolfd" | awk '{print $1}')
 ctl_sha=$(sha256sum "$release_dir/bin/werewolfctl" | awk '{print $1}')
 cat > "$release_dir/RELEASE-METADATA" <<EOF
@@ -59,10 +73,34 @@ werewolfd_sha256=$daemon_sha
 werewolfctl_sha256=$ctl_sha
 EOF
 
-(cd "$release_dir" && sha256sum bin/werewolfd bin/werewolfctl systemd/werewolfd.service install.sh uninstall.sh INSTALL.md RELEASE-METADATA > SHA256SUMS)
+cat > "$release_dir/RELEASE-MANIFEST.json" <<EOF
+{
+  "name": "WerewolfProxy",
+  "version": "$RELEASE_VERSION",
+  "git_commit": "$commit",
+  "production_code_commit": "$PRODUCTION_CODE_COMMIT",
+  "rustc": "$rustc_version",
+  "target": "$target",
+  "libc_test_environment": "Debian GNU/Linux 13.6; glibc 2.41 ($libc_version)",
+  "cargo_lock_sha256": "$lock_sha",
+  "source_date_epoch": $epoch,
+  "artifact_names": ["bin/werewolfd", "bin/werewolfctl", "systemd/werewolfd.service"],
+  "artifact_sha256": {
+    "bin/werewolfd": "$daemon_sha",
+    "bin/werewolfctl": "$ctl_sha",
+    "systemd/werewolfd.service": "$(sha256sum "$release_dir/systemd/werewolfd.service" | awk '{print $1}')"
+  },
+  "certification_status": "Stage21 RC1 audit and freeze",
+  "platform_scope": ["Linux x86_64", "x86_64-unknown-linux-gnu"]
+}
+EOF
+
+(cd "$release_dir" && sha256sum bin/werewolfd bin/werewolfctl systemd/werewolfd.service install.sh uninstall.sh INSTALL.md README.md QUICKSTART.md SECURITY.md RELEASE_NOTES.md SBOM.json THIRD_PARTY_NOTICES RELEASE-METADATA RELEASE-MANIFEST.json > SHA256SUMS)
 
 parent=$(dirname "$release_dir")
 name=$(basename "$release_dir")
 (cd "$parent" && tar --sort=name --format=posix --pax-option=delete=atime,delete=ctime --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -cf - "$name" | gzip -n > "$archive") || fail 'archive creation failed'
 printf '%s\n' "$release_dir"
 printf '%s\n' "$archive"
+archive_sha=$(sha256sum "$archive" | awk '{print $1}')
+printf '%s  %s\n' "$archive_sha" "$name.tar.gz" > "$OUTPUT/SHA256SUMS"

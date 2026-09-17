@@ -2,6 +2,7 @@
 """Disposable Stage19 Linux release-archive and installer checks."""
 import argparse
 import hashlib
+import json
 import os
 import pathlib
 import shutil
@@ -16,8 +17,15 @@ sys.dont_write_bytecode = True
 
 EXPECTED_FILES = {
     'INSTALL.md',
+    'README.md',
+    'QUICKSTART.md',
+    'RELEASE-MANIFEST.json',
     'RELEASE-METADATA',
+    'RELEASE_NOTES.md',
+    'SBOM.json',
+    'SECURITY.md',
     'SHA256SUMS',
+    'THIRD_PARTY_NOTICES',
     'bin/werewolfctl',
     'bin/werewolfd',
     'install.sh',
@@ -72,6 +80,13 @@ def main():
         files = {path.relative_to(release).as_posix() for path in release.rglob('*') if path.is_file()}
         require(files == EXPECTED_FILES, f'unexpected release inventory: {sorted(files)}')
         run(['sha256sum', '-c', 'SHA256SUMS'], cwd=release)
+        release_manifest = json.loads((release / 'RELEASE-MANIFEST.json').read_text())
+        sbom = json.loads((release / 'SBOM.json').read_text())
+        require(release_manifest['version'] == '1.0.0-rc.1', 'release manifest version mismatch')
+        require(release_manifest['artifact_sha256']['bin/werewolfd'] == sha256(release / 'bin/werewolfd'),
+                'release manifest daemon hash mismatch')
+        require(sbom['cargo_lock_sha256'] == release_manifest['cargo_lock_sha256'],
+                'SBOM lock digest differs from release manifest')
         print('PASS archive inventory and SHA256SUMS')
 
         stage = base / 'stage-root'
