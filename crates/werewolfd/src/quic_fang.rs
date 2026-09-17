@@ -22,6 +22,13 @@ pub async fn open_quic_fang(
     expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> Result<JoinHandle<()>, Box<dyn Error + Send + Sync>> {
     let handle = tokio::spawn(async move {
+        let endpoint = match client_endpoint(&expected_peer) {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                let _ = ready.send(Err(std::io::Error::new(error.kind(), error.to_string())));
+                return;
+            }
+        };
         let listener = match TcpListener::bind(&local_addr).await {
             Ok(v) => v,
             Err(e) => {
@@ -53,6 +60,7 @@ pub async fn open_quic_fang(
             let remote_addr = remote_addr.clone();
             let identity = identity.clone();
             let expected_peer = expected_peer.clone();
+            let endpoint = endpoint.clone();
 
             let handle = tokio::spawn(async move {
                 let server_addr: SocketAddr = match quic_server.parse() {
@@ -63,10 +71,18 @@ pub async fn open_quic_fang(
                     }
                 };
 
-                let result = connect_v3(server_addr, &remote_addr, &identity, &expected_peer).await;
-                let Ok((_connection, send, recv)) = result else {
+                let result = connect_v3_on(
+                    &endpoint,
+                    server_addr,
+                    &remote_addr,
+                    &identity,
+                    &expected_peer,
+                )
+                .await;
+                let Ok((connection, send, recv)) = result else {
                     return;
                 };
+                let _connection_close = CloseClientConnection(connection);
                 let _ = proxy_streams(tcp, send, recv).await;
             });
             cancellation.track(&handle);
@@ -76,12 +92,28 @@ pub async fn open_quic_fang(
     Ok(handle)
 }
 
+struct CloseClientConnection(quinn::Connection);
+
+impl Drop for CloseClientConnection {
+    fn drop(&mut self) {
+        // The Fang reuses its UDP endpoint across local routes, so each
+        // completed connection is closed explicitly instead of remaining
+        // idle until Quinn's transport timeout.
+        self.0.close(0u32.into(), b"");
+    }
+}
+
 pub(super) async fn connect_v3(
     address: SocketAddr,
     remote: &str,
     identity: &PeltIdentity,
     expected_peer: &ExpectedPeerIdentity,
 ) -> std::io::Result<(quinn::Connection, SendStream, RecvStream)> {
+    let endpoint = client_endpoint(expected_peer)?;
+    connect_v3_on(&endpoint, address, remote, identity, expected_peer).await
+}
+
+fn client_endpoint(expected_peer: &ExpectedPeerIdentity) -> std::io::Result<Endpoint> {
     // A selected peer's full Pack key is required before creating an endpoint
     // or emitting a QUIC datagram. Fingerprints remain transcript identifiers,
     // not TLS trust material.
@@ -94,7 +126,16 @@ pub(super) async fn connect_v3(
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().map_err(|_| hs::rejected())?)
         .map_err(|_| hs::rejected())?;
     endpoint.set_default_client_config(ClientConfig::new(Arc::new(quic_crypto)));
+    Ok(endpoint)
+}
 
+async fn connect_v3_on(
+    endpoint: &Endpoint,
+    address: SocketAddr,
+    remote: &str,
+    identity: &PeltIdentity,
+    expected_peer: &ExpectedPeerIdentity,
+) -> std::io::Result<(quinn::Connection, SendStream, RecvStream)> {
     // Quinn parses this textual IP as ServerName::IpAddress, which suppresses
     // SNI. No synthetic DNS identity is introduced.
     let server_name = address.ip().to_string();

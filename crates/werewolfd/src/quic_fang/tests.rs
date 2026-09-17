@@ -142,7 +142,8 @@ async fn production_correct_receiver_and_fifty_mib_integrity() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn short_lived_local_fang_connections_finish_quic_and_release_authority() {
-    timeout(Duration::from_secs(12), async {
+    let completed = std::sync::atomic::AtomicUsize::new(0);
+    timeout(Duration::from_secs(600), async {
         let sender = generate_identity();
         let receiver = generate_identity();
         let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -186,25 +187,23 @@ async fn short_lived_local_fang_connections_finish_quic_and_release_authority() 
         ready_rx.await.unwrap().unwrap();
 
         let mut target_task = AbortOnDrop(tokio::spawn(async move {
-            let mut clients = tokio::task::JoinSet::new();
-            for _ in 0..65 {
+            for _ in 0..10_000 {
                 let (mut stream, _) = target.accept().await.unwrap();
-                clients.spawn(async move {
-                    let mut byte = [0u8; 1];
-                    stream.read_exact(&mut byte).await.unwrap();
-                    stream.write_all(&byte).await.unwrap();
-                    let mut rest = [0u8; 1];
-                    let _ = stream.read(&mut rest).await;
-                });
+                let mut byte = [0u8; 1];
+                stream.read_exact(&mut byte).await.unwrap();
+                stream.write_all(&byte).await.unwrap();
+                let mut rest = [0u8; 1];
+                let _ = stream.read(&mut rest).await;
             }
-            while clients.join_next().await.is_some() {}
         }));
-        for marker in 0..65u8 {
+        for index in 0..10_000u32 {
+            let marker = index as u8;
             let mut client = tokio::net::TcpStream::connect(local_address).await.unwrap();
             client.write_all(&[marker]).await.unwrap();
             let mut echoed = [0u8; 1];
             client.read_exact(&mut echoed).await.unwrap();
             assert_eq!(echoed, [marker]);
+            completed.store(index as usize + 1, std::sync::atomic::Ordering::Relaxed);
             // Drop instead of half-closing: this is the ordinary short-lived
             // local client lifecycle which previously retained QUIC leases.
             drop(client);
@@ -223,7 +222,12 @@ async fn short_lived_local_fang_connections_finish_quic_and_release_authority() 
         drop((fang, listener));
     })
     .await
-    .unwrap();
+    .unwrap_or_else(|_| {
+        panic!(
+            "10,000 short-lived QUIC Fang routes timed out after {} completed",
+            completed.load(std::sync::atomic::Ordering::Relaxed)
+        )
+    });
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
