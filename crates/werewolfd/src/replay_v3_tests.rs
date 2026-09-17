@@ -694,6 +694,7 @@ impl Daemon {
         }
         child.wait().unwrap();
     }
+    #[allow(dead_code)]
     async fn control(&self, cmd: &str) -> serde_json::Value {
         self.control_expect(cmd, true).await
     }

@@ -26,6 +26,7 @@ type Peer = [u8; 8];
 pub(crate) enum PeerAuthority {
     Authorized,
     RuntimeDeniedPendingDurability,
+    #[cfg_attr(not(test), allow(dead_code))]
     Revoked,
 }
 struct Generation {
@@ -232,6 +233,7 @@ impl Authority {
         gate.peers.remove(&peer);
         Ok(())
     }
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn peer_state(&self, peer: &str, pack_member: bool) -> io::Result<PeerAuthority> {
         let peer = fingerprint(peer)?;
         Ok(self
