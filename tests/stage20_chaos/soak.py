@@ -669,9 +669,17 @@ class Campaign:
             transport = "quic" if self.random.randrange(2) else "tcp"
             size = 1 + self.random.randrange(8192)
             index = self.counters.get("extended_steady_cycles", 0)
-            self.hashes.append(
-                secure_roundtrip(self.small_ports[transport], deterministic_payload(self.args.seed + 6, index, size))
-            )
+            try:
+                self.hashes.append(
+                    secure_roundtrip(
+                        self.small_ports[transport],
+                        deterministic_payload(self.args.seed + 6, index, size),
+                    )
+                )
+            except OSError as error:
+                raise AssertionError(
+                    f"steady {transport} route reset at cycle {index} with {size} bytes: {error}"
+                ) from error
             self.count("extended_steady_cycles")
             self.count("verified_payload_bytes", size * 2)
             if index % 50 == 0:
