@@ -533,6 +533,14 @@ fn process_binaries() -> &'static (std::path::PathBuf, std::path::PathBuf) {
             .status()
             .unwrap()
             .success());
+        let fetch = Command::new("cargo")
+            .current_dir(&root)
+            .args(["fetch", "--locked", "--manifest-path"])
+            .arg(fixtures.join("Cargo.toml"))
+            .output()
+            .unwrap();
+        std::fs::write(root.join("target/stage10-fetch.log"), &fetch.stderr).unwrap();
+        assert!(fetch.status.success());
         let mut binaries = Vec::new();
         for (manifest, target, label) in [
             (
@@ -551,6 +559,7 @@ fn process_binaries() -> &'static (std::path::PathBuf, std::path::PathBuf) {
                 .args([
                     "build",
                     "--locked",
+                    "--offline",
                     "-p",
                     "werewolfd",
                     "--bin",
