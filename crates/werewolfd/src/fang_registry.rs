@@ -35,7 +35,11 @@ impl FangCancellation {
     }
 
     pub(super) fn track(&self, handle: &JoinHandle<()>) {
-        self.children.lock().unwrap().push(handle.abort_handle());
+        let mut children = self.children.lock().unwrap();
+        // Keep cancellation ownership for live connections, but do not retain
+        // one AbortHandle for every connection ever accepted by this Fang.
+        children.retain(|child| !child.is_finished());
+        children.push(handle.abort_handle());
     }
 
     pub(super) fn abort_children(&self) {
@@ -187,5 +191,18 @@ mod activation_tests {
             .await_activation()
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn tracking_new_children_releases_completed_abort_handles() {
+        let cancellation = FangCancellation::default();
+        for _ in 0..4096 {
+            let mut child = tokio::spawn(async {});
+            (&mut child).await.unwrap();
+            cancellation.track(&child);
+            assert!(cancellation.children.lock().unwrap().len() <= 1);
+        }
+        cancellation.abort_children();
+        assert!(cancellation.children.lock().unwrap().is_empty());
     }
 }
