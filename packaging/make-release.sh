@@ -32,7 +32,7 @@ archive="$OUTPUT/werewolfproxy-$RELEASE_VERSION-linux-x86_64.tar.gz"
 
 (cd "$ROOT" && env \
     WEREWOLF_RELEASE_VERSION="$RELEASE_VERSION" \
-    WEREWOLF_GIT_COMMIT="$commit" \
+    WEREWOLF_GIT_COMMIT="$PRODUCTION_CODE_COMMIT" \
     SOURCE_DATE_EPOCH="$epoch" \
     CARGO_TARGET_DIR="$TARGET_DIR" \
     RUSTFLAGS="$release_rustflags" \
@@ -64,6 +64,7 @@ ctl_sha=$(sha256sum "$release_dir/bin/werewolfctl" | awk '{print $1}')
 cat > "$release_dir/RELEASE-METADATA" <<EOF
 release_version=$RELEASE_VERSION
 git_commit=$commit
+production_code_commit=$PRODUCTION_CODE_COMMIT
 source_date_epoch=$epoch
 rustc=$rustc_version
 target=$target
