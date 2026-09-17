@@ -171,6 +171,34 @@ def secure_roundtrip(port: int, payload: bytes, timeout: float = DEADLINE) -> st
     return expected.hex()
 
 
+def open_active_roundtrip(port: int, payload: bytes) -> socket.socket:
+    """Return an authenticated local socket that remains open after one echo."""
+    client = socket.create_connection(("127.0.0.1", port), timeout=DEADLINE)
+    client.settimeout(DEADLINE)
+    client.sendall(payload)
+    received = bytearray()
+    while len(received) < len(payload):
+        chunk = client.recv(len(payload) - len(received))
+        require(chunk, f"active route closed after {len(received)} of {len(payload)} bytes")
+        received.extend(chunk)
+    require(bytes(received) == payload, "active route payload mismatch")
+    return client
+
+
+def require_fenced_socket_closed(client: socket.socket, label: str) -> None:
+    """A post-linearization write must not receive an application echo."""
+    client.settimeout(3.0)
+    try:
+        client.sendall(b"stage20-after-authority-fence")
+    except OSError:
+        return
+    try:
+        response = client.recv(64)
+    except ConnectionResetError:
+        return
+    require(response == b"", f"{label} forwarded data after authority linearization")
+
+
 def denied_forward(port: int, payload: bytes) -> None:
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=DEADLINE) as client:
@@ -211,6 +239,17 @@ def tree_bytes(path: Path) -> int:
     return total
 
 
+def fixture_log_bytes(*nodes: Any) -> int:
+    total = 0
+    for node in nodes:
+        path = node.root / f"{node.name}.log"
+        try:
+            total += path.stat().st_size
+        except FileNotFoundError:
+            pass
+    return total
+
+
 def kill_node(node: Any) -> None:
     process = node.process
     require(process is not None and process.poll() is None, f"{node.name} is not running")
@@ -244,8 +283,10 @@ class Campaign:
         self.start = time.monotonic()
         self.phase = "initialization"
         self.counters: dict[str, int] = {}
-        self.hashes: list[str] = []
+        self.hashes_verified = 0
+        self.hash_summary = hashlib.sha256()
         self.peak = {"fd": 0, "rss_kib": 0, "threads": 0, "cpu_ticks": 0}
+        self.log_peak_bytes = 0
         self.root = Path(tempfile.mkdtemp(prefix="stage20-", dir=args.tmp_parent))
         private(self.root)
         self.echo = EchoServer()
@@ -260,6 +301,10 @@ class Campaign:
     def count(self, key: str, amount: int = 1) -> None:
         self.counters[key] = self.counters.get(key, 0) + amount
 
+    def record_hash(self, digest: str) -> None:
+        self.hash_summary.update(bytes.fromhex(digest))
+        self.hashes_verified += 1
+
     def exercise(self, label: str, function, *args):
         self.phase = label
         return function(*args)
@@ -270,6 +315,8 @@ class Campaign:
         observed = proc_metrics(self.b.process)
         for key, value in observed.items():
             self.peak[key] = max(self.peak[key], value)
+        nodes = tuple(node for node in (self.a, self.b) if node is not None)
+        self.log_peak_bytes = max(self.log_peak_bytes, fixture_log_bytes(*nodes))
 
     def status_generation(self, node: Any) -> int:
         result = node.run_ctl("status")
@@ -318,7 +365,7 @@ class Campaign:
             self.b.run_ctl("fang", "activate", f"large-{transport}")
         for transport in ("tcp", "quic"):
             digest = secure_roundtrip(self.small_ports[transport], b"stage20-bootstrap")
-            self.hashes.append(digest)
+            self.record_hash(digest)
             self.count(f"{transport}_bootstrap")
         self.sample()
 
@@ -330,7 +377,7 @@ class Campaign:
                 digest = secure_roundtrip(
                     self.small_ports[transport], deterministic_payload(self.args.seed, index, size)
                 )
-                self.hashes.append(digest)
+                self.record_hash(digest)
                 self.count(f"{transport}_reconnects")
                 self.count("verified_payload_bytes", size * 2)
             if index % 25 == 0:
@@ -351,7 +398,7 @@ class Campaign:
         for index in range(cycles):
             transport = "quic" if index % 2 == 0 else "tcp"
             size = 1 + (index * 97 % 8192)
-            self.hashes.append(
+            self.record_hash(
                 secure_roundtrip(self.small_ports[transport], deterministic_payload(self.args.seed + 1, index, size))
             )
             self.count("mixed_transport_cycles")
@@ -420,14 +467,18 @@ class Campaign:
         phases = ("idle", "tcp-active", "quic-active", "establishing")
         for index in range(cycles):
             phase = phases[self.random.randrange(len(phases))]
+            active = None
             if phase in ("tcp-active", "quic-active"):
                 transport = "tcp" if phase.startswith("tcp") else "quic"
-                try:
-                    secure_roundtrip(self.small_ports[transport], b"kill-race")
-                except OSError:
-                    pass
+                active = open_active_roundtrip(self.small_ports[transport], b"kill-race")
             target = self.a if index % 2 else self.b
             kill_node(target)
+            if active is not None:
+                try:
+                    active.sendall(b"stage20-after-sigkill")
+                except OSError:
+                    pass
+                active.close()
             target.start()
             transport = "tcp" if index % 2 else "quic"
             wait_for(
@@ -441,13 +492,15 @@ class Campaign:
         assert self.a is not None and self.b is not None
         for index in range(cycles):
             transport = "tcp" if index % 2 == 0 else "quic"
-            secure_roundtrip(self.small_ports[transport], b"silver-before")
+            active = open_active_roundtrip(self.small_ports[transport], b"silver-before")
             # A raw pre-TLS peer is also cancelled by Silver before its deadline.
             raw = socket.create_connection(("127.0.0.1", self.b.tcp), timeout=DEADLINE)
             raw.sendall(b"\x16")
             self.b.run_ctl("silver", "on")
             raw.close()
             require(self.b.run_ctl("status")["silver"] == "active", "Silver did not lock")
+            require_fenced_socket_closed(active, "Silver")
+            active.close()
             denied_forward(self.small_ports[transport], b"silver-denied")
             self.b.run_ctl("silver", "off")
             for name in ("small-tcp", "small-quic", "large-tcp", "large-quic"):
@@ -459,8 +512,10 @@ class Campaign:
         # The receiver removes B while B is attempting new work.  Re-adding
         # the identical public peer record is a supported test-only recovery.
         for transport in ("tcp", "quic"):
-            secure_roundtrip(self.small_ports[transport], b"revoke-before")
+            active = open_active_roundtrip(self.small_ports[transport], b"revoke-before")
             self.a.run_ctl("pack", "revoke", "b")
+            require_fenced_socket_closed(active, "Pack revoke")
+            active.close()
             denied_forward(self.small_ports[transport], b"revoke-denied")
             self.a.run_ctl(
                 "pack", "add", "b", self.b_public["public_key_b64"],
@@ -538,6 +593,7 @@ class Campaign:
 
     def malformed_and_saturation(self, preauth_cycles: int) -> None:
         assert self.a is not None and self.b is not None
+        log_bytes_before_malformed = fixture_log_bytes(self.a, self.b)
         for _ in range(64):
             with socket.create_connection(("127.0.0.1", self.b.tcp), timeout=DEADLINE) as client:
                 client.sendall(b"not-a-tls-client")
@@ -546,6 +602,12 @@ class Campaign:
             for index in range(64):
                 udp.sendto(bytes([index & 0xFF, 0, 1, 2]), ("127.0.0.1", self.b.quic))
                 self.count("malformed_quic_datagrams")
+        malformed_log_growth = fixture_log_bytes(self.a, self.b) - log_bytes_before_malformed
+        require(
+            malformed_log_growth <= 8192,
+            f"malformed traffic caused excessive log growth: {malformed_log_growth} bytes",
+        )
+        self.counters["malformed_log_growth_bytes"] = malformed_log_growth
         self.phase = "malformed recovery"
         require(secure_roundtrip(self.small_ports["tcp"], b"malformed-recovery") is not None, "malformed recovery")
 
@@ -623,7 +685,7 @@ class Campaign:
         for index in range(transfers):
             for transport in ("tcp", "quic"):
                 data = deterministic_payload(self.args.seed + 4, index, 50 * 1024 * 1024)
-                self.hashes.append(secure_roundtrip(self.large_ports[transport], data, LARGE_TIMEOUT))
+                self.record_hash(secure_roundtrip(self.large_ports[transport], data, LARGE_TIMEOUT))
                 self.count(f"{transport}_fifty_mib_transfers")
                 self.count("verified_payload_bytes", len(data) * 2)
                 del data
@@ -670,7 +732,7 @@ class Campaign:
             size = 1 + self.random.randrange(8192)
             index = self.counters.get("extended_steady_cycles", 0)
             try:
-                self.hashes.append(
+                self.record_hash(
                     secure_roundtrip(
                         self.small_ports[transport],
                         deterministic_payload(self.args.seed + 6, index, size),
@@ -710,6 +772,8 @@ class Campaign:
         try:
             self.exercise("bootstrap", self.bootstrap)
             baseline = proc_metrics(self.b.process)
+            nodes = tuple(node for node in (self.a, self.b) if node is not None)
+            log_baseline = fixture_log_bytes(*nodes)
             disk_baseline = tree_bytes(self.a.den) + tree_bytes(self.b.den)
             self.exercise("reconnects", self.reconnects, reconnects)
             self.exercise("mixed transport", self.mixed_transport, mixed)
@@ -735,6 +799,7 @@ class Campaign:
             post = proc_metrics(self.b.process)
             self.sample()
             disk_post = tree_bytes(self.a.den) + tree_bytes(self.b.den)
+            log_post = fixture_log_bytes(*nodes)
             cpu_before = proc_metrics(self.b.process)["cpu_ticks"]
             time.sleep(1.0)
             cpu_after = proc_metrics(self.b.process)["cpu_ticks"]
@@ -746,6 +811,10 @@ class Campaign:
                 disk_post <= disk_baseline + 256 * 1024,
                 f"disposable Den grew unexpectedly: {disk_baseline} -> {disk_post}",
             )
+            require(
+                log_post <= log_baseline + 2 * 1024 * 1024,
+                f"fixture logs grew unexpectedly: {log_baseline} -> {log_post}",
+            )
             return {
                 "stage": "stage20",
                 "result": "PASS",
@@ -753,15 +822,20 @@ class Campaign:
                 "seed": self.args.seed,
                 "elapsed_seconds": round(time.monotonic() - self.start, 3),
                 "counters": self.counters,
-                "hashes_verified": len(self.hashes),
+                "hashes_verified": self.hashes_verified,
+                "verified_digest_summary_sha256": self.hash_summary.hexdigest(),
                 "resources": {
                     "baseline": baseline,
                     "immediate": immediate,
+                    "late_load": immediate,
                     "peak": self.peak,
                     "post": post,
                     "post_cpu_ticks_one_second": cpu_after - cpu_before,
                     "disk_baseline_bytes": disk_baseline,
                     "disk_post_bytes": disk_post,
+                    "log_baseline_bytes": log_baseline,
+                    "log_peak_bytes": self.log_peak_bytes,
+                    "log_post_bytes": log_post,
                 },
             }
         except Exception as error:
