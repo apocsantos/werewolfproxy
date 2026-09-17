@@ -1,4 +1,4 @@
-# WerewolfProxy Linux installation
+# WerewolfProxy 1.0.0-rc.1 Linux installation
 
 This archive is certified only for Linux x86_64 with a systemd service manager.
 Verify `SHA256SUMS` before installation:
@@ -27,6 +27,13 @@ sudo -u werewolf werewolfctl --socket /run/werewolfproxy/control.sock state mani
 sudo -u werewolf werewolfctl --socket /run/werewolfproxy/control.sock silver off
 systemctl enable --now werewolfd
 ```
+
+The system unit listens on loopback by default. For peer traffic from other
+hosts, install a reviewed systemd drop-in that replaces ExecStart with the
+required reachable TCP/UDP bind addresses, then run `systemctl daemon-reload`
+and restart. Limit exposed ports with the host firewall. The daemon needs no
+capability for the configured high ports. See QUICKSTART.md in this archive
+for a two-host user-mode example and RELEASE_NOTES.md for the release scope.
 
 The local control socket authorizes the daemon's Unix uid, so service
 administration uses `sudo -u werewolf`. Use `werewolfctl pelt show` for public peer provisioning material. Do not put
@@ -61,3 +68,10 @@ operation remains supported without the system service:
 werewolfd --home "$HOME/.config/werewolf" --socket "$XDG_RUNTIME_DIR/werewolf/control.sock"
 werewolfctl --socket "$XDG_RUNTIME_DIR/werewolf/control.sock" status
 ```
+
+The archive also contains README.md, SECURITY.md, QUICKSTART.md,
+RELEASE_NOTES.md, SBOM.json, THIRD_PARTY_NOTICES and RELEASE-MANIFEST.json.
+The latter records the exact source/toolchain/build inputs and binary hashes;
+SHA256SUMS covers each archive member other than itself. The adjacent
+SHA256SUMS created by the release builder covers the archive itself. Checksums
+detect accidental change but do not authenticate who published the archive.
