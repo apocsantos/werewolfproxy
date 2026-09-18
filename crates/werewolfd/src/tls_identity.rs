@@ -585,6 +585,58 @@ mod tests {
     }
 
     #[test]
+    fn tls13_plaintext_encrypted_extensions_after_server_hello_are_rejected() {
+        let (pelt, tls) = identity();
+        let client_config =
+            client_config_for_peer(&peer(&pelt, Some(pelt.public_key_b64.clone()))).unwrap();
+        let mut client = ClientConnection::new(
+            Arc::new(client_config),
+            ServerName::try_from("127.0.0.1".parse::<IpAddr>().unwrap()).unwrap(),
+        )
+        .unwrap();
+        let mut client_hello = Vec::new();
+        client.write_tls(&mut client_hello).unwrap();
+
+        let mut server = ServerConnection::new(Arc::new(server_config(&tls).unwrap())).unwrap();
+        server.read_tls(&mut Cursor::new(client_hello)).unwrap();
+        server.process_new_packets().unwrap();
+        let mut server_flight = Vec::new();
+        server.write_tls(&mut server_flight).unwrap();
+
+        // Keep the real plaintext ServerHello bytes, then put a valid empty
+        // EncryptedExtensions handshake message in that same record. TLS 1.3
+        // requires EncryptedExtensions to use the post-ServerHello keys.
+        let mut offset = 0;
+        let mut server_hello = None;
+        while offset + 5 <= server_flight.len() {
+            let content_type = server_flight[offset];
+            let version = [server_flight[offset + 1], server_flight[offset + 2]];
+            let size =
+                u16::from_be_bytes([server_flight[offset + 3], server_flight[offset + 4]]) as usize;
+            let end = offset + 5 + size;
+            assert!(end <= server_flight.len(), "truncated server TLS record");
+            let payload = &server_flight[offset + 5..end];
+            if content_type == 22 && payload.first() == Some(&2) {
+                server_hello = Some((version, payload.to_vec()));
+                break;
+            }
+            offset = end;
+        }
+        let (version, mut payload) = server_hello.expect("plaintext ServerHello record");
+        payload.extend_from_slice(&[8, 0, 0, 2, 0, 0]);
+        let mut malformed = vec![22, version[0], version[1]];
+        malformed.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        malformed.extend_from_slice(&payload);
+
+        client.read_tls(&mut Cursor::new(malformed)).unwrap();
+        let error = client.process_new_packets().unwrap_err();
+        assert!(matches!(
+            error,
+            RustlsError::PeerMisbehaved(rustls::PeerMisbehaved::KeyEpochWithPendingFragment)
+        ));
+    }
+
+    #[test]
     fn h_correct_tls13_certificateverify_is_accepted() {
         let (pelt, tls) = identity();
         let client =
