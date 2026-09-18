@@ -14,6 +14,7 @@ explicit private Den and runtime paths:
     cd werewolfproxy-1.0.0-rc.1-linux-x86_64
     sha256sum -c SHA256SUMS
     sudo ./install.sh
+    umask 077
     mkdir -m 700 -p "$HOME/.config/werewolf-a" "$HOME/.local/run/werewolf-a"
     werewolfctl --home "$HOME/.config/werewolf-a" den init
 
