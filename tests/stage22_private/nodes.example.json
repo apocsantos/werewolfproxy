@@ -1,0 +1,28 @@
+{
+  "artifact_sha256": "e2d372739743b31359fc115d38f36c3db1c86ebec8afab026b244811c5cacea4",
+  "links": [["node-a", "node-b"]],
+  "nodes": [
+    {
+      "name": "node-a",
+      "host": "192.0.2.10",
+      "ssh_destination": "operator@node-a.example",
+      "den_path": "/home/operator/.config/werewolfproxy",
+      "runtime_path": "/home/operator/.local/run/werewolfproxy",
+      "tcp_listen": "0.0.0.0:8443",
+      "quic_listen": "0.0.0.0:9560",
+      "test_target": "127.0.0.1:7000",
+      "role": "peer"
+    },
+    {
+      "name": "node-b",
+      "host": "192.0.2.11",
+      "ssh_destination": "operator@node-b.example",
+      "den_path": "/home/operator/.config/werewolfproxy",
+      "runtime_path": "/home/operator/.local/run/werewolfproxy",
+      "tcp_listen": "0.0.0.0:8443",
+      "quic_listen": "0.0.0.0:9560",
+      "test_target": "127.0.0.1:7000",
+      "role": "peer"
+    }
+  ]
+}

@@ -1,1 +1,5 @@
 /target/
+/tests/stage22_private/local.json
+/tests/stage22_private/remote.json
+/tests/stage22_private/results/
+/tests/stage22_private/private/
