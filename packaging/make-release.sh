@@ -39,7 +39,7 @@ archive="$OUTPUT/werewolfproxy-$RELEASE_VERSION-linux-x86_64.tar.gz"
     cargo build --locked --offline --release --workspace) || fail 'locked offline release build failed'
 
 mkdir -m 755 "$release_dir"
-mkdir -m 755 "$release_dir/bin" "$release_dir/systemd"
+mkdir -m 755 "$release_dir/bin" "$release_dir/systemd" "$release_dir/docs"
 install -m 755 "$TARGET_DIR/release/werewolfd" "$release_dir/bin/werewolfd"
 install -m 755 "$TARGET_DIR/release/werewolfctl" "$release_dir/bin/werewolfctl"
 install -m 644 "$ROOT/packaging/systemd/werewolfd.service" "$release_dir/systemd/werewolfd.service"
@@ -52,13 +52,21 @@ install -m 644 "$ROOT/SECURITY.md" "$release_dir/SECURITY.md"
 install -m 644 "$ROOT/RELEASE_NOTES_1.0.0-rc.1.md" "$release_dir/RELEASE_NOTES.md"
 install -m 644 "$ROOT/packaging/SBOM.json" "$release_dir/SBOM.json"
 install -m 644 "$ROOT/packaging/THIRD_PARTY_NOTICES" "$release_dir/THIRD_PARTY_NOTICES"
+install -m 644 "$ROOT/docs/STAGE20S_RUSTLS_2026_0285_REMEDIATION.md" "$release_dir/docs/STAGE20S_RUSTLS_2026_0285_REMEDIATION.md"
 
 rustc_version=$(rustc -V | tr '\n' ' ')
 target=$(rustc -Vv | sed -n 's/^host: //p')
 [ "$target" = "$RELEASE_TARGET" ] || fail "toolchain target $target does not match release target $RELEASE_TARGET"
 libc_version=$(ldd --version 2>&1 | sed -n '1p')
 lock_sha=$(sha256sum "$ROOT/Cargo.lock" | awk '{print $1}')
+rustls_version=$(python3 -c 'import pathlib,sys,tomllib; packages=tomllib.loads(pathlib.Path(sys.argv[1]).read_text())["package"]; print(next(p["version"] for p in packages if p["name"] == "rustls"))' "$ROOT/Cargo.lock")
+webpki_version=$(python3 -c 'import pathlib,sys,tomllib; packages=tomllib.loads(pathlib.Path(sys.argv[1]).read_text())["package"]; print(next(p["version"] for p in packages if p["name"] == "rustls-webpki"))' "$ROOT/Cargo.lock")
+[ "$rustls_version" = 0.23.45 ] || fail "unexpected rustls version: $rustls_version"
+[ "$webpki_version" = 0.103.15 ] || fail "unexpected rustls-webpki version: $webpki_version"
 grep -F "\"cargo_lock_sha256\": \"$lock_sha\"" "$ROOT/packaging/SBOM.json" >/dev/null || fail 'SBOM does not match Cargo.lock'
+grep -F '"name": "rustls"' "$ROOT/packaging/SBOM.json" >/dev/null || fail 'SBOM does not list rustls'
+grep -F '"version": "0.23.45"' "$ROOT/packaging/SBOM.json" >/dev/null || fail 'SBOM does not resolve patched rustls'
+grep -F '"version": "0.103.15"' "$ROOT/packaging/SBOM.json" >/dev/null || fail 'SBOM does not resolve patched rustls-webpki'
 daemon_sha=$(sha256sum "$release_dir/bin/werewolfd" | awk '{print $1}')
 ctl_sha=$(sha256sum "$release_dir/bin/werewolfctl" | awk '{print $1}')
 cat > "$release_dir/RELEASE-METADATA" <<EOF
@@ -70,6 +78,8 @@ rustc=$rustc_version
 target=$target
 rustflags=--remap-path-prefix=<checkout>=/usr/src/werewolfproxy --remap-path-prefix=<cargo-home>=/usr/local/cargo
 cargo_lock_sha256=$lock_sha
+rustls=$rustls_version
+rustls_webpki=$webpki_version
 werewolfd_sha256=$daemon_sha
 werewolfctl_sha256=$ctl_sha
 EOF
@@ -84,6 +94,7 @@ cat > "$release_dir/RELEASE-MANIFEST.json" <<EOF
   "target": "$target",
   "libc_test_environment": "Debian GNU/Linux 13.6; glibc 2.41 ($libc_version)",
   "cargo_lock_sha256": "$lock_sha",
+  "dependency_versions": {"rustls": "$rustls_version", "rustls-webpki": "$webpki_version"},
   "source_date_epoch": $epoch,
   "artifact_names": ["bin/werewolfd", "bin/werewolfctl", "systemd/werewolfd.service"],
   "artifact_sha256": {
@@ -91,12 +102,12 @@ cat > "$release_dir/RELEASE-MANIFEST.json" <<EOF
     "bin/werewolfctl": "$ctl_sha",
     "systemd/werewolfd.service": "$(sha256sum "$release_dir/systemd/werewolfd.service" | awk '{print $1}')"
   },
-  "certification_status": "Stage20S RUSTSEC-2026-0285 remediation candidate",
+  "certification_status": "Stage21 RC1 audit candidate",
   "platform_scope": ["Linux x86_64", "x86_64-unknown-linux-gnu"]
 }
 EOF
 
-(cd "$release_dir" && sha256sum bin/werewolfd bin/werewolfctl systemd/werewolfd.service install.sh uninstall.sh INSTALL.md README.md QUICKSTART.md SECURITY.md RELEASE_NOTES.md SBOM.json THIRD_PARTY_NOTICES RELEASE-METADATA RELEASE-MANIFEST.json > SHA256SUMS)
+(cd "$release_dir" && sha256sum bin/werewolfd bin/werewolfctl systemd/werewolfd.service install.sh uninstall.sh INSTALL.md README.md QUICKSTART.md SECURITY.md RELEASE_NOTES.md SBOM.json THIRD_PARTY_NOTICES docs/STAGE20S_RUSTLS_2026_0285_REMEDIATION.md RELEASE-METADATA RELEASE-MANIFEST.json > SHA256SUMS)
 
 parent=$(dirname "$release_dir")
 name=$(basename "$release_dir")

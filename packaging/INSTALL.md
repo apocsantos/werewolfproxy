@@ -70,7 +70,8 @@ werewolfctl --socket "$XDG_RUNTIME_DIR/werewolf/control.sock" status
 ```
 
 The archive also contains README.md, SECURITY.md, QUICKSTART.md,
-RELEASE_NOTES.md, SBOM.json, THIRD_PARTY_NOTICES and RELEASE-MANIFEST.json.
+RELEASE_NOTES.md, SBOM.json, THIRD_PARTY_NOTICES, the Stage20S rustls
+remediation record under docs/, and RELEASE-MANIFEST.json.
 The latter records the exact source/toolchain/build inputs and binary hashes;
 SHA256SUMS covers each archive member other than itself. The adjacent
 SHA256SUMS created by the release builder covers the archive itself. Checksums

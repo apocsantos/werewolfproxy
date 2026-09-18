@@ -21,6 +21,14 @@
 
 ## Certification records
 
+- [Stage20S RUSTSEC-2026-0285 remediation](STAGE20S_RUSTLS_2026_0285_REMEDIATION.md)
+- [Stage21 RC1 audit and freeze](STAGE21_RC1_AUDIT_FREEZE.md)
+
+The current Stage21 release uses the Stage20S-certified dependency graph:
+rustls 0.23.45 and rustls-webpki 0.103.15. Earlier stage reports retain the
+dependency versions and lockfile digests used at their original certification
+dates; they are historical records, not the current resolved release graph.
+
 Stage 9–20 reports are retained under docs/STAGE*.md. The final RC audit,
 dependency/license review, release artifact hashes and tag record are in
 [Stage21 audit and freeze](STAGE21_RC1_AUDIT_FREEZE.md).

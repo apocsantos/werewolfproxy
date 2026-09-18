@@ -15,3 +15,6 @@ or framing composition. Exact Stage10 transcript behavior and Stage12 TLS
 identity rules remain the compatibility source. Secret-handling and
 zeroization limits are described in Stage14; a privileged live host can still
 inspect process memory.
+
+The RC1 lockfile resolves rustls 0.23.45 and rustls-webpki 0.103.15. Stage20S
+records why rustls was updated and the exact patched-handshake characterization.

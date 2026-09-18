@@ -17,6 +17,17 @@ The tested environment is Debian 13.6 and glibc 2.41. The archive contains
 werewolfd, werewolfctl, the systemd unit, install/uninstall scripts, operator
 guides, checksums, dependency inventory and third-party notices.
 
+## Security remediation before publication
+
+The Stage21 prepublication cargo-audit gate detected RUSTSEC-2026-0285 in
+rustls 0.23.40. Stage20S separately certified the update to rustls 0.23.45
+and rustls-webpki 0.103.15. The final candidate uses the patched dependency
+graph; cargo audit reported zero vulnerabilities and zero warnings against
+the 2026-09-18 advisory database. The fix rejects a malformed TLS 1.3
+encryption-level transition and does not change Werewolf application framing,
+persistence, or CLI behavior. Technical evidence is in the
+[Stage20S remediation certification](docs/STAGE20S_RUSTLS_2026_0285_REMEDIATION.md).
+
 ## Security boundaries
 
 Public-key trust is configured out of band. Pack membership is not unlimited

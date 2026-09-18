@@ -15,3 +15,14 @@ ask maintainers there for a private channel before sharing exploit details.
 
 There is no stated bounty program. A report is not a promise of a response
 time or coordinated-disclosure schedule.
+
+## RC1 security history
+
+The Stage21 prepublication advisory gate found RUSTSEC-2026-0285 in the
+previously resolved rustls 0.23.40. No RC was published with that dependency.
+Stage20S separately certified the remediation; the RC1 dependency graph uses
+rustls 0.23.45 and rustls-webpki 0.103.15. The technical reproduction,
+regression result, audit date and scope are recorded in the
+[Stage20S remediation certification](docs/STAGE20S_RUSTLS_2026_0285_REMEDIATION.md).
+This record describes the audit performed for this candidate and does not
+make a claim about future advisories.

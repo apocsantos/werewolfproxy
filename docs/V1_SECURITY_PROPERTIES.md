@@ -3,6 +3,7 @@
 | Property | Scope and limit | Certification evidence |
 | --- | --- | --- |
 | Receiver authentication | TLS 1.3 and exact-SPKI Pelt binding | Stage12; Stage17–20 release harnesses |
+| TLS handshake encryption levels | Wrong-epoch TLS 1.3 handshake messages are rejected | Stage20S rustls advisory regression |
 | Sender authentication | Ed25519 signed connection-bound OPEN | Stage10, Stage12 |
 | Pack membership | Stable fingerprint membership authenticates peer identity, not unlimited authorization | Stage11C, Stage18 |
 | Target authorization | Exact Stage9 address/port grants; DNS endpoints are all checked before connect | Stage9, Stage18 |

@@ -12,6 +12,12 @@ before sending Werewolf OPEN semantics. The receiver certificate public key is
 bound to the expected Pelt Ed25519 identity using exact SPKI validation; no CA
 or hostname substitution is used as the peer identity rule.
 
+Stage20S updates rustls to 0.23.45 and rustls-webpki to 0.103.15. The patched
+TLS implementation rejects handshake messages received at the wrong
+encryption level across the ServerHello key transition. This changes handling
+of an invalid TLS handshake only; the Werewolf application wire format and
+valid OPEN/ACK/frame semantics remain frozen.
+
 The sender then proves possession of its Ed25519 key in a signed OPEN. The
 receiver binds the request to its identity and request fields. TCP uses a fresh
 receiver challenge and client ephemeral X25519 public key; QUIC binds the OPEN

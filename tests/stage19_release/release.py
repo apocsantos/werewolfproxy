@@ -30,6 +30,7 @@ EXPECTED_FILES = {
     'bin/werewolfd',
     'install.sh',
     'systemd/werewolfd.service',
+    'docs/STAGE20S_RUSTLS_2026_0285_REMEDIATION.md',
     'uninstall.sh',
 }
 
@@ -83,10 +84,26 @@ def main():
         release_manifest = json.loads((release / 'RELEASE-MANIFEST.json').read_text())
         sbom = json.loads((release / 'SBOM.json').read_text())
         require(release_manifest['version'] == '1.0.0-rc.1', 'release manifest version mismatch')
+        require(release_manifest['dependency_versions'] == {
+            'rustls': '0.23.45', 'rustls-webpki': '0.103.15'},
+            'release manifest dependency versions mismatch')
+        require(release_manifest['cargo_lock_sha256'] ==
+                'fbc16d90daaf58ba7f3f32f10615f8521103a5c019f98132ee37c36928458704',
+                'release manifest Cargo.lock digest mismatch')
         require(release_manifest['artifact_sha256']['bin/werewolfd'] == sha256(release / 'bin/werewolfd'),
                 'release manifest daemon hash mismatch')
         require(sbom['cargo_lock_sha256'] == release_manifest['cargo_lock_sha256'],
                 'SBOM lock digest differs from release manifest')
+        components = {(item['name'], item['version']): item for item in sbom['components']}
+        require(('rustls', '0.23.45') in components and
+                components[('rustls', '0.23.45')]['included_in_linux_release'],
+                'SBOM omits patched rustls from release closure')
+        require(('rustls-webpki', '0.103.15') in components and
+                components[('rustls-webpki', '0.103.15')]['included_in_linux_release'],
+                'SBOM omits patched rustls-webpki from release closure')
+        security_record = (release / 'docs/STAGE20S_RUSTLS_2026_0285_REMEDIATION.md').read_text()
+        require('RUSTSEC-2026-0285' in security_record and 'rustls 0.23.45' in security_record,
+                'archive omits Stage20S security history')
         print('PASS archive inventory and SHA256SUMS')
 
         stage = base / 'stage-root'

@@ -60,6 +60,20 @@ normal application exchange with the target on B. The Stage18 CLI harness
 performs deterministic echo and 50 MiB integrity tests using disposable local
 fixtures; the quickstart does not create or expose a test target service.
 
+To use the same two peers over QUIC, update each Pack address to the other
+node's QUIC listener, then create a second Fang with a different local port:
+
+    werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" pack set-address node-b quic://B_ADDRESS:9560
+    werewolfctl --socket "$HOME/.local/run/werewolf-b/control.sock" pack set-address node-a quic://A_ADDRESS:9560
+    werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" fang create example-quic node-b 127.0.0.1:17001 127.0.0.1:7000 --transport quic
+    werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" fang activate example-quic
+    werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" status
+    werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" doctor
+
+Connect the local client application on A to 127.0.0.1:17001. This selects
+the authenticated QUIC transport; the receiver still applies the same Pack
+and exact-target authorization checks.
+
 The receiving node must authorize the exact target independently. Pack
 membership authenticates a peer identity; it does not grant unrestricted
 target or resource access. The default secure selector tries QUIC, then

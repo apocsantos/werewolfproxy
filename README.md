@@ -33,6 +33,10 @@ local consistency records agree. Traffic timing, endpoints, packet sizes and
 volume remain observable. A compromised privileged host can access secrets
 while the daemon runs.
 
+The prepublication RC audit's rustls advisory was remediated and separately
+certified before this candidate was built. See the [release notes](RELEASE_NOTES_1.0.0-rc.1.md)
+and [security certification records](docs/INDEX.md) for the security history.
+
 WerewolfProxy 1.0.0-rc.1 is a release candidate, not the final stable release.
 Operators are invited to test it on the certified platform and report issues
 using the procedure in [SECURITY.md](SECURITY.md).
