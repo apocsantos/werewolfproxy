@@ -98,6 +98,12 @@ def license_files(package):
     return sorted(set(p for p in found if p.is_file()))
 
 
+def normalize_license_bytes(data):
+    """Keep published license wording while emitting diff-clean text files."""
+    lines = data.replace(b"\r\n", b"\n").replace(b"\r", b"\n").split(b"\n")
+    return b"\n".join(line.rstrip(b" \t") for line in lines)
+
+
 def standard_mit_text(packages):
     for package in packages.values():
         for path in license_files(package):
@@ -108,7 +114,8 @@ def standard_mit_text(packages):
             marker = "Permission is hereby granted, free of charge, to any person obtaining a copy"
             offset = content.find(marker)
             if offset >= 0:
-                return content[offset:].strip() + "\n"
+                normalized = normalize_license_bytes(content[offset:].encode("utf-8"))
+                return normalized.decode("utf-8").strip() + "\n"
     fail("could not find a local copy of the standard MIT license text")
 
 
@@ -173,7 +180,7 @@ def main():
         elif not files:
             fail(f"license text unavailable for {package['name']} {package['version']}")
         for path in files:
-            data_bytes = path.read_bytes()
+            data_bytes = normalize_license_bytes(path.read_bytes())
             key = hashlib.sha256(data_bytes).hexdigest()
             entry = license_blobs.setdefault(key, {"data": data_bytes, "owners": []})
             entry["owners"].append(f"{package['name']} {package['version']}: {path.name}")
