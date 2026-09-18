@@ -11,8 +11,8 @@ Declared license expressions (Cargo metadata):
 - anstyle-query 1.1.5: MIT OR Apache-2.0; transitive
 - arrayref 0.3.9: BSD-2-Clause; transitive
 - arrayvec 0.7.6: MIT OR Apache-2.0; transitive
-- aws-lc-rs 1.17.0: ISC AND (Apache-2.0 OR ISC); transitive
-- aws-lc-sys 0.41.0: ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0); transitive
+- aws-lc-rs 1.18.1: ISC AND (Apache-2.0 OR ISC); transitive
+- aws-lc-sys 0.45.0: ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0); transitive
 - base64 0.22.1: MIT OR Apache-2.0; direct
 - base64ct 1.8.3: Apache-2.0 OR MIT; transitive
 - bitflags 2.11.1: MIT OR Apache-2.0; transitive
@@ -78,6 +78,7 @@ Declared license expressions (Cargo metadata):
 - pem 3.0.6: MIT; transitive
 - pin-project-lite 0.2.17: Apache-2.0 OR MIT; transitive
 - pkcs8 0.10.2: Apache-2.0 OR MIT; transitive
+- pkg-config 0.3.34: MIT OR Apache-2.0; transitive
 - poly1305 0.8.0: Apache-2.0 OR MIT; transitive
 - powerfmt 0.2.0: MIT OR Apache-2.0; transitive
 - ppv-lite86 0.2.21: MIT OR Apache-2.0; transitive
@@ -95,11 +96,11 @@ Declared license expressions (Cargo metadata):
 - rustc-hash 2.1.2: Apache-2.0 OR MIT; transitive
 - rustc_version 0.4.1: MIT OR Apache-2.0; transitive
 - rustix 1.1.4: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT; direct
-- rustls 0.23.40: Apache-2.0 OR ISC OR MIT; direct
+- rustls 0.23.45: Apache-2.0 OR ISC OR MIT; direct
 - rustls-native-certs 0.8.3: Apache-2.0 OR ISC OR MIT; transitive
 - rustls-pki-types 1.14.1: MIT OR Apache-2.0; transitive
 - rustls-platform-verifier 0.6.2: MIT OR Apache-2.0; transitive
-- rustls-webpki 0.103.13: ISC; direct
+- rustls-webpki 0.103.15: ISC; direct
 - scopeguard 1.2.0: MIT OR Apache-2.0; transitive
 - semver 1.0.28: MIT OR Apache-2.0; transitive
 - serde 1.0.228: MIT OR Apache-2.0; direct
@@ -2667,6 +2668,7 @@ License text 40 (SHA-256 378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f883
   - find-msvc-tools 0.1.9: LICENSE-MIT
   - jobserver 0.1.34: LICENSE-MIT
   - openssl-probe 0.2.1: LICENSE-MIT
+  - pkg-config 0.3.34: LICENSE-MIT
   - socket2 0.6.3: LICENSE-MIT
 
 Copyright (c) 2014 Alex Crichton
@@ -3826,7 +3828,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 License text 55 (SHA-256 5b698ca13897be3afdb7174256fa1574f8c6892b8bea1a66dd6469d3fe27885a) applies to:
-  - rustls-webpki 0.103.13: LICENSE
+  - rustls-webpki 0.103.15: LICENSE
 
 Except as otherwise noted, this project is licensed under the following
 (ISC-style) terms:
@@ -4391,7 +4393,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 License text 63 (SHA-256 709e3175b4212f7b13aa93971c9f62ff8c69ec45ad8c6532a7e0c41d7a7d6f8c) applies to:
-  - rustls 0.23.40: LICENSE-MIT
+  - rustls 0.23.45: LICENSE-MIT
   - rustls-native-certs 0.8.3: LICENSE-MIT
 
 Copyright (c) 2016 Joseph Birr-Pixton <jpixton@gmail.com>
@@ -4421,7 +4423,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 License text 64 (SHA-256 728536b4160e051f86d7c9c388f704866b3d512cd7df97ac3516c65279523c4e) applies to:
-  - aws-lc-sys 0.41.0: LICENSE
+  - aws-lc-sys 0.45.0: LICENSE
 
 AWS Libcrypto (AWS-LC)
 
@@ -5262,7 +5264,7 @@ TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
 END OF TERMS AND CONDITIONS
 
 License text 72 (SHA-256 7cfafc877eccc46c0e346ccbaa5c51bb6b894d2b818e617d970211e232785ad4) applies to:
-  - rustls 0.23.40: LICENSE-ISC
+  - rustls 0.23.45: LICENSE-ISC
   - rustls-native-certs 0.8.3: LICENSE-ISC
 
 ISC License (ISC)
@@ -6303,9 +6305,10 @@ License text 87 (SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36d
   - openssl-probe 0.2.1: LICENSE-APACHE
   - parking_lot 0.12.5: LICENSE-APACHE
   - parking_lot_core 0.9.12: LICENSE-APACHE
+  - pkg-config 0.3.34: LICENSE-APACHE
   - rustc_version 0.4.1: LICENSE-APACHE
   - rustix 1.1.4: LICENSE-APACHE
-  - rustls 0.23.40: LICENSE-APACHE
+  - rustls 0.23.45: LICENSE-APACHE
   - rustls-native-certs 0.8.3: LICENSE-APACHE
   - scopeguard 1.2.0: LICENSE-APACHE
   - signal-hook-registry 1.4.8: LICENSE-APACHE
@@ -7310,7 +7313,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 License text 97 (SHA-256 b50b376e7d24a0598488b730c3034ffcd0b58dd36c0913a24b9903a3cfd04bf7) applies to:
-  - aws-lc-rs 1.17.0: LICENSE
+  - aws-lc-rs 1.18.1: LICENSE
 
 SPDX-License-Identifier: ISC AND (Apache-2.0 OR ISC)
 

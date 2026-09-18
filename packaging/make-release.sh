@@ -91,7 +91,7 @@ cat > "$release_dir/RELEASE-MANIFEST.json" <<EOF
     "bin/werewolfctl": "$ctl_sha",
     "systemd/werewolfd.service": "$(sha256sum "$release_dir/systemd/werewolfd.service" | awk '{print $1}')"
   },
-  "certification_status": "Stage21 RC1 audit and freeze",
+  "certification_status": "Stage20S RUSTSEC-2026-0285 remediation candidate",
   "platform_scope": ["Linux x86_64", "x86_64-unknown-linux-gnu"]
 }
 EOF

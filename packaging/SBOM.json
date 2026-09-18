@@ -1,5 +1,5 @@
 {
-  "cargo_lock_sha256": "09b18cac90690855e4bee28cabc59ee713f14baf50f2efbb20f2910ed46047b4",
+  "cargo_lock_sha256": "fbc16d90daaf58ba7f3f32f10615f8521103a5c019f98132ee37c36928458704",
   "components": [
     {
       "checksum": "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0",
@@ -98,7 +98,7 @@
       "version": "0.7.6"
     },
     {
-      "checksum": "5ec2f1fc3ec205783a5da9a7e6c1509cc69dedf09a1949e412c1e18469326d00",
+      "checksum": "b281d307588d634de920874890732659e2e7672f72b5e10e81badc1a8a83621e",
       "dependency_type": "transitive",
       "direct_for": [],
       "included_in_linux_release": true,
@@ -107,10 +107,10 @@
       "name": "aws-lc-rs",
       "repository": "https://github.com/aws/aws-lc-rs",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "1.17.0"
+      "version": "1.18.1"
     },
     {
-      "checksum": "1a2f9779ce85b93ab6170dd940ad0169b5766ff848247aff13bb788b832fe3f4",
+      "checksum": "9bff6c3b54fad79a2e60b8102caf565819711497c1f5f092f49508e2f5c31b27",
       "dependency_type": "transitive",
       "direct_for": [],
       "included_in_linux_release": true,
@@ -119,7 +119,7 @@
       "name": "aws-lc-sys",
       "repository": "https://github.com/aws/aws-lc-rs",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.41.0"
+      "version": "0.45.0"
     },
     {
       "checksum": "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6",
@@ -1109,6 +1109,18 @@
       "version": "0.10.2"
     },
     {
+      "checksum": "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548",
+      "dependency_type": "transitive",
+      "direct_for": [],
+      "included_in_linux_release": true,
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "name": "pkg-config",
+      "repository": "https://github.com/rust-lang/pkg-config-rs",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.3.34"
+    },
+    {
       "checksum": "8159bd90725d2df49889a078b54f4f79e87f1f8a8444194cdca81d38f5393abf",
       "dependency_type": "transitive",
       "direct_for": [],
@@ -1349,7 +1361,7 @@
       "version": "1.1.4"
     },
     {
-      "checksum": "ef86cd5876211988985292b91c96a8f2d298df24e75989a43a3c73f2d4d8168b",
+      "checksum": "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634",
       "dependency_type": "direct",
       "direct_for": [
         "werewolfd"
@@ -1360,7 +1372,7 @@
       "name": "rustls",
       "repository": "https://github.com/rustls/rustls",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.23.40"
+      "version": "0.23.45"
     },
     {
       "checksum": "612460d5f7bea540c490b2b6395d8e34a953e52b491accd6c86c8164c5932a63",
@@ -1411,7 +1423,7 @@
       "version": "0.1.1"
     },
     {
-      "checksum": "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e",
+      "checksum": "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2",
       "dependency_type": "direct",
       "direct_for": [
         "werewolfd"
@@ -1422,7 +1434,7 @@
       "name": "rustls-webpki",
       "repository": "https://github.com/rustls/webpki",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.103.13"
+      "version": "0.103.15"
     },
     {
       "checksum": "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d",
