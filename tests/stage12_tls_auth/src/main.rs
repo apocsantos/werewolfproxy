@@ -555,7 +555,7 @@ fn main() {
         serde_json::to_string_pretty(&json!({
             "stage": "12B.11", "status": "PASS", "scope": "isolated TLS 1.3 authentication harness",
             "transport": "serialized TLS records over in-memory byte buffers",
-            "rustls": "0.23.40", "webpki": "0.103.13", "cases": results,
+            "rustls": "0.23.45", "webpki": "0.103.15", "cases": results,
         }))
         .unwrap()
     );

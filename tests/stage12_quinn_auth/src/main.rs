@@ -513,7 +513,7 @@ async fn main() {
     ];
     println!("{}", serde_json::to_string_pretty(&json!({
         "stage": "12C.1", "status": "COMPLETE", "udp_environment": "PASS",
-        "quinn": "0.11.9", "rustls": "0.23.40", "quinn_proto": "0.11.15", "quinn_udp": "0.5.14",
+        "quinn": "0.11.9", "rustls": "0.23.45", "quinn_proto": "0.11.15", "quinn_udp": "0.5.14",
         "quic_no_alpn": "PASS", "fallback_temporary_alpn": null,
         "exporter_label": String::from_utf8_lossy(EXPORTER_LABEL),
         "exporter_context": String::from_utf8_lossy(EXPORTER_CONTEXT),

@@ -8,8 +8,8 @@ publish = false
 [workspace]
 
 [dependencies]
-rustls = { version = "=0.23.40", default-features = false, features = ["std", "ring"] }
-rustls-webpki = { version = "=0.103.13", default-features = false, features = ["std", "ring"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["std", "ring"] }
+rustls-webpki = { version = "=0.103.15", default-features = false, features = ["std", "ring"] }
 rcgen = "=0.13.2"
 serde_json = "=1.0.149"
 ring = "=0.17.14"

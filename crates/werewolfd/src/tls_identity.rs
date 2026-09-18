@@ -591,7 +591,7 @@ mod tests {
             client_config_for_peer(&peer(&pelt, Some(pelt.public_key_b64.clone()))).unwrap();
         let mut client = ClientConnection::new(
             Arc::new(client_config),
-            ServerName::try_from("127.0.0.1".parse::<IpAddr>().unwrap()).unwrap(),
+            ServerName::from("127.0.0.1".parse::<IpAddr>().unwrap()),
         )
         .unwrap();
         let mut client_hello = Vec::new();
