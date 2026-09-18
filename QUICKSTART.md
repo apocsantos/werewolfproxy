@@ -54,7 +54,7 @@ create and activate a local forwarding Fang:
     werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" fang create example node-b 127.0.0.1:17000 127.0.0.1:7000 --transport tcp
     werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" fang activate example
     werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" status
-    werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" doctor
+    werewolfctl --home "$HOME/.config/werewolf-a" --socket "$HOME/.local/run/werewolf-a/control.sock" doctor
 
 Connect the local client application on A to 127.0.0.1:17000 and verify its
 normal application exchange with the target on B. The Stage18 CLI harness
@@ -69,7 +69,7 @@ node's QUIC listener, then create a second Fang with a different local port:
     werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" fang create example-quic node-b 127.0.0.1:17001 127.0.0.1:7000 --transport quic
     werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" fang activate example-quic
     werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" status
-    werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" doctor
+    werewolfctl --home "$HOME/.config/werewolf-a" --socket "$HOME/.local/run/werewolf-a/control.sock" doctor
 
 Connect the local client application on A to 127.0.0.1:17001. This selects
 the authenticated QUIC transport; the receiver still applies the same Pack
