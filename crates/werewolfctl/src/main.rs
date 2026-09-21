@@ -77,6 +77,11 @@ enum Commands {
         #[command(subcommand)]
         command: FangCommands,
     },
+    /// User-facing service connections over Werewolf.
+    Service {
+        #[command(subcommand)]
+        command: ServiceCommands,
+    },
 }
 #[derive(Subcommand)]
 enum DenCommands {
@@ -184,6 +189,26 @@ enum FangCommands {
     },
     #[command(hide = true)]
     Cleanup,
+}
+
+#[derive(Subcommand)]
+enum ServiceCommands {
+    /// Connect a local listener to a service exposed by a Pack peer.
+    Connect {
+        /// Pack peer name.
+        peer: String,
+
+        /// Remote service target, for example 127.0.0.1:22.
+        target: String,
+
+        /// Local TCP port to expose.
+        #[arg(long)]
+        local_port: u16,
+
+        /// Local bind address.
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: String,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -387,6 +412,21 @@ fn request_for(command: Commands) -> Result<(String, Value), CliError> {
         Commands::Fang {
             command: FangCommands::Cleanup,
         } => ("fang.cleanup", json!({})),
+        Commands::Service {
+            command:
+                ServiceCommands::Connect {
+                    peer,
+                    target,
+                    local_port,
+                    bind,
+                },
+        } => {
+            let local = format!("{bind}:{local_port}");
+            (
+                "fang.open",
+                json!({"peer":peer,"local":local,"remote":target}),
+            )
+        }
         Commands::Version
         | Commands::Doctor
         | Commands::Den {
