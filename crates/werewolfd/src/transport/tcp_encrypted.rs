@@ -381,15 +381,13 @@ where
         }
     };
 
-    // A local client close must close the whole encrypted session. Keeping the
-    // opposite TLS read half alive in `join!` made short-lived connections
-    // retain the receiver authority lease until its 60-second read timeout.
-    // Application protocols that require a prolonged half-closed response
-    // keep their local socket open until that response is complete.
-    tokio::select! {
-        result = client_to_server => result,
-        result = server_to_client => result,
-    }
+    // A local EOF completes only the client-to-server direction. Keep the
+    // opposite direction alive so a half-closed application can still receive
+    // the target response. The request branch has already shut down and
+    // dropped the TLS write half, so the peer observes the graceful EOF while
+    // this join drains the response direction.
+    let (client_to_server, server_to_client) = tokio::join!(client_to_server, server_to_client);
+    client_to_server.and(server_to_client)
 }
 
 async fn secure_copy_server_side(
