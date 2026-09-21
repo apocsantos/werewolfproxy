@@ -19,6 +19,124 @@ fn selected(pelt: &PeltIdentity) -> crate::policy::ExpectedPeerIdentity {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn encrypted_tcp_half_close_preserves_reverse_response() {
+    timeout(Duration::from_secs(12), async {
+        let sender = generate_identity();
+        let receiver = generate_identity();
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_address = target.local_addr().unwrap();
+        let state = Arc::new(Mutex::new(DaemonState {
+            pelt: Some(receiver.clone()),
+            runtime_tls_identity: Some(Arc::new(
+                crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap(),
+            )),
+            peers: vec![werewolf_core::pack::PeerRecord {
+                name: "sender".into(),
+                fingerprint: sender.fingerprint.clone(),
+                public_key_b64: Some(sender.public_key_b64.clone()),
+                address: "tcp://127.0.0.1:1".into(),
+                trust: werewolf_core::pack::TrustLevel::Packmate,
+            }],
+            target_policy: crate::target_policy::TargetPolicy::Grants(HashMap::from([(
+                sender.fingerprint.clone(),
+                [target_address].into(),
+            )])),
+            ..Default::default()
+        }));
+
+        let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let receiver_address = reserved.local_addr().unwrap();
+        drop(reserved);
+        let receiver_state = state.clone();
+        let receiver_task = tokio::spawn(async move {
+            run_fang_listener(&receiver_address.to_string(), receiver_state).await
+        });
+
+        let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_address = reserved.local_addr().unwrap();
+        drop(reserved);
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let sender_identity = sender.clone();
+        let receiver_identity = selected(&receiver);
+        let local_task = tokio::spawn(async move {
+            run_local_fang_forwarder(
+                "half-close-regression",
+                &local_address.to_string(),
+                &receiver_address.to_string(),
+                &target_address.to_string(),
+                sender_identity,
+                crate::fang_registry::FangCancellation::default(),
+                ready_tx,
+                receiver_identity,
+            )
+            .await
+        });
+        ready_rx.await.unwrap().unwrap();
+
+        let response = b"encrypted-tcp-half-close-response\n";
+        let request = b"encrypted-tcp-half-close-request\n";
+        let target_task = tokio::spawn(async move {
+            for wait_for_client_eof in [false, true] {
+                let (mut stream, _) = target.accept().await.unwrap();
+                let mut received = vec![0; request.len()];
+                stream.read_exact(&mut received).await.unwrap();
+                assert_eq!(received, request);
+                if wait_for_client_eof {
+                    let mut trailing = [0u8; 1];
+                    assert_eq!(stream.read(&mut trailing).await.unwrap(), 0);
+                }
+                stream.write_all(response).await.unwrap();
+                stream.shutdown().await.unwrap();
+            }
+        });
+
+        // Control: a normal encrypted request/response remains successful.
+        let mut control = TcpStream::connect(local_address).await.unwrap();
+        control.write_all(request).await.unwrap();
+        let mut control_response = vec![0; response.len()];
+        control.read_exact(&mut control_response).await.unwrap();
+        assert_eq!(control_response, response);
+        control.shutdown().await.unwrap();
+
+        // HC-01: the request-side EOF must not cancel delivery of the response.
+        let mut half_close = TcpStream::connect(local_address).await.unwrap();
+        half_close.write_all(request).await.unwrap();
+        half_close.shutdown().await.unwrap();
+        let mut half_close_response = vec![0; response.len()];
+        timeout(
+            Duration::from_secs(2),
+            half_close.read_exact(&mut half_close_response),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(half_close_response, response);
+        let mut eof = [0u8; 1];
+        let eof_count = timeout(Duration::from_secs(2), half_close.read(&mut eof))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(eof_count, 0);
+
+        target_task.await.unwrap();
+        timeout(Duration::from_secs(3), async {
+            loop {
+                if state.lock().await.inbound_authority.summary()["active"].as_u64() == Some(0) {
+                    break;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        local_task.abort();
+        receiver_task.abort();
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn short_lived_local_fang_connections_release_tcp_authority() {
     timeout(Duration::from_secs(12), async {
         let sender = generate_identity();
