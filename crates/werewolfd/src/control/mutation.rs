@@ -347,6 +347,7 @@ pub(super) async fn handle(
         };
         let name = arg(&req, "name");
         let before = candidate.len();
+        let mut address_changed = false;
         let revoked_fingerprint = if matches!(req.cmd.as_str(), "pack.remove" | "pack.revoke") {
             candidate
                 .iter()
@@ -379,7 +380,9 @@ pub(super) async fn handle(
                 let Some(peer) = candidate.iter_mut().find(|p| p.name == name) else {
                     return error(&req.id, "PACK_NOT_FOUND");
                 };
-                peer.address = arg(&req, "address");
+                let address = arg(&req, "address");
+                address_changed = peer.address != address;
+                peer.address = address;
                 "address_updated"
             }
             "pack.remove" | "pack.revoke" => {
@@ -397,6 +400,26 @@ pub(super) async fn handle(
         };
         if state_validation::pack(&candidate).is_err() {
             return error(&req.id, "PACK_INVALID");
+        }
+        if req.cmd == "pack.set_address" {
+            let closed = match apply_pack_address_change(
+                &home,
+                &name,
+                candidate.clone(),
+                address_changed,
+                protected_generation,
+                &state,
+            )
+            .await
+            {
+                Ok(closed) => closed,
+                Err(_) => return error(&req.id, "PACK_SAVE_FAILED"),
+            };
+            let packmates = state.lock().await.peers.len();
+            return ControlResponse::ok(
+                req.id,
+                json!({"status":status,"name":name,"peer":name,"address":req.args["address"],"closed_fangs":closed,"packmates":packmates}),
+            );
         }
         let (authority, closed) = {
             let mut live = state.lock().await;
@@ -550,6 +573,86 @@ pub(crate) async fn persist_active(
     .await?;
     state.lock().await.active_profiles = candidate;
     Ok(())
+}
+
+async fn apply_pack_address_change(
+    home: &Path,
+    peer_name: &str,
+    candidate_peers: Vec<PeerRecord>,
+    address_changed: bool,
+    generation: Option<u64>,
+    state: &Arc<Mutex<DaemonState>>,
+) -> io::Result<usize> {
+    let (old_active, candidate_active, affected_ids) = {
+        let live = state.lock().await;
+        let old_active = live.active_profiles.clone();
+        let mut candidate_active = old_active.clone();
+        let affected_ids = if address_changed {
+            candidate_active.retain(|profile_name| {
+                !live
+                    .fang_profiles
+                    .iter()
+                    .any(|profile| profile.name == *profile_name && profile.peer == peer_name)
+            });
+            live.fang_registry
+                .records()
+                .iter()
+                .filter(|fang| fang.peer == peer_name)
+                .map(|fang| fang.id.clone())
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        (old_active, candidate_active, affected_ids)
+    };
+
+    {
+        let live = state.lock().await;
+        state_validation::active(&candidate_active, &live.fang_profiles)?;
+    }
+
+    if let Some(generation) = generation {
+        let mut protected = {
+            let live = state.lock().await;
+            protected_from_live(&live)
+        };
+        protected.peers = candidate_peers.clone();
+        protected.active_profiles = candidate_active.clone();
+        commit_protected(generation, protected, state).await?;
+    } else {
+        // Legacy documents do not have the protected-state generation's
+        // single commit boundary. Publish the fail-closed active intent first;
+        // if Pack persistence is NotCommitted, restore the old intent through
+        // the same durable machinery. An indeterminate Pack commit leaves the
+        // existing degraded state untouched and never attempts rollback.
+        if candidate_active != old_active {
+            durable(home, "active_fangs.json", &candidate_active, false, state).await?;
+        }
+        if let Err(error) = durable(home, "pack.json", &candidate_peers, false, state).await {
+            if !state.lock().await.storage_degraded {
+                if durable(home, "active_fangs.json", &old_active, false, state)
+                    .await
+                    .is_err()
+                {
+                    state.lock().await.storage_degraded = true;
+                }
+            }
+            return Err(error);
+        }
+    }
+
+    let mut live = state.lock().await;
+    live.peers = candidate_peers;
+    live.active_profiles = candidate_active;
+    let closed = affected_ids.len();
+    if closed != 0 {
+        live.fang_registry.terminate_ids(&affected_ids);
+        live.status.active_fangs = live.fang_registry.len();
+        if live.fang_registry.is_empty() {
+            live.status.mode = werewolf_core::state::WolfMode::Human;
+        }
+    }
+    Ok(closed)
 }
 
 #[cfg(test)]
