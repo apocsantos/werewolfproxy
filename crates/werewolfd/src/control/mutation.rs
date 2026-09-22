@@ -618,7 +618,13 @@ async fn apply_pack_address_change(
         };
         protected.peers = candidate_peers.clone();
         protected.active_profiles = candidate_active.clone();
-        commit_protected(generation, protected, state).await?;
+        if let Err(error) = commit_protected(generation, protected, state).await {
+            if state.lock().await.storage_degraded {
+                let mut live = state.lock().await;
+                publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids);
+            }
+            return Err(error);
+        }
     } else {
         // Legacy documents do not have the protected-state generation's
         // single commit boundary. Publish the fail-closed active intent first;
@@ -626,7 +632,15 @@ async fn apply_pack_address_change(
         // the same durable machinery. An indeterminate Pack commit leaves the
         // existing degraded state untouched and never attempts rollback.
         if candidate_active != old_active {
-            durable(home, "active_fangs.json", &candidate_active, false, state).await?;
+            if let Err(error) =
+                durable(home, "active_fangs.json", &candidate_active, false, state).await
+            {
+                if state.lock().await.storage_degraded {
+                    let mut live = state.lock().await;
+                    publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids);
+                }
+                return Err(error);
+            }
         }
         if let Err(error) = durable(home, "pack.json", &candidate_peers, false, state).await {
             if !state.lock().await.storage_degraded {
@@ -635,7 +649,12 @@ async fn apply_pack_address_change(
                     .is_err()
                 {
                     state.lock().await.storage_degraded = true;
+                    let mut live = state.lock().await;
+                    publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids);
                 }
+            } else {
+                let mut live = state.lock().await;
+                publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids);
             }
             return Err(error);
         }
@@ -643,16 +662,28 @@ async fn apply_pack_address_change(
 
     let mut live = state.lock().await;
     live.peers = candidate_peers;
-    live.active_profiles = candidate_active;
+    Ok(publish_invalidated_runtime(
+        &mut live,
+        &candidate_active,
+        &affected_ids,
+    ))
+}
+
+fn publish_invalidated_runtime(
+    live: &mut DaemonState,
+    candidate_active: &[String],
+    affected_ids: &[String],
+) -> usize {
+    live.active_profiles = candidate_active.to_vec();
     let closed = affected_ids.len();
     if closed != 0 {
-        live.fang_registry.terminate_ids(&affected_ids);
+        live.fang_registry.terminate_ids(affected_ids);
         live.status.active_fangs = live.fang_registry.len();
         if live.fang_registry.is_empty() {
             live.status.mode = werewolf_core::state::WolfMode::Human;
         }
     }
-    Ok(closed)
+    closed
 }
 
 #[cfg(test)]
