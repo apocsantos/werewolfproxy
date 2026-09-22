@@ -568,8 +568,196 @@ async fn handle_request(
 #[cfg(test)]
 mod characterization_tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+    use std::{collections::HashMap, os::unix::fs::PermissionsExt};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::{TcpListener, TcpStream},
+        sync::oneshot,
+        time::timeout,
+    };
     use werewolf_core::pelt::generate_identity;
+
+    async fn reserve_tcp_address() -> std::net::SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        address
+    }
+
+    async fn spawn_receiver(
+        receiver: &werewolf_core::pelt::PeltIdentity,
+        sender: &werewolf_core::pelt::PeltIdentity,
+        target: std::net::SocketAddr,
+    ) -> (
+        std::net::SocketAddr,
+        tokio::task::JoinHandle<io::Result<()>>,
+    ) {
+        let address = reserve_tcp_address().await;
+        let state = Arc::new(Mutex::new(DaemonState {
+            inbound_authority: crate::authority::Authority::new(false),
+            pelt: Some(receiver.clone()),
+            runtime_tls_identity: Some(Arc::new(
+                crate::tls_identity::RuntimeTlsIdentity::from_pelt(receiver).unwrap(),
+            )),
+            peers: vec![werewolf_core::pack::PeerRecord {
+                name: "sender".into(),
+                fingerprint: sender.fingerprint.clone(),
+                public_key_b64: Some(sender.public_key_b64.clone()),
+                address: "tcp://127.0.0.1:1".into(),
+                trust: werewolf_core::pack::TrustLevel::Packmate,
+            }],
+            target_policy: crate::target_policy::TargetPolicy::Grants(HashMap::from([(
+                sender.fingerprint.clone(),
+                [target].into(),
+            )])),
+            ..DaemonState::default()
+        }));
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let task_state = state;
+        let task_address = address.to_string();
+        let task = tokio::spawn(async move {
+            crate::transport::run_fang_listener_with_ready(&task_address, task_state, ready_tx)
+                .await
+        });
+        ready_rx.await.unwrap().unwrap();
+        (address, task)
+    }
+
+    async fn endpoint_roundtrip(
+        local: std::net::SocketAddr,
+        request: &[u8],
+        expected_response: &[u8],
+    ) {
+        let mut client = TcpStream::connect(local).await.unwrap();
+        client.write_all(request).await.unwrap();
+        client.shutdown().await.unwrap();
+        let mut response = vec![0; expected_response.len()];
+        client.read_exact(&mut response).await.unwrap();
+        assert_eq!(response, expected_response);
+        let mut eof = [0u8; 1];
+        assert_eq!(client.read(&mut eof).await.unwrap(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn active_fang_snapshots_peer_endpoint_until_reactivation() {
+        timeout(std::time::Duration::from_secs(15), async {
+            let sender = generate_identity();
+            let receiver = generate_identity();
+            let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let target_address = target.local_addr().unwrap();
+            let request = b"lc01-request\n";
+            let target_task = tokio::spawn(async move {
+                for response in [
+                    b"ENDPOINT-A".as_slice(),
+                    b"ENDPOINT-A".as_slice(),
+                    b"ENDPOINT-B".as_slice(),
+                ] {
+                    let (mut stream, _) = target.accept().await.unwrap();
+                    let mut received = vec![0; request.len()];
+                    stream.read_exact(&mut received).await.unwrap();
+                    assert_eq!(received, request);
+                    stream.write_all(response).await.unwrap();
+                    stream.shutdown().await.unwrap();
+                }
+            });
+
+            let (endpoint_a, endpoint_a_task) =
+                spawn_receiver(&receiver, &sender, target_address).await;
+            let (endpoint_b, endpoint_b_task) =
+                spawn_receiver(&receiver, &sender, target_address).await;
+
+            let fixture = Fixture::new();
+            let local = reserve_tcp_address().await;
+            let state = Arc::new(Mutex::new(DaemonState {
+                pelt: Some(sender.clone()),
+                peers: vec![werewolf_core::pack::PeerRecord {
+                    name: "peer".into(),
+                    fingerprint: receiver.fingerprint.clone(),
+                    public_key_b64: Some(receiver.public_key_b64.clone()),
+                    address: format!("tcp://{endpoint_a}"),
+                    trust: werewolf_core::pack::TrustLevel::Packmate,
+                }],
+                ..fixture.state()
+            }));
+
+            let opened = crate::open_fang_from_parts(
+                "open-a".into(),
+                state.clone(),
+                "peer".into(),
+                local.to_string(),
+                target_address.to_string(),
+                "tcp".into(),
+            )
+            .await;
+            assert!(opened.ok, "initial Fang activation failed: {opened:?}");
+            endpoint_roundtrip(local, request, b"ENDPOINT-A").await;
+
+            let updated = handle_request(
+                ControlRequest {
+                    id: "set-address".into(),
+                    cmd: "pack.set_address".into(),
+                    args: json!({"name":"peer", "address": format!("quic://{endpoint_b}")}),
+                },
+                state.clone(),
+                fixture.0.clone(),
+            )
+            .await;
+            assert!(updated.ok, "Pack address update failed: {updated:?}");
+            assert_eq!(updated.result.unwrap()["closed_fangs"], 0);
+
+            // The active listener remains usable, but its task-owned endpoint
+            // is still endpoint A until the Fang is deactivated.
+            endpoint_roundtrip(local, request, b"ENDPOINT-A").await;
+
+            let fang_id = opened.result.unwrap()["fang_id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let closed = handle_request(
+                ControlRequest {
+                    id: "close".into(),
+                    cmd: "fang.close".into(),
+                    args: json!({"fang_id": fang_id}),
+                },
+                state.clone(),
+                fixture.0.clone(),
+            )
+            .await;
+            assert!(closed.ok, "Fang deactivation failed: {closed:?}");
+
+            let reopened = crate::open_fang_from_parts(
+                "open-b".into(),
+                state.clone(),
+                "peer".into(),
+                local.to_string(),
+                target_address.to_string(),
+                "tcp".into(),
+            )
+            .await;
+            assert!(reopened.ok, "reactivation failed: {reopened:?}");
+            endpoint_roundtrip(local, request, b"ENDPOINT-B").await;
+
+            let reopened_id = reopened.result.unwrap()["fang_id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let _ = handle_request(
+                ControlRequest {
+                    id: "close-b".into(),
+                    cmd: "fang.close".into(),
+                    args: json!({"fang_id": reopened_id}),
+                },
+                state,
+                fixture.0.clone(),
+            )
+            .await;
+            target_task.await.unwrap();
+            endpoint_a_task.abort();
+            endpoint_b_task.abort();
+        })
+        .await
+        .unwrap();
+    }
 
     #[tokio::test]
     async fn remove_and_revoke_retain_runtime_denial_when_pack_commit_fails() {
