@@ -647,11 +647,7 @@ mod characterization_tests {
             let target_address = target.local_addr().unwrap();
             let request = b"lc01-request\n";
             let target_task = tokio::spawn(async move {
-                for response in [
-                    b"ENDPOINT-A".as_slice(),
-                    b"ENDPOINT-A".as_slice(),
-                    b"ENDPOINT-B".as_slice(),
-                ] {
+                for response in [b"ENDPOINT-A".as_slice(), b"ENDPOINT-B".as_slice()] {
                     let (mut stream, _) = target.accept().await.unwrap();
                     let mut received = vec![0; request.len()];
                     stream.read_exact(&mut received).await.unwrap();
@@ -680,13 +676,32 @@ mod characterization_tests {
                 ..fixture.state()
             }));
 
-            let opened = crate::open_fang_from_parts(
-                "open-a".into(),
+            let profile = handle_request(
+                ControlRequest {
+                    id: "create".into(),
+                    cmd: "fang.profile.add".into(),
+                    args: json!({
+                        "name":"route",
+                        "peer":"peer",
+                        "local":local.to_string(),
+                        "remote":target_address.to_string(),
+                        "transport":"tcp"
+                    }),
+                },
                 state.clone(),
-                "peer".into(),
-                local.to_string(),
-                target_address.to_string(),
-                "tcp".into(),
+                fixture.0.clone(),
+            )
+            .await;
+            assert!(profile.ok, "Fang profile creation failed: {profile:?}");
+
+            let opened = handle_request(
+                ControlRequest {
+                    id: "open-a".into(),
+                    cmd: "fang.open_profile".into(),
+                    args: json!({"name":"route"}),
+                },
+                state.clone(),
+                fixture.0.clone(),
             )
             .await;
             assert!(opened.ok, "initial Fang activation failed: {opened:?}");
@@ -703,41 +718,57 @@ mod characterization_tests {
             )
             .await;
             assert!(updated.ok, "Pack address update failed: {updated:?}");
-            assert_eq!(updated.result.unwrap()["closed_fangs"], 0);
+            assert_eq!(updated.result.unwrap()["closed_fangs"], 1);
+            assert!(state.lock().await.active_profiles.is_empty());
+            assert_eq!(state.lock().await.fang_profiles.len(), 1);
 
-            // The active listener remains usable, but its task-owned endpoint
-            // is still endpoint A until the Fang is deactivated.
-            endpoint_roundtrip(local, request, b"ENDPOINT-A").await;
-
-            let fang_id = opened.result.unwrap()["fang_id"]
-                .as_str()
-                .unwrap()
-                .to_owned();
-            let closed = handle_request(
+            let active = handle_request(
                 ControlRequest {
-                    id: "close".into(),
-                    cmd: "fang.close".into(),
-                    args: json!({"fang_id": fang_id}),
+                    id: "active".into(),
+                    cmd: "fang.list".into(),
+                    args: json!({}),
                 },
                 state.clone(),
                 fixture.0.clone(),
             )
             .await;
-            assert!(closed.ok, "Fang deactivation failed: {closed:?}");
+            assert!(active.ok);
+            assert!(active.result.unwrap().as_array().unwrap().is_empty());
 
-            let reopened = crate::open_fang_from_parts(
-                "open-b".into(),
+            // A restart reads the persisted Pack/profile documents and must
+            // not restore the invalidated active intent.
+            let mut restarted = DaemonState::default();
+            let restarted_den =
+                werewolf_core::local_fs::PrivateDirectory::open(&fixture.0, false).unwrap();
+            crate::persistence::load_startup_state(&restarted_den, &mut restarted).unwrap();
+            assert!(restarted.active_profiles.is_empty());
+            assert_eq!(restarted.fang_profiles.len(), 1);
+
+            timeout(std::time::Duration::from_secs(2), async {
+                loop {
+                    if TcpStream::connect(local).await.is_err() {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+
+            let reactivated = handle_request(
+                ControlRequest {
+                    id: "open-b".into(),
+                    cmd: "fang.open_profile".into(),
+                    args: json!({"name":"route"}),
+                },
                 state.clone(),
-                "peer".into(),
-                local.to_string(),
-                target_address.to_string(),
-                "tcp".into(),
+                fixture.0.clone(),
             )
             .await;
-            assert!(reopened.ok, "reactivation failed: {reopened:?}");
+            assert!(reactivated.ok, "reactivation failed: {reactivated:?}");
             endpoint_roundtrip(local, request, b"ENDPOINT-B").await;
 
-            let reopened_id = reopened.result.unwrap()["fang_id"]
+            let reopened_id = reactivated.result.unwrap()["fang_id"]
                 .as_str()
                 .unwrap()
                 .to_owned();
@@ -855,6 +886,15 @@ mod characterization_tests {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
             Self(path)
         }
+
+        fn write(&self, name: &str, bytes: &[u8]) {
+            let directory =
+                werewolf_core::local_fs::PrivateDirectory::open(&self.0, false).unwrap();
+            assert!(matches!(
+                directory.replace(std::ffi::OsStr::new(name), bytes, false),
+                werewolf_core::local_fs::CommitOutcome::DurablyCommitted
+            ));
+        }
     }
     impl Fixture {
         fn state(&self) -> DaemonState {
@@ -870,6 +910,187 @@ mod characterization_tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[tokio::test]
+    async fn pack_address_change_invalidates_all_matching_fangs_only() {
+        let fixture = Fixture::new();
+        let peer_a = generate_identity();
+        let peer_b = generate_identity();
+        let profiles = vec![
+            werewolf_core::fang_profile::FangProfile {
+                name: "a-one".into(),
+                peer: "a".into(),
+                local: "127.0.0.1:41001".into(),
+                remote: "127.0.0.1:42001".into(),
+                transport: "tcp".into(),
+            },
+            werewolf_core::fang_profile::FangProfile {
+                name: "a-two".into(),
+                peer: "a".into(),
+                local: "127.0.0.1:41002".into(),
+                remote: "127.0.0.1:42002".into(),
+                transport: "tcp".into(),
+            },
+            werewolf_core::fang_profile::FangProfile {
+                name: "a-inactive".into(),
+                peer: "a".into(),
+                local: "127.0.0.1:41003".into(),
+                remote: "127.0.0.1:42003".into(),
+                transport: "tcp".into(),
+            },
+            werewolf_core::fang_profile::FangProfile {
+                name: "b-one".into(),
+                peer: "b".into(),
+                local: "127.0.0.1:41004".into(),
+                remote: "127.0.0.1:42004".into(),
+                transport: "tcp".into(),
+            },
+        ];
+        let mut registry = crate::fang_registry::FangRegistry::default();
+        for (id, peer) in [("a-one", "a"), ("a-two", "a"), ("b-one", "b")] {
+            registry.push(werewolf_core::fang::FangRecord {
+                id: id.into(),
+                peer: peer.into(),
+                local: profiles
+                    .iter()
+                    .find(|profile| profile.name == id)
+                    .unwrap()
+                    .local
+                    .clone(),
+                remote: "127.0.0.1:42000".into(),
+                state: werewolf_core::fang::FangState::Active,
+            });
+        }
+        let state = Arc::new(Mutex::new(DaemonState {
+            peers: vec![
+                werewolf_core::pack::PeerRecord {
+                    name: "a".into(),
+                    fingerprint: peer_a.fingerprint.clone(),
+                    public_key_b64: Some(peer_a.public_key_b64.clone()),
+                    address: "tcp://127.0.0.1:43001".into(),
+                    trust: werewolf_core::pack::TrustLevel::Packmate,
+                },
+                werewolf_core::pack::PeerRecord {
+                    name: "b".into(),
+                    fingerprint: peer_b.fingerprint.clone(),
+                    public_key_b64: Some(peer_b.public_key_b64.clone()),
+                    address: "tcp://127.0.0.1:43002".into(),
+                    trust: werewolf_core::pack::TrustLevel::Packmate,
+                },
+            ],
+            fang_profiles: profiles,
+            active_profiles: vec!["a-one".into(), "a-two".into(), "b-one".into()],
+            fang_registry: registry,
+            ..fixture.state()
+        }));
+
+        let response = handle_request(
+            ControlRequest {
+                id: "set-address".into(),
+                cmd: "pack.set_address".into(),
+                args: json!({"name":"a", "address":"quic://127.0.0.1:43003"}),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert!(response.ok);
+        assert_eq!(response.result.unwrap()["closed_fangs"], 2);
+
+        let live = state.lock().await;
+        assert_eq!(live.active_profiles, ["b-one"]);
+        assert_eq!(live.fang_profiles.len(), 4);
+        assert_eq!(live.fang_registry.records().len(), 1);
+        assert_eq!(live.fang_registry.records()[0].peer, "b");
+        assert_eq!(live.peers[0].address, "quic://127.0.0.1:43003");
+    }
+
+    #[tokio::test]
+    async fn pack_address_not_committed_preserves_pack_and_active_state() {
+        let fixture = Fixture::new();
+        let peer = generate_identity();
+        let old_pack = vec![werewolf_core::pack::PeerRecord {
+            name: "peer".into(),
+            fingerprint: peer.fingerprint.clone(),
+            public_key_b64: Some(peer.public_key_b64.clone()),
+            address: "tcp://127.0.0.1:43004".into(),
+            trust: werewolf_core::pack::TrustLevel::Packmate,
+        }];
+        fixture.write("pack.json", &serde_json::to_vec(&old_pack).unwrap());
+        fixture.write("active_fangs.json", br#"["route"]"#);
+        std::fs::set_permissions(
+            fixture.0.join("pack.json"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        let state = Arc::new(Mutex::new(DaemonState {
+            peers: old_pack.clone(),
+            fang_profiles: vec![werewolf_core::fang_profile::FangProfile {
+                name: "route".into(),
+                peer: "peer".into(),
+                local: "127.0.0.1:41005".into(),
+                remote: "127.0.0.1:42005".into(),
+                transport: "tcp".into(),
+            }],
+            active_profiles: vec!["route".into()],
+            ..fixture.state()
+        }));
+
+        let response = handle_request(
+            ControlRequest {
+                id: "set-address".into(),
+                cmd: "pack.set_address".into(),
+                args: json!({"name":"peer", "address":"tcp://127.0.0.1:43005"}),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert!(!response.ok);
+        assert_eq!(response.error.unwrap().code, "PACK_SAVE_FAILED");
+        assert_eq!(state.lock().await.peers[0].address, old_pack[0].address);
+        assert_eq!(state.lock().await.active_profiles, ["route"]);
+        assert_eq!(
+            serde_json::from_slice::<Vec<String>>(
+                &std::fs::read(fixture.0.join("active_fangs.json")).unwrap()
+            )
+            .unwrap(),
+            vec!["route"]
+        );
+    }
+
+    #[tokio::test]
+    async fn pack_address_change_without_active_fang_reports_zero_closed() {
+        let fixture = Fixture::new();
+        let peer = generate_identity();
+        let state = Arc::new(Mutex::new(DaemonState {
+            peers: vec![werewolf_core::pack::PeerRecord {
+                name: "peer".into(),
+                fingerprint: peer.fingerprint.clone(),
+                public_key_b64: Some(peer.public_key_b64.clone()),
+                address: "tcp://127.0.0.1:43006".into(),
+                trust: werewolf_core::pack::TrustLevel::Packmate,
+            }],
+            ..fixture.state()
+        }));
+
+        let response = handle_request(
+            ControlRequest {
+                id: "set-address".into(),
+                cmd: "pack.set_address".into(),
+                args: json!({"name":"peer", "address":"quic://127.0.0.1:43007"}),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert!(response.ok);
+        assert_eq!(response.result.unwrap()["closed_fangs"], 0);
+        assert_eq!(
+            state.lock().await.peers[0].address,
+            "quic://127.0.0.1:43007"
+        );
     }
 
     #[tokio::test]
