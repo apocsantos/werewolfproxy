@@ -79,6 +79,17 @@ pub(super) fn load_startup_state(
             apply_protected_state(initial_state, state, None);
         }
     }
+    initial_state.services = match den.read(OsStr::new("services.json"), 1024 * 1024)? {
+        None => Vec::new(),
+        Some(data) => {
+            let services =
+                serde_json::from_slice::<Vec<werewolf_core::service::ServiceDefinition>>(&data)
+                    .map_err(|_| invalid())?;
+            werewolf_core::service::validate_services(&services)?;
+            services
+        }
+    };
+
     if let Some(data) = den.read(OsStr::new("pelt.json"), 4096)? {
         let data = Zeroizing::new(data);
         let pelt = serde_json::from_slice(&data).map_err(|_| invalid())?;
@@ -168,6 +179,91 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn service_registry_survives_startup_and_preserves_definition() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "services.json",
+            br#"[{"name":"web","peer":"wolf-a","target":"127.0.0.1:8080","kind":"http"}]"#,
+        );
+
+        let state = fixture.startup();
+
+        assert_eq!(state.services.len(), 1);
+        assert_eq!(state.services[0].name, "web");
+        assert_eq!(state.services[0].peer, "wolf-a");
+        assert_eq!(state.services[0].target, "127.0.0.1:8080");
+        assert_eq!(
+            state.services[0].kind,
+            werewolf_core::service::ServiceKind::Http
+        );
+    }
+
+    #[test]
+    fn invalid_service_registry_fails_startup_closed() {
+        let fixture = Fixture::new();
+
+        fixture.write(
+            "services.json",
+            br#"[{"name":" web ","peer":"wolf-a","target":"127.0.0.1:8080","kind":"http"}]"#,
+        );
+
+        assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+
+        fixture.write(
+            "services.json",
+            br#"[
+                {"name":"web","peer":"wolf-a","target":"127.0.0.1:8080","kind":"http"},
+                {"name":"web","peer":"wolf-b","target":"127.0.0.1:8081","kind":"http"}
+            ]"#,
+        );
+
+        assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+
+        fixture.write(
+            "services.json",
+            br#"[{"name":"web","peer":"wolf-a","target":"127.0.0.1:8080","kind":"smtp"}]"#,
+        );
+
+        assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+
+        fixture.write(
+            "services.json",
+            br#"[{"name":"web","peer":"wolf-a","target":"127.0.0.1:8080","kind":"http","bypass":true}]"#,
+        );
+
+        assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+    }
+
+    #[test]
+    fn missing_service_registry_starts_empty() {
+        let fixture = Fixture::new();
+        let state = fixture.startup();
+        assert!(state.services.is_empty());
+    }
+
+    #[test]
+    fn malformed_service_registry_fails_startup_closed() {
+        let fixture = Fixture::new();
+        fixture.write("services.json", b"{not-json");
+        assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+    }
+
+    #[test]
+    fn service_registry_is_independent_of_protected_generation() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "services.json",
+            br#"[{"name":"web","peer":"wolf-a","target":"127.0.0.1:8080","kind":"http"}]"#,
+        );
+
+        let state = fixture.startup();
+
+        assert_eq!(state.services.len(), 1);
+        assert_eq!(state.services[0].name, "web");
+        assert!(state.protected_state_generation.is_none());
     }
 
     #[test]
