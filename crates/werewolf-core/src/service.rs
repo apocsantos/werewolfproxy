@@ -42,6 +42,16 @@ pub fn validate_services(services: &[ServiceDefinition]) -> io::Result<()> {
             ));
         }
 
+        if service.name != service.name.trim()
+            || service.peer != service.peer.trim()
+            || service.target != service.target.trim()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "service fields must be canonical",
+            ));
+        }
+
         if service.name.len() > 128 || service.peer.len() > 128 || service.target.len() > 512 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -86,6 +96,13 @@ mod tests {
     #[test]
     fn duplicate_service_names_are_rejected() {
         assert!(validate_services(&[service("web"), service("web")]).is_err());
+    }
+
+    #[test]
+    fn surrounding_whitespace_is_rejected() {
+        let mut candidate = service("web");
+        candidate.name = " web ".into();
+        assert!(validate_services(&[candidate]).is_err());
     }
 
     #[test]
