@@ -47,10 +47,17 @@ async fn encrypted_tcp_half_close_preserves_reverse_response() {
         let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let receiver_address = reserved.local_addr().unwrap();
         drop(reserved);
+        let (receiver_ready_tx, receiver_ready_rx) = oneshot::channel();
         let receiver_state = state.clone();
         let receiver_task = tokio::spawn(async move {
-            run_fang_listener(&receiver_address.to_string(), receiver_state).await
+            run_fang_listener_with_ready(
+                &receiver_address.to_string(),
+                receiver_state,
+                Some(receiver_ready_tx),
+            )
+            .await
         });
+        receiver_ready_rx.await.unwrap().unwrap();
 
         let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let local_address = reserved.local_addr().unwrap();
