@@ -144,7 +144,7 @@ async fn encrypted_tcp_half_close_preserves_reverse_response() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn remote_eof_waits_for_local_write_eof_before_releasing_tcp_authority() {
+async fn remote_eof_releases_tcp_authority_without_local_write_eof() {
     timeout(Duration::from_secs(12), async {
         let sender = generate_identity();
         let receiver = generate_identity();
@@ -224,20 +224,9 @@ async fn remote_eof_waits_for_local_write_eof_before_releasing_tcp_authority() {
         let mut eof = [0u8; 1];
         assert_eq!(client.read(&mut eof).await.unwrap(), 0);
 
-        // The local write side remains open, so the request direction is
-        // intentionally still live after the target has sent EOF.
-        assert!(timeout(Duration::from_millis(100), async {
-            loop {
-                if state.lock().await.inbound_authority.summary()["active"].as_u64() == Some(0) {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .is_err());
-
-        client.shutdown().await.unwrap();
+        // The local write side remains open, but the target EOF proves that
+        // no further response can arrive. The request direction must be
+        // terminated in a controlled way rather than retaining the session.
         timeout(Duration::from_secs(3), async {
             loop {
                 if state.lock().await.inbound_authority.summary()["active"].as_u64() == Some(0) {
@@ -248,6 +237,8 @@ async fn remote_eof_waits_for_local_write_eof_before_releasing_tcp_authority() {
         })
         .await
         .unwrap();
+
+        client.shutdown().await.unwrap();
 
         target_task.await.unwrap();
         local_task.abort();
