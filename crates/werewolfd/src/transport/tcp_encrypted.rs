@@ -329,106 +329,64 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let (mut in_r, mut in_w) = inbound.split();
-    let (mut out_r, out_w) = tokio::io::split(outbound);
-    let mut out_w = Some(out_w);
-    let mut client_to_server_done = false;
-    let mut server_to_client_done = false;
-    let mut client_to_server_buf = Zeroizing::new(vec![0u8; 1400]);
-    let mut client_to_server_counter = 0u64;
-    let mut server_to_client_counter = 0u64;
+    let (mut out_r, mut out_w) = tokio::io::split(outbound);
 
-    while !(client_to_server_done && server_to_client_done) {
-        tokio::select! {
-            result = async {
-                let n = in_r.read(&mut client_to_server_buf).await?;
-                if n == 0 {
-                    return Ok::<bool, io::Error>(true);
-                }
-                let writer = out_w.as_mut().ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::BrokenPipe, "encrypted TCP writer closed")
-                })?;
-                write_encrypted_frame(
-                    writer,
-                    &key,
-                    0,
-                    &mut client_to_server_counter,
-                    &client_to_server_buf[..n],
-                )
-                .await?;
-                Ok(false)
-            }, if !client_to_server_done => {
-                match result {
-                    Ok(true) => {
-                        if let Some(mut writer) = out_w.take() {
-                            let _ = writer.shutdown().await;
-                        }
-                        client_to_server_done = true;
-                    }
-                    Ok(false) => {}
-                    Err(error) => {
-                        if let Some(mut writer) = out_w.take() {
-                            let _ = writer.shutdown().await;
-                        }
-                        return Err(error);
-                    }
-                }
+    let client_to_server = async {
+        let mut buf = Zeroizing::new(vec![0u8; 1400]);
+        let mut counter = 0u64;
+        loop {
+            let n = in_r.read(&mut buf).await?;
+            if n == 0 {
+                out_w.shutdown().await?;
+                return Ok::<(), io::Error>(());
             }
-            result = async {
-                match tokio::time::timeout(
-                    Duration::from_secs(60),
-                    read_encrypted_frame(&mut out_r, &key, 1, &mut server_to_client_counter),
-                )
-                .await
-                {
-                    Ok(Ok(plaintext)) => Ok::<Option<Vec<u8>>, io::Error>(Some(plaintext)),
-                    Ok(Err(error)) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(None),
-                    Ok(Err(error)) => Err(error),
-                    Err(_) => Err(io::Error::new(
+            // This future owns the read, counter and writer across every poll.
+            // Once plaintext is consumed, its frame cannot be abandoned while
+            // the session continues.
+            write_encrypted_frame(&mut out_w, &key, 0, &mut counter, &buf[..n]).await?;
+        }
+    };
+
+    let server_to_client = async {
+        let mut counter = 0u64;
+        loop {
+            match tokio::time::timeout(
+                Duration::from_secs(60),
+                read_encrypted_frame(&mut out_r, &key, 1, &mut counter),
+            )
+            .await
+            {
+                Ok(Ok(plaintext)) => {
+                    let plaintext = Zeroizing::new(plaintext);
+                    in_w.write_all(&plaintext).await?;
+                    in_w.flush().await?;
+                }
+                Ok(Err(error)) if error.kind() == io::ErrorKind::UnexpectedEof => {
+                    in_w.shutdown().await?;
+                    return Ok::<(), io::Error>(());
+                }
+                Ok(Err(error)) => return Err(error),
+                Err(_) => {
+                    return Err(io::Error::new(
                         io::ErrorKind::TimedOut,
                         "tcp-v2 client read idle timeout",
-                    )),
-                }
-            }, if !server_to_client_done => {
-                match result {
-                    Ok(Some(plaintext)) => {
-                        let plaintext = Zeroizing::new(plaintext);
-                        if let Err(error) = in_w.write_all(&plaintext).await {
-                            if let Some(mut writer) = out_w.take() {
-                                let _ = writer.shutdown().await;
-                            }
-                            return Err(error);
-                        }
-                        if let Err(error) = in_w.flush().await {
-                            if let Some(mut writer) = out_w.take() {
-                                let _ = writer.shutdown().await;
-                            }
-                            return Err(error);
-                        }
-                    }
-                    Ok(None) => {
-                        let _ = in_w.shutdown().await;
-                        if let Some(mut writer) = out_w.take() {
-                            let _ = writer.shutdown().await;
-                        }
-                        server_to_client_done = true;
-                        // The remote write direction is closed, so no further
-                        // response can arrive. Terminate the local request
-                        // direction instead of waiting for local SHUT_WR.
-                        client_to_server_done = true;
-                    }
-                    Err(error) => {
-                        let _ = in_w.shutdown().await;
-                        if let Some(mut writer) = out_w.take() {
-                            let _ = writer.shutdown().await;
-                        }
-                        return Err(error);
-                    }
+                    ));
                 }
             }
         }
-    }
+    };
 
-    Ok(())
+    tokio::pin!(client_to_server, server_to_client);
+    // A single select! keeps both directional futures alive across polls.
+    // Only remote EOF or a real error ends the peer direction; local EOF
+    // leaves the reverse future running to drain the response.
+    tokio::select! {
+        result = &mut server_to_client => result,
+        result = &mut client_to_server => {
+            result?;
+            server_to_client.await
+        }
+    }
 }
 
 async fn secure_copy_server_side(
