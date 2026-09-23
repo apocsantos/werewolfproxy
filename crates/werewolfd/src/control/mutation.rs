@@ -2,6 +2,7 @@
 //! state is prepared off the live model, persisted off the Tokio worker, then
 //! published without a fallible step. Client lifetime does not own this task.
 use crate::{
+    fang_registry::FangTermination,
     protected_state::{self, ProtectedState, Transaction},
     state::DaemonState,
     target_policy,
@@ -74,6 +75,15 @@ async fn durable<T: Serialize + Sync>(
     .unwrap_or_else(|_| {
         CommitOutcome::IndeterminateAfterRename(io::Error::other("storage worker failed"))
     });
+    #[cfg(test)]
+    let outcome = if file == "pack.json"
+        && state.lock().await.pack_commit_indeterminate
+        && matches!(outcome, CommitOutcome::DurablyCommitted)
+    {
+        CommitOutcome::IndeterminateAfterRename(io::Error::other("injected after Pack rename"))
+    } else {
+        outcome
+    };
     finish_outcome(outcome, state).await
 }
 
@@ -620,8 +630,11 @@ async fn apply_pack_address_change(
         protected.active_profiles = candidate_active.clone();
         if let Err(error) = commit_protected(generation, protected, state).await {
             if state.lock().await.storage_degraded {
-                let mut live = state.lock().await;
-                publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids);
+                let termination = {
+                    let mut live = state.lock().await;
+                    publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids)
+                };
+                termination.quiesce().await;
             }
             return Err(error);
         }
@@ -636,8 +649,11 @@ async fn apply_pack_address_change(
                 durable(home, "active_fangs.json", &candidate_active, false, state).await
             {
                 if state.lock().await.storage_degraded {
-                    let mut live = state.lock().await;
-                    publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids);
+                    let termination = {
+                        let mut live = state.lock().await;
+                        publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids)
+                    };
+                    termination.quiesce().await;
                 }
                 return Err(error);
             }
@@ -649,41 +665,47 @@ async fn apply_pack_address_change(
                     .is_err()
                 {
                     state.lock().await.storage_degraded = true;
-                    let mut live = state.lock().await;
-                    publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids);
+                    let termination = {
+                        let mut live = state.lock().await;
+                        publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids)
+                    };
+                    termination.quiesce().await;
                 }
             } else {
-                let mut live = state.lock().await;
-                publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids);
+                let termination = {
+                    let mut live = state.lock().await;
+                    publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids)
+                };
+                termination.quiesce().await;
             }
             return Err(error);
         }
     }
 
-    let mut live = state.lock().await;
-    live.peers = candidate_peers;
-    Ok(publish_invalidated_runtime(
-        &mut live,
-        &candidate_active,
-        &affected_ids,
-    ))
+    let termination = {
+        let mut live = state.lock().await;
+        live.peers = candidate_peers;
+        publish_invalidated_runtime(&mut live, &candidate_active, &affected_ids)
+    };
+    let closed = termination.closed();
+    termination.quiesce().await;
+    Ok(closed)
 }
 
 fn publish_invalidated_runtime(
     live: &mut DaemonState,
     candidate_active: &[String],
     affected_ids: &[String],
-) -> usize {
+) -> FangTermination {
     live.active_profiles = candidate_active.to_vec();
-    let closed = affected_ids.len();
-    if closed != 0 {
-        live.fang_registry.terminate_ids(affected_ids);
+    let termination = live.fang_registry.detach_ids(affected_ids);
+    if termination.closed() != 0 {
         live.status.active_fangs = live.fang_registry.len();
         if live.fang_registry.is_empty() {
             live.status.mode = werewolf_core::state::WolfMode::Human;
         }
     }
-    closed
+    termination
 }
 
 #[cfg(test)]

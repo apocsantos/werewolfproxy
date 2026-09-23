@@ -646,6 +646,53 @@ mod characterization_tests {
         (address, seen_rx, task)
     }
 
+    #[derive(Debug, PartialEq, Eq)]
+    enum EchoEvent {
+        Connected,
+        Bytes(Vec<u8>),
+        Closed,
+    }
+
+    async fn spawn_echo_target() -> (
+        std::net::SocketAddr,
+        mpsc::UnboundedReceiver<EchoEvent>,
+        tokio::task::JoinHandle<io::Result<()>>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (events_tx, events_rx) = mpsc::unbounded_channel();
+        let task = tokio::spawn(async move {
+            let mut children = tokio::task::JoinSet::new();
+            loop {
+                let (mut stream, _) = tokio::select! {
+                    Some(_) = children.join_next(), if !children.is_empty() => continue,
+                    accepted = listener.accept() => accepted?,
+                };
+                let events = events_tx.clone();
+                children.spawn(async move {
+                    let _ = events.send(EchoEvent::Connected);
+                    let mut buf = [0u8; 1024];
+                    loop {
+                        match stream.read(&mut buf).await {
+                            Ok(0) | Err(_) => {
+                                let _ = events.send(EchoEvent::Closed);
+                                return;
+                            }
+                            Ok(n) => {
+                                let _ = events.send(EchoEvent::Bytes(buf[..n].to_vec()));
+                                if stream.write_all(&buf[..n]).await.is_err() {
+                                    let _ = events.send(EchoEvent::Closed);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        (address, events_rx, task)
+    }
+
     async fn endpoint_roundtrip(
         local: std::net::SocketAddr,
         request: &[u8],
@@ -799,11 +846,7 @@ mod characterization_tests {
             assert!(reactivated.ok, "reactivation failed: {reactivated:?}");
             endpoint_roundtrip(local_b, request, b"ENDPOINT-B").await;
             assert_eq!(target_b_seen.recv().await.unwrap(), request);
-            assert!(
-                timeout(std::time::Duration::from_millis(500), target_a_seen.recv())
-                    .await
-                    .is_err()
-            );
+            assert!(target_a_seen.try_recv().is_err());
 
             let reopened_id = reactivated.result.unwrap()["fang_id"]
                 .as_str()
@@ -1044,6 +1087,87 @@ mod characterization_tests {
         assert_eq!(live.peers[0].address, "quic://127.0.0.1:43003");
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn pack_address_response_waits_for_detached_child_exit() {
+        use std::sync::Condvar;
+        timeout(std::time::Duration::from_secs(10), async {
+            let fixture = Fixture::new();
+            let peer = generate_identity();
+            let cancellation = crate::fang_registry::FangCancellation::default();
+            let (closed_tx, closed_rx) = oneshot::channel();
+            cancellation.observe_close(closed_tx);
+            let gate = Arc::new((std::sync::Mutex::new(false), Condvar::new()));
+            let child_gate = gate.clone();
+            let (entered_tx, entered_rx) = oneshot::channel();
+            assert!(cancellation.spawn(async move {
+                let _ = entered_tx.send(());
+                let (lock, ready) = &*child_gate;
+                let mut released = lock.lock().unwrap();
+                while !*released {
+                    released = ready.wait(released).unwrap();
+                }
+            }));
+            entered_rx.await.unwrap();
+            let mut registry = crate::fang_registry::FangRegistry::default();
+            registry.push(werewolf_core::fang::FangRecord {
+                id: "fang".into(),
+                peer: "peer".into(),
+                local: "127.0.0.1:41010".into(),
+                remote: "127.0.0.1:42010".into(),
+                state: werewolf_core::fang::FangState::Active,
+            });
+            registry.insert_cancellation("fang".into(), cancellation);
+            let state = Arc::new(Mutex::new(DaemonState {
+                peers: vec![werewolf_core::pack::PeerRecord {
+                    name: "peer".into(),
+                    fingerprint: peer.fingerprint.clone(),
+                    public_key_b64: Some(peer.public_key_b64.clone()),
+                    address: "tcp://127.0.0.1:43010".into(),
+                    trust: werewolf_core::pack::TrustLevel::Packmate,
+                }],
+                fang_profiles: vec![werewolf_core::fang_profile::FangProfile {
+                    name: "route".into(),
+                    peer: "peer".into(),
+                    local: "127.0.0.1:41010".into(),
+                    remote: "127.0.0.1:42010".into(),
+                    transport: "tcp".into(),
+                }],
+                active_profiles: vec!["route".into()],
+                fang_registry: registry,
+                ..fixture.state()
+            }));
+            let task_state = state.clone();
+            let home = fixture.0.clone();
+            let mutation = tokio::spawn(async move {
+                handle_request(
+                    ControlRequest {
+                        id: "set-address".into(),
+                        cmd: "pack.set_address".into(),
+                        args: json!({"name":"peer", "address":"tcp://127.0.0.1:43011"}),
+                    },
+                    task_state,
+                    home,
+                )
+                .await
+            });
+            closed_rx.await.unwrap();
+            // Detachment is complete, and the state lock is free while the
+            // still-running child prevents the control response.
+            assert!(state.lock().await.fang_registry.is_empty());
+            assert!(!mutation.is_finished());
+            {
+                let (lock, ready) = &*gate;
+                *lock.lock().unwrap() = true;
+                ready.notify_one();
+            }
+            let response = mutation.await.unwrap();
+            assert!(response.ok, "{response:?}");
+            assert_eq!(response.result.unwrap()["closed_fangs"], 1);
+        })
+        .await
+        .unwrap();
+    }
+
     #[tokio::test]
     async fn pack_address_not_committed_preserves_pack_and_active_state() {
         let sender = generate_identity();
@@ -1099,6 +1223,20 @@ mod characterization_tests {
         endpoint_roundtrip(local, b"not-committed-request\n", b"NOT-COMMITTED").await;
         assert_eq!(state.lock().await.fang_registry.records().len(), 1);
 
+        let unchanged = handle_request(
+            ControlRequest {
+                id: "unchanged".into(),
+                cmd: "pack.set_address".into(),
+                args: json!({"name":"peer", "address":old_pack[0].address}),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert!(unchanged.ok);
+        assert_eq!(unchanged.result.unwrap()["closed_fangs"], 0);
+        assert_eq!(state.lock().await.fang_registry.records().len(), 1);
+
         std::fs::set_permissions(
             fixture.0.join("pack.json"),
             std::fs::Permissions::from_mode(0o644),
@@ -1143,6 +1281,262 @@ mod characterization_tests {
         assert!(closed.ok, "Fang cleanup failed: {closed:?}");
         receiver_task.abort();
         target_task.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn pack_address_change_quiesces_all_children_and_preserves_other_peer() {
+        timeout(std::time::Duration::from_secs(20), async {
+            let sender = generate_identity();
+            let peer_a = generate_identity();
+            let peer_b = generate_identity();
+            let (target_a, mut a_events, target_a_task) = spawn_echo_target().await;
+            let (target_b, mut b_events, target_b_task) = spawn_echo_target().await;
+            let (endpoint_a, endpoint_a_task) = spawn_receiver(&peer_a, &sender, target_a).await;
+            let (endpoint_b, endpoint_b_task) = spawn_receiver(&peer_b, &sender, target_b).await;
+            let fixture = Fixture::new();
+            let state = Arc::new(Mutex::new(DaemonState {
+                pelt: Some(sender),
+                peers: vec![
+                    werewolf_core::pack::PeerRecord {
+                        name: "a".into(),
+                        fingerprint: peer_a.fingerprint.clone(),
+                        public_key_b64: Some(peer_a.public_key_b64.clone()),
+                        address: format!("tcp://{endpoint_a}"),
+                        trust: werewolf_core::pack::TrustLevel::Packmate,
+                    },
+                    werewolf_core::pack::PeerRecord {
+                        name: "b".into(),
+                        fingerprint: peer_b.fingerprint.clone(),
+                        public_key_b64: Some(peer_b.public_key_b64.clone()),
+                        address: format!("tcp://{endpoint_b}"),
+                        trust: werewolf_core::pack::TrustLevel::Packmate,
+                    },
+                ],
+                ..fixture.state()
+            }));
+            let mut locals = Vec::new();
+            for (name, peer, target) in [
+                ("a-one", "a", target_a),
+                ("a-two", "a", target_a),
+                ("b-one", "b", target_b),
+            ] {
+                let local = reserve_tcp_address().await;
+                let created = handle_request(
+                    ControlRequest {
+                        id: format!("create-{name}"),
+                        cmd: "fang.profile.add".into(),
+                        args: json!({
+                            "name":name, "peer":peer, "local":local.to_string(),
+                            "remote":target.to_string(), "transport":"tcp"
+                        }),
+                    },
+                    state.clone(),
+                    fixture.0.clone(),
+                )
+                .await;
+                assert!(created.ok, "{created:?}");
+                let opened = handle_request(
+                    ControlRequest {
+                        id: format!("open-{name}"),
+                        cmd: "fang.open_profile".into(),
+                        args: json!({"name":name}),
+                    },
+                    state.clone(),
+                    fixture.0.clone(),
+                )
+                .await;
+                assert!(opened.ok, "{opened:?}");
+                locals.push(local);
+            }
+
+            // Two established children under each affected Fang, plus one
+            // established session for the unrelated peer.
+            let mut a_clients = Vec::new();
+            for local in [locals[0], locals[0], locals[1], locals[1]] {
+                let mut client = TcpStream::connect(local).await.unwrap();
+                client.write_all(b"before").await.unwrap();
+                let mut echo = [0; 6];
+                client.read_exact(&mut echo).await.unwrap();
+                assert_eq!(&echo, b"before");
+                a_clients.push(client);
+            }
+            let mut b_client = TcpStream::connect(locals[2]).await.unwrap();
+            b_client.write_all(b"before").await.unwrap();
+            let mut echo = [0; 6];
+            b_client.read_exact(&mut echo).await.unwrap();
+            assert_eq!(&echo, b"before");
+
+            let updated = handle_request(
+                ControlRequest {
+                    id: "set-address".into(),
+                    cmd: "pack.set_address".into(),
+                    args: json!({"name":"a", "address":"tcp://127.0.0.1:43008"}),
+                },
+                state.clone(),
+                fixture.0.clone(),
+            )
+            .await;
+            assert!(updated.ok, "{updated:?}");
+            assert_eq!(updated.result.unwrap()["closed_fangs"], 2);
+            {
+                let live = state.lock().await;
+                assert_eq!(live.active_profiles, ["b-one"]);
+                assert_eq!(live.fang_registry.records().len(), 1);
+                assert_eq!(live.fang_registry.records()[0].peer, "b");
+            }
+            for mut client in a_clients {
+                let _ = client.write_all(b"after").await;
+                let mut byte = [0u8; 1];
+                match client.read(&mut byte).await {
+                    Ok(0) | Err(_) => {}
+                    Ok(_) => panic!("invalidated Fang still forwarded a response"),
+                }
+            }
+            let mut closed = 0;
+            let mut bytes = 0;
+            while closed < 4 {
+                match a_events.recv().await.unwrap() {
+                    EchoEvent::Connected => {}
+                    EchoEvent::Bytes(value) => {
+                        assert_eq!(value, b"before");
+                        bytes += 1;
+                    }
+                    EchoEvent::Closed => closed += 1,
+                }
+            }
+            assert_eq!(bytes, 4);
+            assert!(a_events.try_recv().is_err());
+            b_client.write_all(b"after").await.unwrap();
+            let mut echo = [0; 5];
+            b_client.read_exact(&mut echo).await.unwrap();
+            assert_eq!(&echo, b"after");
+            assert_eq!(b_events.recv().await.unwrap(), EchoEvent::Connected);
+            assert_eq!(
+                b_events.recv().await.unwrap(),
+                EchoEvent::Bytes(b"before".to_vec())
+            );
+            assert_eq!(
+                b_events.recv().await.unwrap(),
+                EchoEvent::Bytes(b"after".to_vec())
+            );
+
+            endpoint_a_task.abort();
+            endpoint_b_task.abort();
+            target_a_task.abort();
+            target_b_task.abort();
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn pack_address_indeterminate_quiesces_runtime_fail_closed() {
+        timeout(std::time::Duration::from_secs(15), async {
+            let sender = generate_identity();
+            let receiver = generate_identity();
+            let (target, mut events, target_task) = spawn_echo_target().await;
+            let (endpoint, receiver_task) = spawn_receiver(&receiver, &sender, target).await;
+            let fixture = Fixture::new();
+            let local = reserve_tcp_address().await;
+            let peer = werewolf_core::pack::PeerRecord {
+                name: "peer".into(),
+                fingerprint: receiver.fingerprint.clone(),
+                public_key_b64: Some(receiver.public_key_b64.clone()),
+                address: format!("tcp://{endpoint}"),
+                trust: werewolf_core::pack::TrustLevel::Packmate,
+            };
+            fixture.write(
+                "pack.json",
+                &serde_json::to_vec(&vec![peer.clone()]).unwrap(),
+            );
+            let state = Arc::new(Mutex::new(DaemonState {
+                pelt: Some(sender),
+                peers: vec![peer.clone()],
+                ..fixture.state()
+            }));
+            let created = handle_request(
+                ControlRequest {
+                    id: "create".into(),
+                    cmd: "fang.profile.add".into(),
+                    args: json!({
+                        "name":"route", "peer":"peer", "local":local.to_string(),
+                        "remote":target.to_string(), "transport":"tcp"
+                    }),
+                },
+                state.clone(),
+                fixture.0.clone(),
+            )
+            .await;
+            assert!(created.ok, "{created:?}");
+            let opened = handle_request(
+                ControlRequest {
+                    id: "open".into(),
+                    cmd: "fang.open_profile".into(),
+                    args: json!({"name":"route"}),
+                },
+                state.clone(),
+                fixture.0.clone(),
+            )
+            .await;
+            assert!(opened.ok, "{opened:?}");
+            let mut client = TcpStream::connect(local).await.unwrap();
+            client.write_all(b"before").await.unwrap();
+            let mut echo = [0; 6];
+            client.read_exact(&mut echo).await.unwrap();
+            assert_eq!(&echo, b"before");
+            state.lock().await.pack_commit_indeterminate = true;
+
+            let changed = handle_request(
+                ControlRequest {
+                    id: "indeterminate".into(),
+                    cmd: "pack.set_address".into(),
+                    args: json!({"name":"peer", "address":"tcp://127.0.0.1:43009"}),
+                },
+                state.clone(),
+                fixture.0.clone(),
+            )
+            .await;
+            assert!(!changed.ok);
+            assert_eq!(changed.error.unwrap().code, "PACK_SAVE_FAILED");
+            {
+                let live = state.lock().await;
+                assert!(live.storage_degraded);
+                assert!(live.active_profiles.is_empty());
+                assert!(live.fang_registry.is_empty());
+                assert_eq!(live.peers[0].address, peer.address);
+            }
+            // The fault is injected after the real Pack rename. No rollback
+            // is attempted; the active intent was persisted fail-closed first.
+            assert_eq!(
+                werewolf_core::pack::load_pack(&fixture.0.join("pack.json")).unwrap()[0].address,
+                "tcp://127.0.0.1:43009"
+            );
+            assert_eq!(
+                serde_json::from_slice::<Vec<String>>(
+                    &std::fs::read(fixture.0.join("active_fangs.json")).unwrap()
+                )
+                .unwrap(),
+                Vec::<String>::new()
+            );
+            let _ = client.write_all(b"after").await;
+            let mut byte = [0u8; 1];
+            assert!(!matches!(client.read(&mut byte).await, Ok(1)));
+            assert_eq!(events.recv().await.unwrap(), EchoEvent::Connected);
+            assert_eq!(
+                events.recv().await.unwrap(),
+                EchoEvent::Bytes(b"before".to_vec())
+            );
+            assert_eq!(events.recv().await.unwrap(), EchoEvent::Closed);
+            assert!(events.try_recv().is_err());
+            if let Ok(mut stale) = TcpStream::connect(local).await {
+                let _ = stale.write_all(b"after").await;
+            }
+            assert!(events.try_recv().is_err());
+            receiver_task.abort();
+            target_task.abort();
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]

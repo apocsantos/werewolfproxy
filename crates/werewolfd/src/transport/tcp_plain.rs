@@ -29,7 +29,7 @@ pub(super) async fn run_plain_tcp_forwarder(
         let remote = remote.to_string();
         let fang_id = fang_id.to_string();
 
-        let handle = tokio::spawn(async move {
+        cancellation.spawn(async move {
             match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&remote)).await {
                 Ok(Ok(mut outbound)) => {
                     if let Err(e) = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await
@@ -54,6 +54,5 @@ pub(super) async fn run_plain_tcp_forwarder(
                 }
             }
         });
-        cancellation.track(&handle);
     }
 }

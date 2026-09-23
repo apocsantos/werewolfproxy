@@ -246,7 +246,7 @@ pub(super) async fn run_local_fang_forwarder(
         let identity = identity.clone();
         let expected_peer = expected_peer.clone();
 
-        let handle = tokio::spawn(async move {
+        cancellation.spawn(async move {
             let _ = pipe_one_fang_connection(
                 &mut inbound,
                 &peer_addr,
@@ -256,7 +256,6 @@ pub(super) async fn run_local_fang_forwarder(
             )
             .await;
         });
-        cancellation.track(&handle);
     }
 }
 

@@ -62,7 +62,7 @@ pub async fn open_quic_fang(
             let expected_peer = expected_peer.clone();
             let endpoint = endpoint.clone();
 
-            let handle = tokio::spawn(async move {
+            cancellation.spawn(async move {
                 let server_addr: SocketAddr = match quic_server.parse() {
                     Ok(v) => v,
                     Err(e) => {
@@ -85,7 +85,6 @@ pub async fn open_quic_fang(
                 let _connection_close = CloseClientConnection(connection);
                 let _ = proxy_streams(tcp, send, recv).await;
             });
-            cancellation.track(&handle);
         }
     });
 

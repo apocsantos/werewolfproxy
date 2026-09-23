@@ -1,14 +1,33 @@
 use std::{
     collections::HashMap,
+    future::Future,
     sync::{Arc, Mutex},
     time::Instant,
 };
-use tokio::task::{AbortHandle, JoinHandle};
+use tokio::task::JoinHandle;
 use werewolf_core::fang::FangRecord;
+
+struct ChildTasks {
+    accepting: bool,
+    handles: Vec<JoinHandle<()>>,
+    #[cfg(test)]
+    close_observed: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl Default for ChildTasks {
+    fn default() -> Self {
+        Self {
+            accepting: true,
+            handles: Vec::new(),
+            #[cfg(test)]
+            close_observed: None,
+        }
+    }
+}
 
 #[derive(Clone, Default)]
 pub(super) struct FangCancellation {
-    children: Arc<Mutex<Vec<AbortHandle>>>,
+    children: Arc<Mutex<ChildTasks>>,
     activation: Option<tokio::sync::watch::Receiver<bool>>,
 }
 
@@ -34,17 +53,90 @@ impl FangCancellation {
         Ok(())
     }
 
-    pub(super) fn track(&self, handle: &JoinHandle<()>) {
+    /// Admission and registration are one synchronous operation. Detachment
+    /// closes admission under this same mutex, so no child can escape the
+    /// subsequent listener-then-children join barrier.
+    pub(super) fn spawn<F>(&self, future: F) -> bool
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
         let mut children = self.children.lock().unwrap();
-        // Keep cancellation ownership for live connections, but do not retain
-        // one AbortHandle for every connection ever accepted by this Fang.
-        children.retain(|child| !child.is_finished());
-        children.push(handle.abort_handle());
+        if !children.accepting {
+            return false;
+        }
+        children.handles.retain(|child| !child.is_finished());
+        children.handles.push(tokio::spawn(future));
+        true
+    }
+
+    fn close_admission(&self) {
+        let mut children = self.children.lock().unwrap();
+        children.accepting = false;
+        #[cfg(test)]
+        if let Some(observed) = children.close_observed.take() {
+            let _ = observed.send(());
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn observe_close(&self, observed: tokio::sync::oneshot::Sender<()>) {
+        self.children.lock().unwrap().close_observed = Some(observed);
+    }
+
+    fn take_children(&self) -> Vec<JoinHandle<()>> {
+        std::mem::take(&mut self.children.lock().unwrap().handles)
     }
 
     pub(super) fn abort_children(&self) {
-        for handle in self.children.lock().unwrap().drain(..) {
+        self.close_admission();
+        for handle in self.take_children() {
             handle.abort();
+        }
+    }
+}
+
+/// Owned after Fang records have been detached from the registry. Awaiting
+/// this bundle never requires the DaemonState mutex.
+pub(super) struct FangTermination {
+    listeners: Vec<JoinHandle<()>>,
+    cancellations: Vec<FangCancellation>,
+    closed: usize,
+}
+
+impl FangTermination {
+    pub(super) fn closed(&self) -> usize {
+        self.closed
+    }
+
+    pub(super) async fn quiesce(mut self) {
+        for listener in &self.listeners {
+            listener.abort();
+        }
+        for listener in self.listeners.drain(..) {
+            let _ = listener.await;
+        }
+        // A listener that was already inside accept/spawn has now exited.
+        // Every child it created is in this shared tracker.
+        let mut children = Vec::new();
+        for cancellation in &self.cancellations {
+            children.extend(cancellation.take_children());
+        }
+        for child in &children {
+            child.abort();
+        }
+        for child in children {
+            let _ = child.await;
+        }
+    }
+}
+
+impl Drop for FangTermination {
+    fn drop(&mut self) {
+        for listener in &self.listeners {
+            listener.abort();
+        }
+        for cancellation in &self.cancellations {
+            cancellation.abort_children();
         }
     }
 }
@@ -116,6 +208,28 @@ impl FangRegistry {
         }
         self.fangs.retain(|fang| !ids.contains(&fang.id));
         ids.len()
+    }
+    pub(super) fn detach_ids(&mut self, ids: &[String]) -> FangTermination {
+        let mut termination = FangTermination {
+            listeners: Vec::new(),
+            cancellations: Vec::new(),
+            closed: 0,
+        };
+        for id in ids {
+            if self.fangs.iter().any(|fang| &fang.id == id) {
+                termination.closed += 1;
+            }
+            if let Some(cancellation) = self.cancellations.remove(id) {
+                cancellation.close_admission();
+                termination.cancellations.push(cancellation);
+            }
+            if let Some(listener) = self.tasks.remove(id) {
+                termination.listeners.push(listener);
+            }
+            self.started.remove(id);
+        }
+        self.fangs.retain(|fang| !ids.contains(&fang.id));
+        termination
     }
     pub(super) fn insert_task(&mut self, id: String, handle: JoinHandle<()>) {
         self.tasks.insert(id, handle);
@@ -194,15 +308,101 @@ mod activation_tests {
     }
 
     #[tokio::test]
-    async fn tracking_new_children_releases_completed_abort_handles() {
+    async fn tracked_children_can_be_aborted_and_drained() {
         let cancellation = FangCancellation::default();
         for _ in 0..4096 {
-            let mut child = tokio::spawn(async {});
-            (&mut child).await.unwrap();
-            cancellation.track(&child);
-            assert!(cancellation.children.lock().unwrap().len() <= 1);
+            assert!(cancellation.spawn(async {}));
         }
         cancellation.abort_children();
-        assert!(cancellation.children.lock().unwrap().is_empty());
+        assert!(cancellation.children.lock().unwrap().handles.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn quiescence_waits_for_existing_child_and_leaves_other_fang_open() {
+        use std::sync::Condvar;
+        let cancellation = FangCancellation::default();
+        let other = FangCancellation::default();
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let child_gate = gate.clone();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        assert!(cancellation.spawn(async move {
+            let _ = entered_tx.send(());
+            let (lock, ready) = &*child_gate;
+            let mut released = lock.lock().unwrap();
+            while !*released {
+                released = ready.wait(released).unwrap();
+            }
+        }));
+        entered_rx.await.unwrap();
+
+        let mut registry = FangRegistry::default();
+        for (id, peer) in [("old", "old"), ("other", "other")] {
+            registry.push(FangRecord {
+                id: id.into(),
+                peer: peer.into(),
+                local: "127.0.0.1:1".into(),
+                remote: "127.0.0.1:2".into(),
+                state: werewolf_core::fang::FangState::Active,
+            });
+        }
+        registry.insert_cancellation("old".into(), cancellation);
+        registry.insert_cancellation("other".into(), other.clone());
+        let termination = registry.detach_ids(&["old".into()]);
+        assert_eq!(termination.closed(), 1);
+        assert_eq!(registry.records()[0].peer, "other");
+        let quiesce = tokio::spawn(termination.quiesce());
+        assert!(!quiesce.is_finished());
+        {
+            let (lock, ready) = &*gate;
+            *lock.lock().unwrap() = true;
+            ready.notify_one();
+        }
+        quiesce.await.unwrap();
+        assert!(other.spawn(async {}));
+        other.abort_children();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn detached_listener_rejects_late_child_and_quiescence_waits_for_exit() {
+        use std::sync::Condvar;
+        let cancellation = FangCancellation::default();
+        let listener_cancellation = cancellation.clone();
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let listener_gate = gate.clone();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (spawned_tx, spawned_rx) = tokio::sync::oneshot::channel();
+        let listener = tokio::spawn(async move {
+            let _ = entered_tx.send(());
+            let (lock, ready) = &*listener_gate;
+            let mut released = lock.lock().unwrap();
+            while !*released {
+                released = ready.wait(released).unwrap();
+            }
+            let _ = spawned_tx.send(listener_cancellation.spawn(async {}));
+        });
+        entered_rx.await.unwrap();
+
+        let mut registry = FangRegistry::default();
+        registry.push(FangRecord {
+            id: "fang".into(),
+            peer: "peer".into(),
+            local: "127.0.0.1:1".into(),
+            remote: "127.0.0.1:2".into(),
+            state: werewolf_core::fang::FangState::Active,
+        });
+        registry.insert_task("fang".into(), listener);
+        registry.insert_cancellation("fang".into(), cancellation);
+        let termination = registry.detach_ids(&["fang".into()]);
+        assert_eq!(termination.closed(), 1);
+        assert!(registry.is_empty());
+        let quiesce = tokio::spawn(termination.quiesce());
+        assert!(!quiesce.is_finished());
+        {
+            let (lock, ready) = &*gate;
+            *lock.lock().unwrap() = true;
+            ready.notify_one();
+        }
+        assert!(!spawned_rx.await.unwrap());
+        quiesce.await.unwrap();
     }
 }
