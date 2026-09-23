@@ -24,6 +24,8 @@ use zeroize::Zeroizing;
 #[cfg(test)]
 mod authority_tests;
 #[cfg(test)]
+mod cancellation_safety_tests;
+#[cfg(test)]
 mod crypto_hygiene_tests;
 #[cfg(test)]
 mod frame_write_tests;
