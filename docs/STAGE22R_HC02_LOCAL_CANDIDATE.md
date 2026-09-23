@@ -1,8 +1,13 @@
-# Stage22R HC02: encrypted TCP full-duplex local candidate
+# Stage22R HC02: encrypted TCP full-duplex WAN certification
 
 Base: `efdaf71a89e160cd9c5a8d92b84b44974c11f54b` (LC01).
 Branch: `codex/hc02-tcp-full-duplex-cancellation-safety`.
-Status: local candidate. Two-host WAN acceptance has not been run; HC02 is not WAN certified.
+Pre-certification HEAD: `da0a4e8b372b0c75374239ba82b22df7cbe84e61`.
+Status: WAN certified against the original RC1 VPS receiver. The candidate
+`werewolfd` SHA-256 was
+`8dad5819d99fac16b5519092e8f38da0d3aa8d3c681aa024925706d8c43e13fc`;
+the remote original RC1 `werewolfd` SHA-256 was
+`ea9ab16396a97263aadf88153a902fdd17c4aee1254246afb8a0add812d13ac4`.
 
 ## Cause and correction
 
@@ -49,22 +54,57 @@ protocol rule changed.
 - `cargo build --workspace --locked`: pass. Local `target/debug/werewolfd`
   SHA-256: `8dad5819d99fac16b5519092e8f38da0d3aa8d3c681aa024925706d8c43e13fc`.
 
-The exact strict command
-`cargo clippy --workspace --all-targets --all-features -- -D warnings`
-fails on five warnings already present at the LC01 base: one
-`needless_range_loop` in `werewolf-core/src/nodeid.rs` and four dead-code
-warnings in werewolfd. With only those two baseline warning categories
-allowed, the full workspace Clippy run passes. No unrelated source was
-changed to suppress these warnings. The exact strict gate remains open.
+## WAN acceptance evidence
 
-## WAN acceptance still required
+The candidate ran on DarkSide against the original RC1 binary on the VPS.
+The WAN validation reported:
 
-Install this candidate only on DarkSide. Keep the VPS on the original RC1
-daemon with SHA-256
-`ea9ab16396a97263aadf88153a902fdd17c4aee1254246afb8a0add812d13ac4`.
-Record both binary hashes before traffic. Then run short echo, HC01 half-close,
-remote-first EOF, 64 MiB and 1 GiB simultaneous full-duplex echo with SHA-256,
-Silver active-session fencing, and revoke active-session fencing. The 1 GiB
-gate must report exactly 1,073,741,824 bytes sent and received, matching
-SHA-256 digests and no sender or receiver error. Do not merge before these
-gates pass.
+- Short encrypted TCP echo: PASS.
+- 64 MiB simultaneous/full-duplex echo: PASS. TX = 67,108,864 bytes;
+  RX = 67,108,864 bytes; exact SHA-256 equality; zero TX/RX errors.
+  The receiver target independently observed RX = 67,108,864 and
+  TX = 67,108,864 bytes.
+- 1 GiB simultaneous/full-duplex echo: PASS. TX = 1,073,741,824 bytes;
+  RX = 1,073,741,824 bytes; both SHA-256 digests =
+  `250e279ed22ae67955eb370b42b3fa1187333462e6e73f75da3fd79e0713c36d`;
+  zero TX/RX errors. The receiver target independently observed
+  RX = 1,073,741,824 and TX = 1,073,741,824 bytes, then clean EOF.
+- HC01 local half-close with delayed reverse response: PASS.
+- Remote-first EOF while the local write side remained open: PASS;
+  complete response and EOF in 0.283279 seconds.
+- Silver active-session authority fence: PASS. Before: active = 1,
+  epoch = 1, locked = false. After: active = 0, epoch = 2,
+  locked = true. The stale session received EOF and no
+  post-linearization echo.
+- Pack revoke active-session fence: PASS. Active sessions 1 → 0;
+  packmates 1 → 0; global epoch unchanged. The stale session received EOF.
+- New session while revoked: ConnectionReset, expected PASS.
+- Same-Pelt re-add followed by a fresh session: PASS.
+
+The WAN abort reproduced on LC01 at approximately 7 MiB did not recur with
+HC02, including the successful 1 GiB full-duplex run. No wire/protocol or
+security-model change was needed for backwards interoperability.
+
+## Strict Clippy baseline comparison
+
+The exact gate is
+`cargo clippy --workspace --all-targets --all-features -- -D warnings`.
+It fails at both the LC01 base and HC02 candidate on the same pre-existing
+`clippy::needless_range_loop` at `werewolf-core/src/nodeid.rs:25`.
+Because that error stops further crate analysis, both trees were then checked
+with `-A clippy::needless_range_loop` added to expose the remaining failures.
+Both produced precisely the same four `dead_code` diagnostics:
+
+- `werewolfd/src/target_policy.rs:75`: `load` is unused;
+- `werewolfd/src/authority.rs:29`: `PeerAuthority::Revoked` is unconstructed;
+- `werewolfd/src/authority.rs:235`: `Authority::peer_state` is unused;
+- `werewolfd/src/replay_v3_tests.rs:698`: `Daemon::control` is unused.
+
+Finally, the full workspace/all-targets/all-features Clippy run passed on
+**both** source trees with only `-A clippy::needless_range_loop -A dead_code`
+added. Thus every HC02 strict-Clippy failure is baseline-equivalent; HC02
+introduces no new Clippy failure. No warning is suppressed globally and no
+unrelated baseline code was changed. The exact strict gate remains red on
+both revisions.
+
+Do not merge until the separate merge decision is made.
