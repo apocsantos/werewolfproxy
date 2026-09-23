@@ -18,6 +18,153 @@ fn selected(pelt: &PeltIdentity) -> crate::policy::ExpectedPeerIdentity {
     }
 }
 
+async fn full_duplex_exact_roundtrip(total: usize) {
+    timeout(Duration::from_secs(45), async {
+        let sender = generate_identity();
+        let receiver = generate_identity();
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_address = target.local_addr().unwrap();
+        let state = Arc::new(Mutex::new(DaemonState {
+            pelt: Some(receiver.clone()),
+            runtime_tls_identity: Some(Arc::new(
+                crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap(),
+            )),
+            peers: vec![werewolf_core::pack::PeerRecord {
+                name: "sender".into(),
+                fingerprint: sender.fingerprint.clone(),
+                public_key_b64: Some(sender.public_key_b64.clone()),
+                address: "tcp://127.0.0.1:1".into(),
+                trust: werewolf_core::pack::TrustLevel::Packmate,
+            }],
+            target_policy: crate::target_policy::TargetPolicy::Grants(HashMap::from([(
+                sender.fingerprint.clone(),
+                [target_address].into(),
+            )])),
+            ..Default::default()
+        }));
+
+        let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let receiver_address = reserved.local_addr().unwrap();
+        drop(reserved);
+        let (receiver_ready_tx, receiver_ready_rx) = oneshot::channel();
+        let receiver_state = state.clone();
+        let receiver_task = tokio::spawn(async move {
+            run_fang_listener_with_ready(
+                &receiver_address.to_string(),
+                receiver_state,
+                Some(receiver_ready_tx),
+            )
+            .await
+        });
+        receiver_ready_rx.await.unwrap().unwrap();
+
+        let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_address = reserved.local_addr().unwrap();
+        drop(reserved);
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let local_task = tokio::spawn(async move {
+            run_local_fang_forwarder(
+                "full-duplex-regression",
+                &local_address.to_string(),
+                &receiver_address.to_string(),
+                &target_address.to_string(),
+                sender,
+                crate::fang_registry::FangCancellation::default(),
+                ready_tx,
+                selected(&receiver),
+            )
+            .await
+        });
+        ready_rx.await.unwrap().unwrap();
+
+        let target_task = tokio::spawn(async move {
+            let (mut stream, _) = target.accept().await.unwrap();
+            let mut count = 0usize;
+            let mut buf = [0u8; 137];
+            loop {
+                let n = stream.read(&mut buf).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                count += n;
+                stream.write_all(&buf[..n]).await.unwrap();
+                tokio::task::yield_now().await;
+            }
+            stream.shutdown().await.unwrap();
+            count
+        });
+
+        let payload: Vec<u8> = (0..total)
+            .map(|index| ((index.wrapping_mul(31).wrapping_add(17)) % 251) as u8)
+            .collect();
+        let client = TcpStream::connect(local_address).await.unwrap();
+        let (mut reader, mut writer) = client.into_split();
+        let (first_echo_tx, first_echo_rx) = oneshot::channel();
+        let expected = &payload;
+        let send = async {
+            writer
+                .write_all(&expected[..expected.len().min(211)])
+                .await
+                .unwrap();
+            first_echo_rx.await.unwrap();
+            for chunk in expected[expected.len().min(211)..].chunks(211) {
+                writer.write_all(chunk).await.unwrap();
+                tokio::task::yield_now().await;
+            }
+            writer.shutdown().await.unwrap();
+        };
+        let receive = async {
+            let mut received = 0usize;
+            let mut first_echo_tx = Some(first_echo_tx);
+            let mut buf = [0u8; 193];
+            while received < expected.len() {
+                let n = reader.read(&mut buf).await.unwrap();
+                assert!(
+                    n > 0,
+                    "early EOF after {received} of {} bytes",
+                    expected.len()
+                );
+                assert_eq!(&buf[..n], &expected[received..received + n]);
+                received += n;
+                if let Some(signal) = first_echo_tx.take() {
+                    signal.send(()).unwrap();
+                }
+                tokio::task::yield_now().await;
+            }
+            let mut eof = [0u8; 1];
+            assert_eq!(reader.read(&mut eof).await.unwrap(), 0);
+            received
+        };
+        let ((), received) = tokio::join!(send, receive);
+        assert_eq!(received, total);
+        assert_eq!(target_task.await.unwrap(), total);
+        timeout(Duration::from_secs(3), async {
+            loop {
+                if state.lock().await.inbound_authority.summary()["active"].as_u64() == Some(0) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        local_task.abort();
+        receiver_task.abort();
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn encrypted_tcp_full_duplex_exact_content_and_authority_release() {
+    full_duplex_exact_roundtrip(2 * 1024 * 1024).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn encrypted_tcp_full_duplex_small_chunk_stress_case() {
+    full_duplex_exact_roundtrip(256 * 1024).await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn encrypted_tcp_half_close_preserves_reverse_response() {
     timeout(Duration::from_secs(12), async {
@@ -82,7 +229,11 @@ async fn encrypted_tcp_half_close_preserves_reverse_response() {
 
         let response = b"encrypted-tcp-half-close-response\n";
         let request = b"encrypted-tcp-half-close-request\n";
+        let (eof_seen_tx, eof_seen_rx) = oneshot::channel();
+        let (release_response_tx, release_response_rx) = oneshot::channel();
         let target_task = tokio::spawn(async move {
+            let mut eof_seen_tx = Some(eof_seen_tx);
+            let mut release_response_rx = Some(release_response_rx);
             for wait_for_client_eof in [false, true] {
                 let (mut stream, _) = target.accept().await.unwrap();
                 let mut received = vec![0; request.len()];
@@ -91,6 +242,8 @@ async fn encrypted_tcp_half_close_preserves_reverse_response() {
                 if wait_for_client_eof {
                     let mut trailing = [0u8; 1];
                     assert_eq!(stream.read(&mut trailing).await.unwrap(), 0);
+                    eof_seen_tx.take().unwrap().send(()).unwrap();
+                    release_response_rx.take().unwrap().await.unwrap();
                 }
                 stream.write_all(response).await.unwrap();
                 stream.shutdown().await.unwrap();
@@ -109,6 +262,8 @@ async fn encrypted_tcp_half_close_preserves_reverse_response() {
         let mut half_close = TcpStream::connect(local_address).await.unwrap();
         half_close.write_all(request).await.unwrap();
         half_close.shutdown().await.unwrap();
+        eof_seen_rx.await.unwrap();
+        release_response_tx.send(()).unwrap();
         let mut half_close_response = vec![0; response.len()];
         timeout(
             Duration::from_secs(2),
