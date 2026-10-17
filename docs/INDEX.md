@@ -8,6 +8,8 @@
 - [Security reporting](../SECURITY.md)
 - [Known limitations](../KNOWN_LIMITATIONS.md)
 - [Release notes](../RELEASE_NOTES_1.0.0-rc.1.md)
+- [Current status](STATUS.md)
+- [Transport architecture](../TRANSPORT_ARCHITECTURE.md)
 
 ## Frozen v1 contracts
 
@@ -32,3 +34,19 @@ dates; they are historical records, not the current resolved release graph.
 Stage 9–20 reports are retained under docs/STAGE*.md. The final RC audit,
 dependency/license review, release artifact hashes and tag record are in
 [Stage21 audit and freeze](STAGE21_RC1_AUDIT_FREEZE.md).
+
+## Post-RC1 operational validation
+
+- [Stage22 private operational validation](STAGE22_PRIVATE_OPERATIONAL_VALIDATION.md)
+- [Stage22R HC02 encrypted TCP full-duplex](STAGE22R_HC02_LOCAL_CANDIDATE.md)
+- [Stage22R QUIC real-WAN](STAGE22R_QUIC_WAN_CERTIFICATION.md)
+- [Stage22R D01 receiver restart](STAGE22R_D01_RECEIVER_RESTART_CERTIFICATION.md)
+- [Stage22R D02 initiator restart](STAGE22R_D02_INITIATOR_RESTART_CERTIFICATION.md)
+- [Stage22R D03 initiator hard crash](STAGE22R_D03_HARD_CRASH_CERTIFICATION.md)
+- [Stage22R D04 receiver hard crash](STAGE22R_D04_RECEIVER_HARD_CRASH_CERTIFICATION.md)
+- [Stage22R D05A hard path loss](STAGE22R_D05A_HARD_PATH_LOSS_CERTIFICATION.md)
+
+## History
+
+- [Pre-RC status snapshot](history/STATUS_PRE_RC.md)
+- [Archived legacy scripts and support bundles](../archive/README.md)

@@ -1,84 +1,75 @@
 # WerewolfProxy Transport Architecture
 
-## Current transport stack
+The normative rules are frozen in the [v1 wire contract](docs/V1_WIRE_CONTRACT.md)
+and [v1 CLI contract](docs/V1_CLI_CONTRACT.md). This page is an overview; where
+it differs from those contracts, the contracts win.
 
-WerewolfProxy currently supports three operational Fang transports:
+## Transports
 
-1. QUIC encrypted
-2. TCP encrypted v2
-3. TCP plain
+`werewolfd` implements three Fang transports (`crates/werewolfd/src/transport/`):
 
-Current preferred runtime order:
+| Transport | Module | Wire generation | Security |
+|---|---|---|---|
+| QUIC | `quic.rs` | fang-quic-v3 | TLS 1.3, exact-SPKI Pelt binding, OPEN bound to TLS exporter |
+| Encrypted TCP | `tcp_encrypted.rs` | fang-tcp-v3 | TLS 1.3, exact-SPKI Pelt binding, challenge + X25519, AEAD frames |
+| Plain TCP | `tcp_plain.rs` | none | Unauthenticated and unencrypted; explicit opt-in only |
+
+A Fang profile picks one transport with
+`fang create ... --transport quic|tcp|tcp-plain`. That argument selects the
+transport for that profile; it is not a fallback chain.
+
+## Selection and fallback
+
+The local automatic selector defaults to `secure` (an alias for `strict`):
 
 ```text
-QUIC → TCP encrypted v2 → TCP plain
-Operational peer model
+QUIC secure → encrypted TCP secure → fail
+```
 
-Because QUIC and TCP use different listener endpoints, the current local lab uses transport-specific Pack aliases:
+It never silently selects plain TCP. `compatibility` uses the same secure order
+unless the invocation explicitly passes `allow-plain-fallback`. `LEGACY`
+deliberately keeps the historical weaker fallback behavior. These are local
+choices, never a remote capability or downgrade negotiation.
 
+## Endpoints and Pack aliases
+
+QUIC and TCP listen on different endpoints, so a peer reachable over both is
+added to the Pack as transport-specific aliases that share one identity:
+
+```text
 wolf-a       → quic://127.0.0.1:9560
 wolf-a-tcp   → tcp://127.0.0.1:8443
+```
 
-Both aliases may reference the same peer identity fingerprint and public key.
+Changing a Pack member's address invalidates its active Fangs; they are not
+live-refreshed onto the new endpoint (Stage22R LC-01).
 
-Transport responsibilities
+## Responsibilities
 
-Each transport should eventually expose the same conceptual operations:
+Each transport covers the same lifecycle:
 
-open local listener
-connect to peer
-authenticate peer
-request remote target
-pipe bytes
-report health
-close gracefully
-Desired internal model
+1. open the local listener
+2. connect to the peer
+3. authenticate the receiver (TLS 1.3 + Pelt SPKI) and the sender (signed OPEN)
+4. request an authorized remote target
+5. pipe bytes in both directions, including half-close
+6. close gracefully on cancellation
 
-Future transport code should move toward a common abstraction:
+## Not yet implemented
 
-FangTransport
-├── QuicTransport
-├── TcpPlainTransport
-└── TcpEncryptedV2Transport
+The code currently dispatches on a `FangTransport { Tcp, Quic }` enum and a
+`plain_tcp` flag (`transport/mod.rs`). Planned but not built:
 
-Each transport should provide equivalent lifecycle behavior:
+- a shared `FangTransport` trait with uniform
+  `connect` / `open` / `pipe` / `health` / `shutdown` operations
+- transport health scoring (availability, recent failures, latency,
+  throughput, reconnect count, last success, last error)
+- background recovery checks and automatic return to the preferred transport
 
-connect()
-open()
-pipe()
-health()
-shutdown()
-Health model target
+## Validation
 
-The transport manager should eventually score transports using:
-
-availability
-recent failures
-latency
-throughput
-reconnect count
-last successful request
-last error
-Auto-healing target
-
-The transport manager should support:
-
-primary transport selection
-automatic fallback
-background recovery checks
-automatic return to preferred transport
-stale Fang cleanup
-persistent Fang restore
-Current validated baseline
-
-The current RC baseline validates:
-
-QUIC tunnel
-TCP encrypted v2 tunnel
-TCP plain fallback tunnel
-automatic fallback
-QUIC restoration
-50 MiB TCP encrypted v2 SHA256 integrity transfer
-systemd restart recovery
-local reinstall recovery
-EOF
+- Stage9–20 security and soak certification, frozen in the
+  [Stage21 RC1 audit](docs/STAGE21_RC1_AUDIT_FREEZE.md).
+- Stage22/22R real-WAN validation of QUIC and encrypted TCP: sustained
+  full-duplex integrity, receiver/initiator restart, hard crash and hard path
+  loss. See the [documentation index](docs/INDEX.md).
