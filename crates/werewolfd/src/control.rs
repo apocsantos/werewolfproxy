@@ -247,6 +247,29 @@ async fn handle_request(
             }
         }
 
+        "service.list" => {
+            let st = state.lock().await;
+            ControlResponse::ok(req.id, json!(st.services))
+        }
+
+        "service.show" => {
+            let name = req.args["name"].as_str().unwrap_or("").trim();
+
+            if name.is_empty() {
+                return ControlResponse::err(req.id, "SERVICE_INVALID", "name is required");
+            }
+
+            let st = state.lock().await;
+            match st.services.iter().find(|service| service.name == name) {
+                Some(service) => ControlResponse::ok(req.id, json!(service)),
+                None => ControlResponse::err(
+                    req.id,
+                    "SERVICE_NOT_FOUND",
+                    format!("Service not found: {name}"),
+                ),
+            }
+        }
+
         "pack.list" => {
             let st = state.lock().await;
             ControlResponse::ok(req.id, json!(st.peers))
@@ -1570,6 +1593,73 @@ mod characterization_tests {
             state.lock().await.peers[0].address,
             "quic://127.0.0.1:43007"
         );
+    }
+
+    #[tokio::test]
+    async fn service_list_show_and_missing_show_expose_registry_read_only() {
+        use werewolf_core::service::{ServiceDefinition, ServiceKind};
+
+        let fixture = Fixture::new();
+
+        let definition = ServiceDefinition {
+            name: "web".into(),
+            peer: "wolf-a".into(),
+            target: "127.0.0.1:8080".into(),
+            kind: ServiceKind::Http,
+        };
+
+        let state = Arc::new(Mutex::new(DaemonState {
+            services: vec![definition.clone()],
+            ..fixture.state()
+        }));
+
+        let list = handle_request(
+            ControlRequest {
+                id: "list".into(),
+                cmd: "service.list".into(),
+                args: json!({}),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+
+        assert!(list.ok);
+        let encoded = serde_json::to_string(&list).unwrap();
+        assert!(encoded.contains("\"web\""));
+        assert!(encoded.contains("127.0.0.1:8080"));
+
+        let show = handle_request(
+            ControlRequest {
+                id: "show".into(),
+                cmd: "service.show".into(),
+                args: json!({"name": "web"}),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+
+        assert!(show.ok);
+        let encoded = serde_json::to_string(&show).unwrap();
+        assert!(encoded.contains("\"wolf-a\""));
+        assert!(encoded.contains("127.0.0.1:8080"));
+
+        let missing = handle_request(
+            ControlRequest {
+                id: "missing".into(),
+                cmd: "service.show".into(),
+                args: json!({"name": "absent"}),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+
+        assert!(!missing.ok);
+        assert_eq!(missing.error.unwrap().code, "SERVICE_NOT_FOUND");
+
+        assert_eq!(state.lock().await.services, vec![definition]);
     }
 
     #[tokio::test]

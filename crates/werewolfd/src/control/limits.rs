@@ -175,8 +175,11 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
     let allowed: &[&str] = match request.cmd.as_str() {
         "pack.add" => &["name", "fingerprint", "address", "public_key_b64"],
         "pack.set_address" => &["name", "address"],
+        "service.add" => &["name", "peer", "target", "kind"],
         "pack.remove"
         | "pack.revoke"
+        | "service.remove"
+        | "service.show"
         | "fang.profile.remove"
         | "fang.open_profile"
         | "fang.deactivate_profile" => &["name"],
@@ -276,6 +279,8 @@ pub(super) fn mutates(cmd: &str) -> bool {
             | "target.policy.set"
             | "target.allow"
             | "target.remove"
+            | "service.add"
+            | "service.remove"
             | "state.manifest.migrate"
             | "fang.open"
             | "fang.profile.add"

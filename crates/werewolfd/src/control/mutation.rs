@@ -22,6 +22,7 @@ use werewolf_core::{
     pack::{PeerRecord, TrustLevel},
     pelt::generate_identity,
     protocol::{ControlRequest, ControlResponse},
+    service::{ServiceDefinition, ServiceKind},
     state_validation,
 };
 use zeroize::Zeroizing;
@@ -39,6 +40,8 @@ pub(super) fn handles(command: &str) -> bool {
             | "target.remove"
             | "fang.profile.add"
             | "fang.profile.remove"
+            | "service.add"
+            | "service.remove"
             | "state.manifest.migrate"
     )
 }
@@ -350,6 +353,73 @@ pub(super) async fn handle(
             json!({"status": if req.cmd == "target.allow" { "target_allowed" } else if req.cmd == "target.remove" { "target_removed" } else { "target_policy_updated" }}),
         );
     }
+    if matches!(req.cmd.as_str(), "service.add" | "service.remove") {
+        let mut candidate = {
+            let live = state.lock().await;
+            live.services.clone()
+        };
+
+        let name = arg(&req, "name");
+        if name.is_empty() {
+            return error(&req.id, "SERVICE_INVALID");
+        }
+
+        let status = if req.cmd == "service.add" {
+            if candidate.iter().any(|service| service.name == name) {
+                return error(&req.id, "SERVICE_EXISTS");
+            }
+
+            let kind = match arg(&req, "kind").as_str() {
+                "tcp" => ServiceKind::Tcp,
+                "http" => ServiceKind::Http,
+                "https" => ServiceKind::Https,
+                "ssh" => ServiceKind::Ssh,
+                _ => return error(&req.id, "SERVICE_INVALID"),
+            };
+
+            candidate.push(ServiceDefinition {
+                name: name.clone(),
+                peer: arg(&req, "peer"),
+                target: arg(&req, "target"),
+                kind,
+            });
+
+            "added"
+        } else {
+            let before = candidate.len();
+            candidate.retain(|service| service.name != name);
+
+            if candidate.len() == before {
+                return error(&req.id, "SERVICE_NOT_FOUND");
+            }
+
+            "removed"
+        };
+
+        if werewolf_core::service::validate_services(&candidate).is_err() {
+            return error(&req.id, "SERVICE_INVALID");
+        }
+
+        if durable(&home, "services.json", &candidate, false, &state)
+            .await
+            .is_err()
+        {
+            return error(&req.id, "SERVICE_SAVE_FAILED");
+        }
+
+        let mut live = state.lock().await;
+        live.services = candidate;
+
+        return ControlResponse::ok(
+            req.id,
+            json!({
+                "status": status,
+                "name": name,
+                "services": live.services.len()
+            }),
+        );
+    }
+
     if req.cmd.starts_with("pack.") {
         let (mut candidate, protected_generation) = {
             let live = state.lock().await;
@@ -758,6 +828,201 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    fn test_service(name: &str) -> ServiceDefinition {
+        ServiceDefinition {
+            name: name.into(),
+            peer: "wolf-not-yet-in-pack".into(),
+            target: "127.0.0.1:8080".into(),
+            kind: ServiceKind::Http,
+        }
+    }
+
+    fn service_add_request(name: &str) -> ControlRequest {
+        ControlRequest {
+            id: "service-add".into(),
+            cmd: "service.add".into(),
+            args: json!({
+                "name": name,
+                "peer": "wolf-not-yet-in-pack",
+                "target": "127.0.0.1:8080",
+                "kind": "http"
+            }),
+        }
+    }
+
+    #[tokio::test]
+    async fn service_add_persists_and_publishes_without_requiring_pack_peer() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+
+        assert!(state.lock().await.peers.is_empty());
+
+        let response = handle(service_add_request("web"), state.clone(), fixture.0.clone()).await;
+
+        assert!(response.ok);
+
+        let expected = vec![test_service("web")];
+
+        assert_eq!(state.lock().await.services, expected);
+
+        let disk: Vec<ServiceDefinition> =
+            serde_json::from_slice(&std::fs::read(fixture.0.join("services.json")).unwrap())
+                .unwrap();
+
+        assert_eq!(disk, expected);
+    }
+
+    #[tokio::test]
+    async fn service_invalid_and_duplicate_adds_do_not_rewrite_registry() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+
+        let invalid_kind = handle(
+            ControlRequest {
+                id: "invalid-kind".into(),
+                cmd: "service.add".into(),
+                args: json!({
+                    "name": "web",
+                    "peer": "wolf-a",
+                    "target": "127.0.0.1:8080",
+                    "kind": "smtp"
+                }),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+
+        assert!(!invalid_kind.ok);
+        assert_eq!(invalid_kind.error.unwrap().code, "SERVICE_INVALID");
+        assert!(state.lock().await.services.is_empty());
+        assert!(!fixture.0.join("services.json").exists());
+
+        let invalid_peer = handle(
+            ControlRequest {
+                id: "invalid-peer".into(),
+                cmd: "service.add".into(),
+                args: json!({
+                    "name": "web",
+                    "peer": "",
+                    "target": "127.0.0.1:8080",
+                    "kind": "http"
+                }),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+
+        assert!(!invalid_peer.ok);
+        assert_eq!(invalid_peer.error.unwrap().code, "SERVICE_INVALID");
+        assert!(state.lock().await.services.is_empty());
+        assert!(!fixture.0.join("services.json").exists());
+
+        assert!(
+            handle(service_add_request("web"), state.clone(), fixture.0.clone(),)
+                .await
+                .ok
+        );
+
+        let before = std::fs::read(fixture.0.join("services.json")).unwrap();
+
+        let duplicate = handle(service_add_request("web"), state.clone(), fixture.0.clone()).await;
+
+        assert!(!duplicate.ok);
+        assert_eq!(duplicate.error.unwrap().code, "SERVICE_EXISTS");
+        assert_eq!(state.lock().await.services, vec![test_service("web")]);
+        assert_eq!(
+            std::fs::read(fixture.0.join("services.json")).unwrap(),
+            before
+        );
+    }
+
+    #[tokio::test]
+    async fn service_remove_persists_and_publishes_and_missing_is_idempotent() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+
+        assert!(
+            handle(service_add_request("web"), state.clone(), fixture.0.clone(),)
+                .await
+                .ok
+        );
+
+        let remove = || ControlRequest {
+            id: "service-remove".into(),
+            cmd: "service.remove".into(),
+            args: json!({"name": "web"}),
+        };
+
+        let response = handle(remove(), state.clone(), fixture.0.clone()).await;
+        assert!(response.ok);
+        assert!(state.lock().await.services.is_empty());
+
+        let disk: Vec<ServiceDefinition> =
+            serde_json::from_slice(&std::fs::read(fixture.0.join("services.json")).unwrap())
+                .unwrap();
+
+        assert!(disk.is_empty());
+
+        let committed = std::fs::read(fixture.0.join("services.json")).unwrap();
+
+        let missing = handle(remove(), state.clone(), fixture.0.clone()).await;
+
+        assert!(!missing.ok);
+        assert_eq!(missing.error.unwrap().code, "SERVICE_NOT_FOUND");
+        assert!(state.lock().await.services.is_empty());
+        assert_eq!(
+            std::fs::read(fixture.0.join("services.json")).unwrap(),
+            committed
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_service_add_save_preserves_live_memory() {
+        let fixture = Fixture::new();
+        std::fs::create_dir(fixture.0.join("services.json")).unwrap();
+
+        let state = fixture.state();
+
+        let response = handle(service_add_request("web"), state.clone(), fixture.0.clone()).await;
+
+        assert!(!response.ok);
+        assert_eq!(response.error.unwrap().code, "SERVICE_SAVE_FAILED");
+        assert!(state.lock().await.services.is_empty());
+        assert!(!state.lock().await.storage_degraded);
+        assert!(fixture.0.join("services.json").is_dir());
+    }
+
+    #[tokio::test]
+    async fn failed_service_remove_save_preserves_live_memory() {
+        let fixture = Fixture::new();
+        std::fs::create_dir(fixture.0.join("services.json")).unwrap();
+
+        let state = Arc::new(Mutex::new(DaemonState {
+            services: vec![test_service("web")],
+            den: Some(Arc::new(PrivateDirectory::open(&fixture.0, false).unwrap())),
+            ..DaemonState::default()
+        }));
+
+        let response = handle(
+            ControlRequest {
+                id: "service-remove".into(),
+                cmd: "service.remove".into(),
+                args: json!({"name": "web"}),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+
+        assert!(!response.ok);
+        assert_eq!(response.error.unwrap().code, "SERVICE_SAVE_FAILED");
+        assert_eq!(state.lock().await.services, vec![test_service("web")]);
+        assert!(!state.lock().await.storage_degraded);
+        assert!(fixture.0.join("services.json").is_dir());
     }
 
     #[tokio::test]
