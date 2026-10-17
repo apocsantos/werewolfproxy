@@ -31,15 +31,19 @@ unless the invocation explicitly passes `allow-plain-fallback`. `LEGACY`
 deliberately keeps the historical weaker fallback behavior. These are local
 choices, never a remote capability or downgrade negotiation.
 
-## Endpoints and Pack aliases
+## Endpoints
 
-QUIC and TCP listen on different endpoints, so a peer reachable over both is
-added to the Pack as transport-specific aliases that share one identity:
+Each Pack entry has exactly one address, and Pack validation rejects two
+entries with the same fingerprint or public key, so one identity cannot be
+added twice as transport-specific aliases.
 
-```text
-wolf-a       → quic://127.0.0.1:9560
-wolf-a-tcp   → tcp://127.0.0.1:8443
-```
+A Fang requesting `tcp` or `tcp-plain` reuses the peer's address with the
+scheme rewritten to `tcp://` and the same host and port (`policy.rs`). A
+receiver reachable over both transports from one Pack entry therefore listens
+on the same port number for TCP and UDP, for example
+`--listen 0.0.0.0:9560 --quic-listen 0.0.0.0:9560`. When the listeners use
+different ports, switching transport means changing the address with
+`pack set-address`, as in the Stage22R tests.
 
 Changing a Pack member's address invalidates its active Fangs; they are not
 live-refreshed onto the new endpoint (Stage22R LC-01).
