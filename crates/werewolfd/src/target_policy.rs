@@ -72,6 +72,7 @@ impl<'de> Deserialize<'de> for Peers {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn load(path: &Path) -> TargetPolicy {
     let data = match std::fs::read_to_string(path) {
         Ok(data) => data,

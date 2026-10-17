@@ -22,8 +22,8 @@ impl NodeId {
     pub fn xor_distance(&self, other: &NodeId) -> [u8; 32] {
         let mut out = [0u8; 32];
 
-        for i in 0..32 {
-            out[i] = self.0[i] ^ other.0[i];
+        for (out, (left, right)) in out.iter_mut().zip(self.0.iter().zip(other.0.iter())) {
+            *out = left ^ right;
         }
 
         out
