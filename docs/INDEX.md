@@ -9,6 +9,7 @@
 - [Known limitations](../KNOWN_LIMITATIONS.md)
 - [Release notes](../RELEASE_NOTES_1.0.0-rc.1.md)
 - [Current status](STATUS.md)
+- [Architecture and final objective](ARCHITECTURE.md)
 - [Transport architecture](../TRANSPORT_ARCHITECTURE.md)
 
 ## Frozen v1 contracts
