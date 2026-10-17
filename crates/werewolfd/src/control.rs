@@ -270,6 +270,45 @@ async fn handle_request(
             }
         }
 
+        "service.connect" => {
+            let name = req.args["name"].as_str().unwrap_or("");
+
+            if name.is_empty() {
+                return ControlResponse::err(req.id, "SERVICE_INVALID", "name is required");
+            }
+
+            // The registry only resolves intent. Peer and target come from the
+            // daemon's current definition, never from the request, and the
+            // Fang still passes Silver, Pack, target policy and Authority.
+            let service = {
+                let st = state.lock().await;
+                st.services
+                    .iter()
+                    .find(|service| service.name == name)
+                    .cloned()
+            };
+            let Some(service) = service else {
+                return ControlResponse::err(
+                    req.id,
+                    "SERVICE_NOT_FOUND",
+                    format!("Service not found: {name}"),
+                );
+            };
+
+            let local = req.args["local"].as_str().unwrap_or("").trim().to_string();
+            let transport = requested_transport(req.args["transport"].as_str());
+
+            open_fang_from_parts(
+                req.id,
+                state.clone(),
+                service.peer,
+                local,
+                service.target,
+                transport,
+            )
+            .await
+        }
+
         "pack.list" => {
             let st = state.lock().await;
             ControlResponse::ok(req.id, json!(st.peers))
@@ -1675,6 +1714,125 @@ mod characterization_tests {
         assert_eq!(padded.error.unwrap().code, "SERVICE_NOT_FOUND");
 
         assert_eq!(state.lock().await.services, vec![definition]);
+    }
+
+    fn connect_request(name: &str) -> ControlRequest {
+        ControlRequest {
+            id: "connect".into(),
+            cmd: "service.connect".into(),
+            args: json!({"name": name, "local": "127.0.0.1:18087"}),
+        }
+    }
+
+    fn equivalent_fang_open() -> ControlRequest {
+        ControlRequest {
+            id: "open".into(),
+            cmd: "fang.open".into(),
+            args: json!({
+                "peer": "wolf-a",
+                "local": "127.0.0.1:18087",
+                "remote": "127.0.0.1:8080"
+            }),
+        }
+    }
+
+    fn web_service() -> werewolf_core::service::ServiceDefinition {
+        werewolf_core::service::ServiceDefinition {
+            name: "web".into(),
+            peer: "wolf-a".into(),
+            target: "127.0.0.1:8080".into(),
+            kind: werewolf_core::service::ServiceKind::Http,
+        }
+    }
+
+    async fn error_code(
+        request: ControlRequest,
+        state: &Arc<Mutex<DaemonState>>,
+        home: &std::path::Path,
+    ) -> String {
+        let response = handle_request(request, state.clone(), home.to_path_buf()).await;
+        assert!(!response.ok);
+        response.error.unwrap().code
+    }
+
+    #[tokio::test]
+    async fn service_connect_resolves_registry_through_fang_open_checks() {
+        let fixture = Fixture::new();
+        let state = Arc::new(Mutex::new(DaemonState {
+            services: vec![web_service()],
+            ..fixture.state()
+        }));
+
+        assert_eq!(
+            error_code(connect_request(""), &state, &fixture.0).await,
+            "SERVICE_INVALID"
+        );
+        assert_eq!(
+            error_code(connect_request("absent"), &state, &fixture.0).await,
+            "SERVICE_NOT_FOUND"
+        );
+        assert_eq!(
+            error_code(connect_request(" web "), &state, &fixture.0).await,
+            "SERVICE_NOT_FOUND"
+        );
+
+        // A service may name a peer that is not in the Pack; connecting must
+        // then fail exactly as fang.open does for the same parts.
+        assert_eq!(
+            error_code(connect_request("web"), &state, &fixture.0).await,
+            "FANG_UNKNOWN_PEER"
+        );
+        assert_eq!(
+            error_code(equivalent_fang_open(), &state, &fixture.0).await,
+            "FANG_UNKNOWN_PEER"
+        );
+
+        // With the peer in the Pack, resolution reaches the next fang.open check.
+        let peer = generate_identity();
+        state
+            .lock()
+            .await
+            .peers
+            .push(werewolf_core::pack::PeerRecord {
+                name: "wolf-a".into(),
+                fingerprint: peer.fingerprint.clone(),
+                public_key_b64: Some(peer.public_key_b64.clone()),
+                address: "quic://127.0.0.1:43010".into(),
+                trust: werewolf_core::pack::TrustLevel::Packmate,
+            });
+        assert_eq!(
+            error_code(connect_request("web"), &state, &fixture.0).await,
+            "NO_PELT"
+        );
+        assert_eq!(
+            error_code(equivalent_fang_open(), &state, &fixture.0).await,
+            "NO_PELT"
+        );
+
+        let live = state.lock().await;
+        assert_eq!(live.services, vec![web_service()]);
+        assert!(live.fang_registry.records().is_empty());
+        assert!(!fixture.0.join("services.json").exists());
+    }
+
+    #[tokio::test]
+    async fn service_connect_is_fenced_by_silver() {
+        let fixture = Fixture::new();
+        let state = Arc::new(Mutex::new(DaemonState {
+            services: vec![web_service()],
+            ..fixture.state()
+        }));
+        state.lock().await.status.mode = WolfMode::Silver;
+
+        assert_eq!(
+            error_code(connect_request("web"), &state, &fixture.0).await,
+            "SILVER_ACTIVE"
+        );
+        assert_eq!(
+            error_code(equivalent_fang_open(), &state, &fixture.0).await,
+            "SILVER_ACTIVE"
+        );
+        assert!(state.lock().await.fang_registry.records().is_empty());
     }
 
     #[tokio::test]
