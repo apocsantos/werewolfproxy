@@ -175,12 +175,16 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
     let allowed: &[&str] = match request.cmd.as_str() {
         "pack.add" => &["name", "fingerprint", "address", "public_key_b64"],
         "pack.set_address" => &["name", "address"],
+        "service.add" => &["name", "peer", "target", "kind"],
         "pack.remove"
         | "pack.revoke"
+        | "service.remove"
+        | "service.show"
         | "fang.profile.remove"
         | "fang.open_profile"
         | "fang.deactivate_profile" => &["name"],
         "fang.open" => &["peer", "local", "remote", "transport"],
+        "service.connect" => &["name", "local", "transport"],
         "fang.profile.add" => &["name", "peer", "local", "remote", "transport"],
         "fang.close" => &["fang_id"],
         "target.policy.set" => &["document"],
@@ -276,8 +280,11 @@ pub(super) fn mutates(cmd: &str) -> bool {
             | "target.policy.set"
             | "target.allow"
             | "target.remove"
+            | "service.add"
+            | "service.remove"
             | "state.manifest.migrate"
             | "fang.open"
+            | "service.connect"
             | "fang.profile.add"
             | "fang.profile.remove"
             | "fang.open_profile"
@@ -312,6 +319,23 @@ mod tests {
         let request =
             serde_json::json!({"id":"1","cmd":"pack.add","args":{"name":"x".repeat(129)}});
         assert!(parse(request.to_string().as_bytes()).is_err());
+    }
+
+    #[test]
+    fn service_connect_cannot_override_registry_destination() {
+        assert!(parse(
+            br#"{"id":"1","cmd":"service.connect","args":{"name":"web","local":"127.0.0.1:18087","transport":"tcp"}}"#
+        )
+        .is_ok());
+        for bad in [
+            br#"{"id":"1","cmd":"service.connect","args":{"name":"web","peer":"other"}}"#
+                .as_slice(),
+            br#"{"id":"1","cmd":"service.connect","args":{"name":"web","remote":"127.0.0.1:22"}}"#,
+            br#"{"id":"1","cmd":"service.connect","args":{"name":"web","target":"127.0.0.1:22"}}"#,
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+        assert!(mutates("service.connect"));
     }
 
     #[tokio::test]

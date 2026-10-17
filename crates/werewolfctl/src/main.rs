@@ -77,6 +77,11 @@ enum Commands {
         #[command(subcommand)]
         command: FangCommands,
     },
+    /// User-facing service connections over Werewolf.
+    Service {
+        #[command(subcommand)]
+        command: ServiceCommands,
+    },
 }
 #[derive(Subcommand)]
 enum DenCommands {
@@ -184,6 +189,43 @@ enum FangCommands {
     },
     #[command(hide = true)]
     Cleanup,
+}
+
+#[derive(Subcommand)]
+enum ServiceCommands {
+    /// Define a named service. It records a destination; it grants no access.
+    Add {
+        name: String,
+        /// Peer name; it need not be in the Pack yet.
+        peer: String,
+        /// Target on the peer, for example 127.0.0.1:8080.
+        target: String,
+        #[arg(value_parser = ["tcp", "http", "https", "ssh"])]
+        kind: String,
+    },
+    List,
+    Show {
+        name: String,
+    },
+    Remove {
+        name: String,
+    },
+    /// Connect a local listener to a named service through the normal Fang path.
+    Connect {
+        /// Service name from `service list`.
+        name: String,
+
+        /// Local TCP port to expose.
+        #[arg(long)]
+        local_port: u16,
+
+        /// Local bind address.
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: String,
+
+        #[arg(long, default_value = "quic", value_parser = ["quic", "tcp", "tcp-plain"])]
+        transport: String,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -387,6 +429,43 @@ fn request_for(command: Commands) -> Result<(String, Value), CliError> {
         Commands::Fang {
             command: FangCommands::Cleanup,
         } => ("fang.cleanup", json!({})),
+        Commands::Service {
+            command:
+                ServiceCommands::Add {
+                    name,
+                    peer,
+                    target,
+                    kind,
+                },
+        } => (
+            "service.add",
+            json!({"name":name,"peer":peer,"target":target,"kind":kind}),
+        ),
+        Commands::Service {
+            command: ServiceCommands::List,
+        } => ("service.list", json!({})),
+        Commands::Service {
+            command: ServiceCommands::Show { name },
+        } => ("service.show", json!({"name":name})),
+        Commands::Service {
+            command: ServiceCommands::Remove { name },
+        } => ("service.remove", json!({"name":name})),
+        Commands::Service {
+            command:
+                ServiceCommands::Connect {
+                    name,
+                    local_port,
+                    bind,
+                    transport,
+                },
+        } => {
+            // The daemon resolves the name to its registered peer and target.
+            let local = format!("{bind}:{local_port}");
+            (
+                "service.connect",
+                json!({"name":name,"local":local,"transport":transport}),
+            )
+        }
         Commands::Version
         | Commands::Doctor
         | Commands::Den {
@@ -516,4 +595,73 @@ fn print_local(json_output: bool, command: &str, result: Value) -> Result<(), Cl
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(args: &[&str]) -> (String, Value) {
+        let cli = Cli::try_parse_from(std::iter::once("werewolfctl").chain(args.iter().copied()))
+            .unwrap();
+        match request_for(cli.command) {
+            Ok(request) => request,
+            Err(error) => panic!("{}", error.message),
+        }
+    }
+
+    #[test]
+    fn service_commands_map_to_daemon_requests() {
+        assert_eq!(
+            request(&["service", "add", "web", "wolf-a", "127.0.0.1:8080", "http"]),
+            (
+                "service.add".into(),
+                json!({"name":"web","peer":"wolf-a","target":"127.0.0.1:8080","kind":"http"})
+            )
+        );
+        assert_eq!(
+            request(&["service", "list"]),
+            ("service.list".into(), json!({}))
+        );
+        assert_eq!(
+            request(&["service", "show", "web"]),
+            ("service.show".into(), json!({"name":"web"}))
+        );
+        assert_eq!(
+            request(&["service", "remove", "web"]),
+            ("service.remove".into(), json!({"name":"web"}))
+        );
+    }
+
+    #[test]
+    fn service_connect_sends_only_the_name_for_daemon_resolution() {
+        assert_eq!(
+            request(&["service", "connect", "web", "--local-port", "18087"]),
+            (
+                "service.connect".into(),
+                json!({"name":"web","local":"127.0.0.1:18087","transport":"quic"})
+            )
+        );
+        // The old peer/target form is gone; the destination comes from the registry.
+        assert!(Cli::try_parse_from([
+            "werewolfctl",
+            "service",
+            "connect",
+            "wolf-a",
+            "127.0.0.1:8080",
+            "--local-port",
+            "18087"
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "werewolfctl",
+            "service",
+            "add",
+            "web",
+            "wolf-a",
+            "127.0.0.1:8080",
+            "ftp"
+        ])
+        .is_err());
+    }
 }

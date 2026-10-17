@@ -78,6 +78,7 @@ pub(super) struct DaemonState {
     pub(super) fang_registry: FangRegistry,
     pub(super) fang_profiles: Vec<FangProfile>,
     pub(super) active_profiles: Vec<String>,
+    pub(super) services: Vec<werewolf_core::service::ServiceDefinition>,
     /// Present only after explicit Stage15B migration. This is local
     /// consistency metadata and is never sent over a network transport.
     pub(super) protected_state_generation: Option<u64>,
