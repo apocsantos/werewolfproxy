@@ -253,7 +253,7 @@ async fn handle_request(
         }
 
         "service.show" => {
-            let name = req.args["name"].as_str().unwrap_or("").trim();
+            let name = req.args["name"].as_str().unwrap_or("");
 
             if name.is_empty() {
                 return ControlResponse::err(req.id, "SERVICE_INVALID", "name is required");
@@ -1658,6 +1658,21 @@ mod characterization_tests {
 
         assert!(!missing.ok);
         assert_eq!(missing.error.unwrap().code, "SERVICE_NOT_FOUND");
+
+        // Names are canonical: whitespace variants are different names, as in service.add.
+        let padded = handle_request(
+            ControlRequest {
+                id: "padded".into(),
+                cmd: "service.show".into(),
+                args: json!({"name": " web "}),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+
+        assert!(!padded.ok);
+        assert_eq!(padded.error.unwrap().code, "SERVICE_NOT_FOUND");
 
         assert_eq!(state.lock().await.services, vec![definition]);
     }
