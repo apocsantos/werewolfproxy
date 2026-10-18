@@ -1,0 +1,141 @@
+# Stage24 FindNode RPC — design proposal
+
+**Status: proposal for review. Nothing here is implemented, and nothing here
+changes the frozen [v1 wire contract](V1_WIRE_CONTRACT.md).** Implementation
+starts only after the decisions in the last section are made.
+
+Next item in [ARCHITECTURE.md §65](ARCHITECTURE.md): run FindNode over
+authenticated Werewolf transport (§18), as the base for distributed peer
+discovery (§15) and later service discovery (§19–20).
+
+## Current state
+
+`werewolf-core` has Kademlia-shaped types (`nodeid`, `peer`, `kbucket`,
+`routing`, `lookup`, `find_node`, `message`, `peer_store`) used only by unit
+tests and the `peer_lab` binary. `werewolfd` and `werewolfctl` never reference
+them. They are not safe to put on the wire as they are:
+
+| Issue | Where | Consequence |
+|---|---|---|
+| `NodeId = SHA-256(name "\|" address)` | `nodeid.rs` | Not bound to a Pelt; anyone can claim any ID, and the ID changes when an address changes |
+| `Peer` carries self-reported `healthy`, `reputation`, `availability_pct`, `latency_ms` (f64) | `peer.rs` | A remote node could inject its own reputation; local measurements would leak |
+| `FindNode.k: usize` is unbounded | `message.rs` | A request can ask for the whole table |
+| `KBucket` has no capacity or eviction | `kbucket.rs` | Unbounded memory; no Kademlia churn resistance |
+| `nearest()` sorts by bucket index, then reputation | `routing.rs` | Not true XOR order; lookups need not converge |
+| Results are unsigned `(name, address)` pairs | `find_node.rs` | A responder can forge addresses for other nodes |
+
+## Goals and non-goals
+
+FindNode answers **who and where**, never **authorized?** (§19).
+
+- Returns candidate contact records close to a target ID.
+- Never adds a node to the Pack, never creates a target grant and never opens
+  a Fang. A discovered node is used only after the operator runs `pack add`.
+- Pack, Target Policy, Silver and the existing OPEN/ACK semantics stay
+  unchanged.
+- Out of scope: service advertisements, multi-hop routing, NAT traversal,
+  reputation exchange and an open public overlay.
+
+## Proposed model
+
+### Node identity
+
+`NodeId = SHA-256("werewolf/node-id/v1" || Ed25519 public key)`. Pack names
+stay local labels. Changing an address no longer changes the ID, and an ID
+cannot be claimed without its Pelt.
+
+### Signed contact records
+
+Each node signs its own record:
+
+```text
+ContactRecord {
+  public_key   : Ed25519 public key (32 bytes)
+  addresses    : 1..=4 transport URLs (quic:// or tcp://), each <= 256 bytes
+  seq          : u64, strictly increasing per node
+  expires_at   : unix seconds, at most 7 days after signing
+  signature    : Ed25519 over domain "werewolf/contact/v1" + canonical encoding
+}
+```
+
+Responders relay records unchanged and cannot forge them. They can still
+withhold records or return stale ones (eclipse), so the lookup prefers higher
+`seq` and queries several peers. Health, latency and reputation stay local and
+are never sent.
+
+### Messages
+
+```text
+FindNode       { target: NodeId, k: u8 (1..=20) }
+FindNodeResult { records: Vec<ContactRecord> (<= k, <= 16 KiB encoded) }
+Ping / Pong    { }   // liveness only, for bucket eviction
+```
+
+The sender's identity comes from the authenticated session, never from a
+message field, so the current `sender: NodeId` fields go away.
+
+### Transport (decision needed)
+
+| Option | Shape | Trade-off |
+|---|---|---|
+| **A. Extend OPEN** (recommended) | A new signed request kind next to the target OPEN on the same QUIC/encrypted-TCP listener, reusing TLS 1.3 exact-SPKI receiver auth and the exporter/challenge-bound sender signature, with its own domain tag `werewolf/rpc/v1` | Reuses audited authentication; no new listener or port to fingerprint. It is a wire-contract extension and needs the same review as Stage10/12 |
+| B. Separate RPC listener | Own port, same TLS/SPKI rules, its own sender proof | Leaves the frozen OPEN path untouched, but adds a second authenticated handshake to certify and a new observable port |
+| C. Inside an open Fang | RPC framed over an existing Fang stream | Mixes control traffic with application authority; not recommended |
+
+Under A, a receiver that does not implement the new kind must fail exactly as
+it does for any invalid OPEN today, with no capability hint (wire opacity).
+
+### Who may query
+
+Phase 1 (recommended): **closed overlay**. Only authenticated Pack members may
+send FindNode, and only records of nodes the responder has itself verified are
+returned. That matches deny-by-default and gives a useful "friend-of-friend"
+lookup without an open DHT. An open overlay (unknown queriers, Sybil
+resistance) is a later decision.
+
+### Routing table fixes
+
+- k = 20 per bucket, insertion order kept, ping-before-evict on a full bucket.
+- `nearest()` sorts by full 256-bit XOR distance.
+- Lookup: α = 3 parallel queries, at most 8 rounds, per-query deadline from the
+  existing handshake limits, stop when the k closest have answered.
+- Per-peer rate limit and a global concurrency cap through the Stage16
+  pre-auth limits.
+
+### Persistence
+
+Discovered records go to a non-authoritative cache (`contacts.json` in the Den,
+private like `services.json`, outside the Stage15B manifest). Losing or rolling
+back the cache changes only lookup hints, never authority. The Pack stays the
+only trust source.
+
+### Operator surface (draft)
+
+```text
+werewolfctl discover find PUBLIC_KEY_B64 | NODE_ID_HEX
+werewolfctl discover contacts
+```
+
+`discover find` prints the verified record. Trusting the result is still a
+deliberate, separate `pack add`.
+
+## Test plan
+
+- Unit: record signature and domain separation, canonical encoding, `seq`
+  ordering, expiry, every size bound, XOR ordering, bucket eviction.
+- Hermetic lab (`tests/integration`, three wolves): A knows B and B knows C;
+  A finds C's verified record; A still cannot open a Fang to C until
+  `pack add`, and B's Target Policy still governs targets on B.
+- Negative: forged or expired record, oversized result, `k` out of range,
+  non-Pack querier, querier under Silver, replayed RPC OPEN, unknown request
+  kind on a receiver without support.
+
+## Decisions for the owner
+
+1. Transport: A (extend OPEN, recommended), B or C.
+2. Query admission: Pack-only closed overlay for Phase 1?
+3. Is a stable `NodeId` from the Pelt public key acceptable? It makes a node
+   linkable across addresses inside the overlay.
+4. Record lifetime: 7-day maximum `expires_at`, re-signed on address change?
+5. Is replacing the current `werewolf-core` Kademlia types acceptable, given
+   that only `peer_lab` uses them?
