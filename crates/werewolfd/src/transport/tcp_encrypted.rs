@@ -21,6 +21,27 @@ use werewolf_core::pelt::PeltIdentity;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
+/// Liveness for encrypted-TCP sessions, enforced by the kernel rather than
+/// by an application frame timeout. An idle session stays open while the
+/// peer answers keep-alive probes; a peer that stops answering is dropped
+/// after about KEEPALIVE_IDLE + KEEPALIVE_INTERVAL * KEEPALIVE_RETRIES, and
+/// data left unacknowledged for TCP_USER_TIMEOUT closes the connection.
+const KEEPALIVE_IDLE: Duration = Duration::from_secs(30);
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
+const KEEPALIVE_RETRIES: u32 = 3;
+const TCP_USER_TIMEOUT: Duration = Duration::from_secs(60);
+
+fn configure_liveness(stream: &TcpStream) -> io::Result<()> {
+    let socket = socket2::SockRef::from(stream);
+    socket.set_tcp_keepalive(
+        &socket2::TcpKeepalive::new()
+            .with_time(KEEPALIVE_IDLE)
+            .with_interval(KEEPALIVE_INTERVAL)
+            .with_retries(KEEPALIVE_RETRIES),
+    )?;
+    socket.set_tcp_user_timeout(Some(TCP_USER_TIMEOUT))
+}
+
 #[cfg(test)]
 mod authority_tests;
 #[cfg(test)]
@@ -29,6 +50,8 @@ mod cancellation_safety_tests;
 mod crypto_hygiene_tests;
 #[cfg(test)]
 mod frame_write_tests;
+#[cfg(test)]
+mod liveness_tests;
 #[cfg(test)]
 mod receiver_auth_tests;
 
@@ -83,7 +106,7 @@ pub(crate) async fn run_fang_listener_with_ready(
             Some(_) = tasks.join_next(), if !tasks.is_empty() => continue,
             accepted = listener.accept() => accepted?,
         };
-        if authority.is_locked() {
+        if authority.is_locked() || configure_liveness(&stream).is_err() {
             continue;
         }
         let started = tokio::time::Instant::now();
@@ -313,6 +336,7 @@ pub(crate) async fn connect_authenticated_tcp(
     let stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(peer_addr))
         .await
         .map_err(|_| hs::rejected())??;
+    configure_liveness(&stream)?;
     let server_name = ServerName::from(stream.peer_addr()?.ip());
     tokio::time::timeout(hs::READ_WINDOW, connector.connect(server_name, stream))
         .await
@@ -349,29 +373,20 @@ where
 
     let server_to_client = async {
         let mut counter = 0u64;
+        // No application idle timeout: an idle session lives as long as
+        // the kernel liveness checks in configure_liveness succeed.
         loop {
-            match tokio::time::timeout(
-                Duration::from_secs(60),
-                read_encrypted_frame(&mut out_r, &key, 1, &mut counter),
-            )
-            .await
-            {
-                Ok(Ok(plaintext)) => {
+            match read_encrypted_frame(&mut out_r, &key, 1, &mut counter).await {
+                Ok(plaintext) => {
                     let plaintext = Zeroizing::new(plaintext);
                     in_w.write_all(&plaintext).await?;
                     in_w.flush().await?;
                 }
-                Ok(Err(error)) if error.kind() == io::ErrorKind::UnexpectedEof => {
+                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
                     in_w.shutdown().await?;
                     return Ok::<(), io::Error>(());
                 }
-                Ok(Err(error)) => return Err(error),
-                Err(_) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "tcp-v2 client read idle timeout",
-                    ));
-                }
+                Err(error) => return Err(error),
             }
         }
     };
@@ -403,29 +418,19 @@ async fn secure_copy_server_side(
     let client_to_remote = async {
         let mut counter = 0u64;
 
+        // As on the client side, idle liveness is the kernel's job.
         loop {
-            match tokio::time::timeout(
-                Duration::from_secs(60),
-                read_encrypted_frame(&mut fang_r, &key, 0, &mut counter),
-            )
-            .await
-            {
-                Ok(Ok(plaintext)) => {
+            match read_encrypted_frame(&mut fang_r, &key, 0, &mut counter).await {
+                Ok(plaintext) => {
                     let plaintext = Zeroizing::new(plaintext);
                     remote_w.write_all(&plaintext).await?;
                     remote_w.flush().await?;
                 }
-                Ok(Err(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
                     let _ = remote_w.shutdown().await;
                     return Ok::<(), io::Error>(());
                 }
-                Ok(Err(e)) => return Err(e),
-                Err(_) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "tcp-v2 server read idle timeout",
-                    ));
-                }
+                Err(e) => return Err(e),
             }
         }
     };

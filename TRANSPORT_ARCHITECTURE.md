@@ -48,6 +48,24 @@ different ports, switching transport means changing the address with
 Changing a Pack member's address invalidates its active Fangs; they are not
 live-refreshed onto the new endpoint (Stage22R LC-01).
 
+## Idle sessions and liveness
+
+An idle Fang session stays open while the path and peer are alive:
+
+- **QUIC:** the initiator sends a keep-alive PING after 10 s of silence
+  (`quic_fang.rs`). The 30 s idle timeout still applies, so a dead path
+  ends the session about 30 s after the last packet was received.
+- **Encrypted TCP:** there is no application idle timeout. Both ends enable
+  kernel TCP keep-alive (first probe after 30 s idle, then every 10 s,
+  3 probes) and a 60 s `TCP_USER_TIMEOUT` for unacknowledged data
+  (`tcp_encrypted.rs`).
+
+This supersedes the earlier behaviour, where idle sessions were closed after
+about 30 s on QUIC (Stage16: no keep-alive) and 60 s on encrypted TCP (a
+per-frame read timeout), which broke idle interactive sessions such as SSH.
+Keep-alive PINGs and TCP probes are additional observable traffic; they do
+not change any frame format or handshake.
+
 ## Responsibilities
 
 Each transport covers the same lifecycle:
