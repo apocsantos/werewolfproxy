@@ -48,8 +48,12 @@ fn peer(identity: &PeltIdentity) -> PeerRecord {
         trust: TrustLevel::Packmate,
     }
 }
+/// Startup allowance for fixture listeners and daemon processes. CI runners
+/// are slow under parallel test load; this only bounds how long a genuinely
+/// broken start takes to fail and is unrelated to protocol deadlines.
+const READY_TIMEOUT: Duration = Duration::from_secs(30);
 async fn ready(address: SocketAddr) {
-    timeout(Duration::from_secs(5), async {
+    timeout(READY_TIMEOUT, async {
         loop {
             if TcpStream::connect(address).await.is_ok() {
                 break;
@@ -586,6 +590,10 @@ fn process_binaries() -> &'static (std::path::PathBuf, std::path::PathBuf) {
         (binaries.remove(0), binaries.remove(0))
     })
 }
+struct StartFailure {
+    exited: bool,
+    log: String,
+}
 struct Daemon {
     home: std::path::PathBuf,
     binary: std::path::PathBuf,
@@ -645,10 +653,26 @@ impl Daemon {
             sender,
             receiver,
         };
-        d.start().await;
-        d
+        for attempt in 1..=3 {
+            match d.try_start().await {
+                Ok(()) => return d,
+                // reserve() releases its port before the daemon binds, so a
+                // parallel test can take it; retry first starts on new ports.
+                Err(failure) if failure.exited && attempt < 3 => {
+                    d.tcp = reserve(false);
+                    d.quic = reserve(true);
+                }
+                Err(failure) => panic!("werewolfd did not start: {}", failure.log),
+            }
+        }
+        unreachable!()
     }
     async fn start(&mut self) {
+        if let Err(failure) = self.try_start().await {
+            panic!("werewolfd did not restart: {}", failure.log);
+        }
+    }
+    async fn try_start(&mut self) -> Result<(), StartFailure> {
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -674,21 +698,33 @@ impl Daemon {
                 .spawn()
                 .unwrap(),
         );
-        ready(self.tcp).await;
-        timeout(hs::READ_WINDOW, async {
-            loop {
-                if tokio::net::UnixStream::connect(self.home.join("control.sock"))
+        let deadline = Instant::now() + READY_TIMEOUT;
+        loop {
+            if let Some(status) = self.child.as_mut().unwrap().try_wait().unwrap() {
+                self.child = None;
+                return Err(StartFailure {
+                    exited: true,
+                    log: format!("exited with {status}\n{}", self.log()),
+                });
+            }
+            if TcpStream::connect(self.tcp).await.is_ok()
+                && tokio::net::UnixStream::connect(self.home.join("control.sock"))
                     .await
                     .is_ok()
-                {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+            {
+                return Ok(());
             }
-        })
-        .await
-        .unwrap();
-        assert!(self.child.as_mut().unwrap().try_wait().unwrap().is_none());
+            if Instant::now() >= deadline {
+                return Err(StartFailure {
+                    exited: false,
+                    log: format!("not ready after {READY_TIMEOUT:?}\n{}", self.log()),
+                });
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+    fn log(&self) -> String {
+        std::fs::read_to_string(self.home.join("daemon.log")).unwrap_or_default()
     }
     fn stop(&mut self, crash: bool) {
         let mut child = self.child.take().unwrap();
