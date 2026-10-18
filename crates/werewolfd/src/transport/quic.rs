@@ -196,6 +196,7 @@ pub(crate) async fn run_quic_fang_listener_with_ready(
                             drop(permit);drop(open_permit);
                             match result {
                                 Ok(Ok((mut target,lease)))=>{
+                                    let _=super::arm_reset_on_close(&target);
                                     let result=tokio::select! {
                                         biased;
                                         _=lease.cancelled()=>Err(hs::rejected()),
@@ -221,6 +222,9 @@ pub(crate) async fn run_quic_fang_listener_with_ready(
                                             tokio::try_join!(up,down).map(|_|())
                                         }=>result,
                                     };
+                                    if result.is_ok() {
+                                        let _=super::disarm_reset_on_close(&target);
+                                    }
                                     if result.is_err() {
                                         if lease.is_current() {
                                             // The authenticated ACK has already been

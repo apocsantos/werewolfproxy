@@ -128,9 +128,11 @@ async fn revoke_joins_both_tcp_directions_without_affecting_other_peer() {
         authority.deny_peer(&a.fingerprint).unwrap();
         assert!((&mut first.worker.0).await.unwrap().is_err());
         authority.cleanup(Some(&a.fingerprint)).await.unwrap();
-        let mut rest = Vec::new();
-        first.target.read_to_end(&mut rest).await.unwrap();
+        // Nothing is delivered after revocation, and the target sees an
+        // abortive close (RST), not an EOF that looks like completion.
+        let (rest, reset) = crate::transport::drain_until_closed(&mut first.target).await;
         assert!(rest.is_empty());
+        assert!(reset);
         write_encrypted_frame(&mut second.peer, &second.key, 0, &mut 0, b"other")
             .await
             .unwrap();
@@ -155,9 +157,11 @@ async fn silver_closes_established_tcp_even_with_both_readers_stalled() {
         authority.lock().unwrap();
         assert!((&mut session.worker.0).await.unwrap().is_err());
         authority.cleanup(None).await.unwrap();
-        let mut rest = Vec::new();
-        session.target.read_to_end(&mut rest).await.unwrap();
+        // Nothing is delivered after Silver, and the target sees an
+        // abortive close (RST), not an EOF that looks like completion.
+        let (rest, reset) = crate::transport::drain_until_closed(&mut session.target).await;
         assert!(rest.is_empty());
+        assert!(reset);
     })
     .await
     .unwrap();
