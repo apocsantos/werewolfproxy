@@ -48,3 +48,28 @@ fn handle_find_node_ignores_non_find_node_messages() {
 
     assert!(handle_find_node(&local, &table, &request).is_none());
 }
+
+#[test]
+fn handle_find_node_caps_k() {
+    let local = NodeId::from_name_address("wolf-b", "127.0.0.1:9561");
+    let mut table = RoutingTable::new(local.clone());
+    for n in 0..200 {
+        table.add_peer(Peer::new(
+            format!("wolf-{n}"),
+            format!("127.0.0.1:{}", 10000 + n),
+        ));
+    }
+
+    let request = Message::FindNode {
+        sender: NodeId::from_name_address("wolf-a", "127.0.0.1:9560"),
+        target: NodeId::from_name_address("resource", "hash"),
+        k: usize::MAX,
+    };
+
+    match handle_find_node(&local, &table, &request).expect("response") {
+        Message::FindNodeResult { peers, .. } => {
+            assert_eq!(peers.len(), werewolf_core::lookup::MAX_K)
+        }
+        _ => panic!("wrong response type"),
+    }
+}
