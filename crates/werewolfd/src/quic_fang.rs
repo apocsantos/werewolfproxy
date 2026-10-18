@@ -4,6 +4,7 @@ use crate::handshake as hs;
 use crate::policy::ExpectedPeerIdentity;
 use quinn::{ClientConfig, Endpoint, RecvStream, SendStream};
 use std::sync::Arc;
+use std::time::Duration;
 use std::{error::Error, net::SocketAddr};
 use tokio::{
     io::copy,
@@ -11,6 +12,11 @@ use tokio::{
     task::JoinHandle,
 };
 use werewolf_core::pelt::PeltIdentity;
+
+/// The initiator sends an ack-eliciting PING after this much silence. An
+/// idle Fang session therefore outlives the 30 s idle timeout while the path
+/// is up; a dead path still ends it at that timeout.
+const QUIC_KEEP_ALIVE: Duration = Duration::from_secs(10);
 
 pub async fn open_quic_fang(
     local_addr: String,
@@ -124,7 +130,11 @@ fn client_endpoint(expected_peer: &ExpectedPeerIdentity) -> std::io::Result<Endp
         quinn::crypto::rustls::QuicClientConfig::try_from(crypto).map_err(|_| hs::rejected())?;
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().map_err(|_| hs::rejected())?)
         .map_err(|_| hs::rejected())?;
-    endpoint.set_default_client_config(ClientConfig::new(Arc::new(quic_crypto)));
+    let mut transport = quinn::TransportConfig::default();
+    transport.keep_alive_interval(Some(QUIC_KEEP_ALIVE));
+    let mut config = ClientConfig::new(Arc::new(quic_crypto));
+    config.transport_config(Arc::new(transport));
+    endpoint.set_default_client_config(config);
     Ok(endpoint)
 }
 

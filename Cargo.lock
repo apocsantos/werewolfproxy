@@ -1718,6 +1718,7 @@ dependencies = [
  "rustls-webpki",
  "serde",
  "serde_json",
+ "socket2",
  "tokio",
  "tokio-rustls",
  "tracing",
