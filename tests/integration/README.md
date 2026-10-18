@@ -54,8 +54,10 @@ polling; failed acceptance assertions are not retried.
 ## Provisioning and contract
 
 Two daemons first initialize fresh identities through `pelt.init`. After stopping
-them, the harness writes existing-format Pack fixtures: A trusts B, and B has
-`wolf-a` (QUIC) and `wolf-a-tcp` (encrypted TCP) aliases sharing A's public identity.
+them, the harness writes existing-format Pack fixtures: A trusts `wolf-b` and B
+trusts `wolf-a`, one entry per identity. Pack validation rejects a second entry
+with the same key, so each daemon's TCP and QUIC listeners share one numeric port
+and encrypted TCP reuses the `quic://` address with a `tcp://` scheme.
 The daemons restart to load Pack. No live Pelt or Pack is copied. Profile creation
 and activation use control operations, allowing production code to persist state.
 
@@ -91,6 +93,32 @@ unavoidable human-output parsing in this lab. Cargo/compiler diagnostics are log
 not behavioral assertions. Source files are hashed before/after each run, including
 existing dirty files and BASELINE.md. See KNOWN_ISSUES.md for unchanged production
 limitations. The lab does not redesign or test a replacement authentication scheme.
+
+## Named-service gate (Stage23)
+
+```bash
+python3 -B tests/integration/service_gate.py [--keep-temp]
+```
+
+`service_gate.py` reuses the same `Lab` isolation, build, cleanup, source-hash
+and JSON-result conventions. Unlike the acceptance runner it drives the checkout
+`werewolfctl` with `--json`, because the CLI is the interface under test. It
+never uses `scripts/service-*-gate.sh`, which start the historical multiwolf.
+
+Wolf A defines services that resolve to targets behind wolf B; both receivers
+start deny-by-default. The SSH target is a fixture that only exchanges SSH
+identification strings, so no `sshd` is needed.
+
+| Assertion | Required evidence |
+|---|---|
+| Registry CLI round trip | add/list/show match; duplicate add exits 70 |
+| Fail closed | Service with a peer outside the Pack and an unknown name exit 70; no Fang opened |
+| No authority from the registry | Fangs opened by name deliver no target bytes before B's `target allow` |
+| Named HTTP | Exact marker over QUIC and encrypted TCP after the grant |
+| Named TCP | 8 MiB full-duplex echo with SHA-256 match over QUIC and encrypted TCP |
+| Named SSH | Exact `SSH-2.0-` banner through the Fang |
+| Persistence | Service list identical after daemon restart |
+| Silver | `silver on` closes Fangs; `service connect` then exits 70 and opens nothing |
 
 ## Stage 1 execution results — 2026-09-07
 

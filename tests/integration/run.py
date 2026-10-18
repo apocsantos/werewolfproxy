@@ -284,7 +284,7 @@ class Lab:
             raise RuntimeError('listener still open')
         self.wait_for(closed, f'{key} close')
 
-    def run(self):
+    def prepare_binaries(self):
         build_env = {k: v for k, v in os.environ.items()
                      if not k.startswith('WEREWOLF_') and k not in ('BASH_ENV', 'ENV')}
         if self.binary_dir is None:
@@ -309,6 +309,8 @@ class Lab:
                       'selector_sha256': digest(ROOT / 'scripts/wolf-b.sh')}
         write_json(self.base / 'provenance.json', provenance)
         self.provenance = provenance
+
+    def reserve_wolf_ports(self):
         # One Pack identity has one address. Reserve both protocol sockets at
         # the same numeric port instead of aliasing an identity in the Pack.
         for wolf in ('a', 'b'):
@@ -326,6 +328,10 @@ class Lab:
                 break
             else:
                 raise RuntimeError('cannot reserve paired isolated TCP/UDP port')
+
+    def run(self):
+        self.prepare_binaries()
+        self.reserve_wolf_ports()
         for key in ('quic', 'encrypted', 'plain', 'large', 'raw'):
             self.reserve(key)
         target_dir = self.base / 'targets'
@@ -474,7 +480,7 @@ class Lab:
         require(all(p.poll() is None for p in [target, *self.wolves]), 'long-lived lab process exited')
 
 
-def main():
+def main(lab_class=Lab):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--keep-temp', action='store_true', help='retain private Dens, logs and payloads')
     parser.add_argument('--binary-dir', type=pathlib.Path,
@@ -482,7 +488,7 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     before = snapshot()
-    lab = Lab(args.keep_temp, args.binary_dir)
+    lab = lab_class(args.keep_temp, args.binary_dir)
     print(f'Lab: {lab.base}', flush=True)
     def interrupted(signum, frame):
         raise RuntimeError(f'interrupted by signal {signum}')
