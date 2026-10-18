@@ -44,6 +44,7 @@ real WAN between an initiator and a remote Debian VPS receiver:
 | [D03](STAGE22R_D03_HARD_CRASH_CERTIFICATION.md) | Initiator hard crash (SIGKILL) | Certified |
 | [D04](STAGE22R_D04_RECEIVER_HARD_CRASH_CERTIFICATION.md) | Receiver hard crash (SIGKILL) | Certified |
 | [D05A](STAGE22R_D05A_HARD_PATH_LOSS_CERTIFICATION.md) | Hard WAN path loss | Certified |
+| [D05B](STAGE22R_D05B_TEMPORARY_BLACKHOLE_CERTIFICATION.md) | Temporary WAN blackhole, same-session survival | Certified |
 
 The HC02 and LC-01 fixes are on `main` after the RC1 tag, so they are not in
 the 1.0.0-rc.1 archive.
