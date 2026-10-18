@@ -195,9 +195,11 @@ async fn multiplexed_peer_revoke_preserves_other_stream_and_silver_closes_connec
         authority.deny_peer(&a.fingerprint).unwrap();
         authority.cleanup(Some(&a.fingerprint)).await.unwrap();
         assert!(first.recv.read_to_end(64).await.is_err());
-        let mut rest = Vec::new();
-        first.target.read_to_end(&mut rest).await.unwrap();
+        // Nothing is delivered after revocation, and the target sees an
+        // abortive close (RST), not an EOF that looks like completion.
+        let (rest, reset) = crate::transport::drain_until_closed(&mut first.target).await;
         assert!(rest.is_empty());
+        assert!(reset);
         // A QUIC connection is not a peer identity. B retains its own lease.
         second.send.write_all(b"other").await.unwrap();
         let mut other = [0u8; 5];

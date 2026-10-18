@@ -266,13 +266,16 @@ pub(super) async fn run_local_fang_forwarder(
 
     loop {
         let (mut inbound, _) = listener.accept().await?;
+        if super::arm_reset_on_close(&inbound).is_err() {
+            continue;
+        }
         let peer_addr = peer_addr.to_string();
         let remote = remote.to_string();
         let identity = identity.clone();
         let expected_peer = expected_peer.clone();
 
         cancellation.spawn(async move {
-            let _ = pipe_one_fang_connection(
+            let result = pipe_one_fang_connection(
                 &mut inbound,
                 &peer_addr,
                 &remote,
@@ -280,6 +283,9 @@ pub(super) async fn run_local_fang_forwarder(
                 expected_peer,
             )
             .await;
+            if result.is_ok() {
+                let _ = super::disarm_reset_on_close(&inbound);
+            }
         });
     }
 }
@@ -406,12 +412,14 @@ where
 
 async fn secure_copy_server_side(
     stream: ServerTlsStream<AuthorityTcpStream>,
-    remote_stream: TcpStream,
+    mut remote_stream: TcpStream,
     key: Zeroizing<[u8; 32]>,
     lease: SessionLease,
 ) -> io::Result<()> {
+    super::arm_reset_on_close(&remote_stream)?;
     let (mut fang_r, fang_w) = tokio::io::split(stream);
-    let (mut remote_r, remote_w) = remote_stream.into_split();
+    // Borrowed halves: no implicit FIN to the target when the session fails.
+    let (mut remote_r, remote_w) = remote_stream.split();
     let mut fang_w = fang_w;
     let mut remote_w = AuthorityWriter::new(remote_w, lease.clone());
 
@@ -450,11 +458,15 @@ async fn secure_copy_server_side(
         }
     };
 
-    tokio::select! {
+    let result = tokio::select! {
         biased;
         _ = lease.cancelled() => Err(hs::rejected()),
         result = async { tokio::try_join!(client_to_remote, remote_to_client).map(|_| ()) } => result,
+    };
+    if result.is_ok() {
+        super::disarm_reset_on_close(&remote_stream)?;
     }
+    result
 }
 
 async fn write_encrypted_frame<W: AsyncWriteExt + Unpin>(

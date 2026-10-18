@@ -2,6 +2,38 @@ pub(super) mod quic;
 pub(super) mod tcp_encrypted;
 pub(super) mod tcp_plain;
 
+/// Closing a socket with zero linger sends RST instead of FIN. A Fang arms
+/// this on the local application's socket and on the receiver's target socket
+/// before forwarding, and disarms it only after a clean end. An error,
+/// cancellation or abort then reaches the application or target as a
+/// connection reset instead of an EOF that looks like completion.
+pub(crate) fn arm_reset_on_close(stream: &tokio::net::TcpStream) -> std::io::Result<()> {
+    socket2::SockRef::from(stream).set_linger(Some(std::time::Duration::ZERO))
+}
+
+pub(crate) fn disarm_reset_on_close(stream: &tokio::net::TcpStream) -> std::io::Result<()> {
+    socket2::SockRef::from(stream).set_linger(None)
+}
+
+/// Test helper: the bytes a socket receives until it closes, and whether it
+/// closed with a reset (abnormal end) rather than a clean EOF.
+#[cfg(test)]
+pub(crate) async fn drain_until_closed(stream: &mut tokio::net::TcpStream) -> (Vec<u8>, bool) {
+    use tokio::io::AsyncReadExt;
+    let mut received = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        match stream.read(&mut buf).await {
+            Ok(0) => return (received, false),
+            Ok(n) => received.extend_from_slice(&buf[..n]),
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {
+                return (received, true)
+            }
+            Err(error) => panic!("unexpected socket error: {error}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) enum FangTransport {
     Tcp(String),

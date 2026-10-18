@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{error::Error, net::SocketAddr};
 use tokio::{
-    io::copy,
+    io::{copy, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     task::JoinHandle,
 };
@@ -61,6 +61,9 @@ pub async fn open_quic_fang(
                     continue;
                 }
             };
+            if crate::transport::arm_reset_on_close(&tcp).is_err() {
+                continue;
+            }
 
             let quic_server = quic_server.clone();
             let remote_addr = remote_addr.clone();
@@ -184,11 +187,13 @@ async fn connect_v3_on(
 }
 
 async fn proxy_streams(
-    tcp: TcpStream,
+    mut tcp: TcpStream,
     mut send: SendStream,
     mut recv: RecvStream,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let (mut rd, mut wr) = tcp.into_split();
+    // Borrowed halves do not shut down on drop, so a failed session closes
+    // the armed socket with RST instead of an implicit FIN.
+    let (mut rd, mut wr) = tcp.split();
 
     let up = async {
         copy(&mut rd, &mut send).await?;
@@ -201,10 +206,12 @@ async fn proxy_streams(
     };
     let down = async {
         copy(&mut recv, &mut wr).await?;
+        wr.shutdown().await?;
         Ok::<(), std::io::Error>(())
     };
 
     tokio::try_join!(up, down)?;
+    crate::transport::disarm_reset_on_close(&tcp)?;
 
     Ok(())
 }

@@ -66,6 +66,19 @@ per-frame read timeout), which broke idle interactive sessions such as SSH.
 Keep-alive PINGs and TCP probes are additional observable traffic; they do
 not change any frame format or handshake.
 
+## Abnormal session end
+
+A Fang closes the local application's socket, and the receiver closes its
+target socket, with a TCP reset (RST) when a session ends abnormally: a
+transport error, a dead path, cancellation, revocation or Silver. Only a
+clean end of both directions closes with FIN. An application therefore sees
+a failed transfer as an error, not as an EOF that looks like completion.
+
+Two cases still surface as a clean EOF and need protocol review to change:
+the QUIC receiver finishes its stream (instead of resetting it) when the
+target fails after the ACK, and encrypted TCP treats a peer's TCP close
+without TLS `close_notify`, including a cut inside a frame, as a clean end.
+
 ## Responsibilities
 
 Each transport covers the same lifecycle:
