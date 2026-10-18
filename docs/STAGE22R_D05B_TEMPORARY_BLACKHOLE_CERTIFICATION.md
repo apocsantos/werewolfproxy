@@ -148,9 +148,18 @@ EOF, exit 0. Outcome A in every case; transfer resumed as soon as the relay
 resumed. The relay carried about 1,353 MB per direction for 1,074 MB of
 payload (~26 % encrypted-TCP framing overhead on the wire).
 
-**Pending operator evidence:** VPS MainPID/`NRestarts`, `status` and target
-lines for the TCP runs. MainPID 25743 / `NRestarts=4` was reported after
-the 5 s TCP run.
+VPS target, one connection per transfer, each ending in EOF:
+
+| Pause | Target RX / TX | Target elapsed |
+|---|---|---|
+| 5 s | 1,073,741,824 / 1,073,741,824 | 890.140 s |
+| 10 s | 1,073,741,824 / 1,073,741,824 | 1,098.752 s |
+| 20 s | 1,073,741,824 / 1,073,741,824 | 927.497 s |
+| 30 s | 1,073,741,824 / 1,073,741,824 | 776.684 s |
+
+After the TCP series the VPS receiver was still MainPID 25743 with
+`NRestarts=4`, lifecycle `READY`, `inbound_authority.active=0`,
+`healthy=true`, `locked=false`, `storage_degraded=false` and generation 16.
 
 ## Certification conclusion
 
@@ -167,10 +176,9 @@ without restart, Pack mutation or Fang reactivation.
   integrity; no application-level stall timeout of 30 s or less exists.
   Packet-loss blackholes, which would exercise TCP retransmission backoff,
   were not tested (they require firewall changes outside this method).
-  **PASS**, subject to the pending VPS evidence above.
+  **PASS.**
 
-Stage22R-D05B: **CERTIFIED** for QUIC; encrypted TCP certification is
-finalized when the pending VPS evidence is recorded.
+Stage22R-D05B: **CERTIFIED** (QUIC and encrypted TCP).
 
 Observations for follow-up, not defects found by this test:
 
