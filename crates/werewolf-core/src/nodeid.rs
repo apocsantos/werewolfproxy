@@ -113,7 +113,7 @@ mod tests {
         let id = NodeId::from_public_key(&[7u8; 32]);
 
         assert_eq!(NodeId::from_hex(&id.to_hex()), Ok(id));
-        assert!(NodeId::from_hex(&format!("+{}", &"0".repeat(63))).is_err());
+        assert!(NodeId::from_hex(&format!("+{}", "0".repeat(63))).is_err());
         assert!(NodeId::from_hex(&format!("é{}", "0".repeat(62))).is_err());
         assert!(NodeId::from_hex(&"0".repeat(63)).is_err());
     }
