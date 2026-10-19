@@ -218,3 +218,63 @@ async fn multiplexed_peer_revoke_preserves_other_stream_and_silver_closes_connec
     .await
     .unwrap();
 }
+
+/// Reads the stream until it ends: `Ok` for a clean FIN, `Err` for a reset.
+async fn read_until_end(recv: &mut quinn::RecvStream) -> Result<Vec<u8>, quinn::ReadError> {
+    let mut received = Vec::new();
+    let mut buf = [0u8; 4096];
+    while let Some(n) = recv.read(&mut buf).await? {
+        received.extend_from_slice(&buf[..n]);
+    }
+    Ok(received)
+}
+
+#[tokio::test]
+async fn target_failure_after_ack_resets_the_stream_instead_of_finishing() {
+    timeout(Duration::from_secs(15), async {
+        let sender = generate_identity();
+        let receiver = generate_identity();
+        let runtime_tls_identity =
+            Arc::new(crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap());
+        let state = Arc::new(Mutex::new(DaemonState {
+            inbound_authority: Authority::new(false),
+            pelt: Some(receiver),
+            runtime_tls_identity: Some(runtime_tls_identity),
+            peers: vec![PeerRecord {
+                name: sender.fingerprint.clone(),
+                fingerprint: sender.fingerprint.clone(),
+                public_key_b64: Some(sender.public_key_b64.clone()),
+                address: "quic://127.0.0.1:1".into(),
+                trust: TrustLevel::Packmate,
+            }],
+            target_policy: TargetPolicy::Grants(HashMap::new()),
+            ..Default::default()
+        }));
+        let address = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let copy = state.clone();
+        let _server = Task(tokio::spawn(async move {
+            run_quic_fang_listener(&address.to_string(), copy).await
+        }));
+        let client = crate::quic_lab::make_client_endpoint().unwrap();
+        let connection = client.connect(address, "localhost").unwrap().await.unwrap();
+        let mut session = open(&connection, &state, &sender).await;
+
+        // The target sends part of a response, then dies with a reset.
+        session.target.write_all(b"partial").await.unwrap();
+        crate::transport::arm_reset_on_close(&session.target).unwrap();
+        drop(session.target);
+
+        // The initiator must see the failure, never a clean end that would
+        // let its application treat the truncated download as complete.
+        let ended = read_until_end(&mut session.recv).await;
+        assert!(
+            matches!(ended, Err(quinn::ReadError::Reset(code)) if code == hs::V3_REJECT_CODE.into()),
+            "{ended:?}"
+        );
+    })
+    .await
+    .unwrap();
+}

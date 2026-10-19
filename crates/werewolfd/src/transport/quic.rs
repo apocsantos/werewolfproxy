@@ -229,21 +229,16 @@ pub(crate) async fn run_quic_fang_listener_with_ready(
                                         let _=super::disarm_reset_on_close(&target);
                                     }
                                     if result.is_err() {
-                                        if lease.is_current() {
-                                            // The authenticated ACK has already been
-                                            // submitted. A forwarding/target error is
-                                            // an established-session close, not a
-                                            // handshake rejection; reset() could drop
-                                            // the queued ACK. Finish the send direction
-                                            // and stop only receive-side input.
-                                            let _ = send.finish();
-                                            let _ = recv.stop(hs::V3_REJECT_CODE.into());
-                                        } else {
-                                            // Revocation/Silver is intentionally
-                                            // abortive and may discard in-flight data.
-                                            let _=send.reset(hs::V3_REJECT_CODE.into());
-                                            let _=recv.stop(hs::V3_REJECT_CODE.into());
-                                        }
+                                        // A target or forwarding error, revocation
+                                        // and Silver all end the session abortively.
+                                        // finish() would hand the initiator a clean
+                                        // EOF after a truncated transfer. If the
+                                        // reset overtakes a queued ACK, the initiator
+                                        // sees a failed handshake instead; either way
+                                        // its application gets a reset
+                                        // (docs/SESSION_END_SIGNALLING_PROPOSAL.md).
+                                        let _=send.reset(hs::V3_REJECT_CODE.into());
+                                        let _=recv.stop(hs::V3_REJECT_CODE.into());
                                     }
                                 }
                                 _=>{

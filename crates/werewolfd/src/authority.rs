@@ -325,17 +325,6 @@ struct LeaseOwner {
     id: u64,
 }
 impl SessionLease {
-    pub(crate) fn is_current(&self) -> bool {
-        self.0
-            .authority
-            .gate()
-            .map(|g| {
-                g.sessions
-                    .get(&self.0.id)
-                    .is_some_and(|e| g.current(e.ticket))
-            })
-            .unwrap_or(false)
-    }
     /// Callers pass only TcpStream::connect over the already-authorized numeric
     /// SocketAddr slice. One poll may initiate a nonblocking connect; it never
     /// resolves a hostname or acquires daemon state. A SYN already submitted
