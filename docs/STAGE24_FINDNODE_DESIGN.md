@@ -8,8 +8,8 @@ step will extend it and is reviewed on its own.
 |---|---|---|
 | 0 | Bounded k-buckets, XOR ordering, `k` cap (`werewolf-core`) | Done (PR #8) |
 | 1 | Pelt-derived `NodeId`, signed `ContactRecord` (`werewolf-core::contact`) | Done |
-| 2 | FindNode/Ping RPC as a new signed request kind on the OPEN path, Pack-only | Next |
-| 3 | Lookup, `contacts.json` cache, `werewolfctl discover`, three-wolf lab gate | Planned |
+| 2 | FindNode/Ping RPC on the OPEN path, Pack-only ([wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)) | Done; requester not yet exposed in the CLI |
+| 3 | Advertised own record, lookup, `contacts.json` cache, `werewolfctl discover`, three-wolf lab gate | Next |
 
 Next item in [ARCHITECTURE.md §65](ARCHITECTURE.md): run FindNode over
 authenticated Werewolf transport (§18), as the base for distributed peer

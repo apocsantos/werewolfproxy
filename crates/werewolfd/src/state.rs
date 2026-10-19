@@ -97,6 +97,9 @@ pub(super) struct DaemonState {
     pub(super) den_listen: String,
     pub(super) den_quic_listen: String,
     pub(super) target_policy: TargetPolicy,
+    /// Stage24 discovery records this node answers with (in memory only).
+    pub(super) contacts: crate::discovery::Contacts,
+    pub(super) rpc_limiter: std::sync::Arc<crate::discovery::RpcLimiter>,
 }
 
 impl DaemonState {

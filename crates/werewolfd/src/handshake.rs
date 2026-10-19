@@ -125,6 +125,14 @@ pub(super) async fn read<T: DeserializeOwned, R: AsyncRead + Unpin>(
     limit: usize,
     deadline: Instant,
 ) -> io::Result<T> {
+    parse(&read_line(reader, limit, deadline).await?)
+}
+/// One bounded LF-terminated line, without prefetching bytes beyond LF.
+pub(super) async fn read_line<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    limit: usize,
+    deadline: Instant,
+) -> io::Result<Vec<u8>> {
     timeout_at(deadline, async {
         let mut data = Vec::with_capacity(limit);
         // Deliberately do not prefetch application bytes beyond LF.
@@ -132,16 +140,30 @@ pub(super) async fn read<T: DeserializeOwned, R: AsyncRead + Unpin>(
             let byte = reader.read_u8().await?;
             data.push(byte);
             if byte == b'\n' {
-                let value = serde_json::from_slice(&data).map_err(|_| rejected())?;
-                #[cfg(test)]
-                test_observer::record(test_observer::Phase::Read, &data);
-                return Ok(value);
+                return Ok(data);
             }
         }
         Err(rejected())
     })
     .await
     .map_err(|_| rejected())?
+}
+/// Strict parse of a line read by `read_line`.
+pub(super) fn parse<T: DeserializeOwned>(line: &[u8]) -> io::Result<T> {
+    let value = serde_json::from_slice(line).map_err(|_| rejected())?;
+    #[cfg(test)]
+    test_observer::record(test_observer::Phase::Read, line);
+    Ok(value)
+}
+/// The `cmd` of a first handshake line, used only to choose the strict
+/// message type that then parses the same bytes.
+pub(super) fn command(line: &[u8]) -> io::Result<String> {
+    let value: serde_json::Value = serde_json::from_slice(line).map_err(|_| rejected())?;
+    value
+        .get("cmd")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(rejected)
 }
 pub(super) async fn write<T: Serialize, W: AsyncWrite + Unpin>(
     writer: &mut W,
@@ -351,15 +373,22 @@ impl TcpChallengeContext {
         })
     }
     pub(super) fn check(&self, open: &TcpOpen) -> io::Result<()> {
+        self.check_binding(&open.challenge, &open.receiver_fingerprint)
+    }
+    pub(super) fn consume(&mut self, open: &TcpOpen) -> io::Result<()> {
+        self.consume_binding(&open.challenge, &open.receiver_fingerprint)
+    }
+    /// The challenge/receiver/deadline check shared by OPEN and Stage24 RPC.
+    pub(super) fn check_binding(&self, challenge: &str, receiver: &str) -> io::Result<()> {
         require(
             !self.consumed
                 && Instant::now() < self.deadline
-                && open.challenge == self.message.challenge
-                && open.receiver_fingerprint == self.receiver.fingerprint,
+                && challenge == self.message.challenge
+                && receiver == self.receiver.fingerprint,
         )
     }
-    pub(super) fn consume(&mut self, open: &TcpOpen) -> io::Result<()> {
-        self.check(open)?;
+    pub(super) fn consume_binding(&mut self, challenge: &str, receiver: &str) -> io::Result<()> {
+        self.check_binding(challenge, receiver)?;
         self.consumed = true;
         Ok(())
     }
@@ -546,6 +575,12 @@ impl QuicAck {
         Ok(value)
     }
 }
+
+mod rpc;
+pub(super) use rpc::{
+    tcp_sender_key, QuicRpc, QuicRpcResult, RpcRequest, TcpRpc, TcpRpcResult, QUIC_RPC,
+    RESULT_LIMIT, TCP_RPC,
+};
 
 #[cfg(test)]
 mod tests {

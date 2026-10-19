@@ -121,7 +121,7 @@ pub(super) async fn connect_v3(
     connect_v3_on(&endpoint, address, remote, identity, expected_peer).await
 }
 
-fn client_endpoint(expected_peer: &ExpectedPeerIdentity) -> std::io::Result<Endpoint> {
+pub(crate) fn client_endpoint(expected_peer: &ExpectedPeerIdentity) -> std::io::Result<Endpoint> {
     // A selected peer's full Pack key is required before creating an endpoint
     // or emitting a QUIC datagram. Fingerprints remain transcript identifiers,
     // not TLS trust material.

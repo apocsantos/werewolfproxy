@@ -155,12 +155,16 @@ async fn handle_fang_pipe(
     permit: HandshakePermit,
     started: tokio::time::Instant,
 ) -> io::Result<()> {
-    let (remote, key, lease) = tokio::time::timeout_at(
+    let Some((remote, key, lease)) = tokio::time::timeout_at(
         started + hs::SERVER_WINDOW,
         server_handshake(&mut stream, state, permit, started),
     )
     .await
-    .map_err(|_| hs::rejected())??;
+    .map_err(|_| hs::rejected())??
+    else {
+        // A Stage24 RPC was answered: end TLS with close_notify.
+        return stream.shutdown().await;
+    };
     secure_copy_server_side(stream, remote, key, lease).await
 }
 
@@ -169,7 +173,7 @@ async fn server_handshake(
     state: Arc<Mutex<DaemonState>>,
     mut permit: HandshakePermit,
     started: tokio::time::Instant,
-) -> io::Result<(TcpStream, Zeroizing<[u8; 32]>, SessionLease)> {
+) -> io::Result<Option<(TcpStream, Zeroizing<[u8; 32]>, SessionLease)>> {
     let receiver = state.lock().await.pelt.clone().ok_or_else(hs::rejected)?;
     // The identity and key snapshot travel with this challenge through ACK signing.
     let mut context = hs::TcpChallengeContext::new(receiver)?;
@@ -181,7 +185,15 @@ async fn server_handshake(
         context.deadline,
     )
     .await?;
-    let open: hs::TcpOpen = hs::read(stream, hs::MESSAGE_LIMIT, context.deadline).await?;
+    let line = hs::read_line(stream, hs::MESSAGE_LIMIT, context.deadline).await?;
+    if hs::command(&line)? == hs::TCP_RPC {
+        // Stage24 RPC: answered in place; no target, lease or ACK.
+        let rpc: hs::TcpRpc = hs::parse(&line)?;
+        crate::discovery::answer_tcp(stream, &rpc, &mut context, &state, &mut permit, started)
+            .await?;
+        return Ok(None);
+    }
+    let open: hs::TcpOpen = hs::parse(&line)?;
     let retained = open.transcript()?;
     let authority = {
         let st = state.lock().await;
@@ -235,7 +247,7 @@ async fn server_handshake(
         server_public.as_bytes(),
     )?;
     hs::write(stream, &ack, hs::MESSAGE_LIMIT, started + hs::SERVER_WINDOW).await?;
-    Ok((remote, key, lease.clone()))
+    Ok(Some((remote, key, lease.clone())))
         } => result,
     }
 }
