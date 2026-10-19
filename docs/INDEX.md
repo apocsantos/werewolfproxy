@@ -11,7 +11,7 @@
 - [Current status](STATUS.md)
 - [Architecture and final objective](ARCHITECTURE.md)
 - [Transport architecture](../TRANSPORT_ARCHITECTURE.md)
-- [Stage24 FindNode RPC design proposal](STAGE24_FINDNODE_DESIGN.md) (not implemented; for review)
+- [Stage24 FindNode design](STAGE24_FINDNODE_DESIGN.md) and [step 2 RPC wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md) (spec for review)
 
 ## Frozen v1 contracts
 
