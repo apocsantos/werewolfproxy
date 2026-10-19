@@ -186,22 +186,48 @@ async fn connect_v3_on(
     }
 }
 
+/// How long a finished upload may wait for the receiver to acknowledge all of
+/// it before the session counts as failed. The connection's idle timeout still
+/// ends it sooner on a dead path.
+const UPLOAD_ACK_WINDOW: Duration = Duration::from_secs(60);
+
+/// Owns the QUIC send stream and resets it when dropped unless the session
+/// ended cleanly. Quinn's own `Drop` would finish the stream, a clean FIN, so
+/// an error or a cancelled task could otherwise look like a complete upload
+/// (docs/SESSION_END_SIGNALLING_PROPOSAL.md, gap 2).
+struct AbortiveSend {
+    stream: SendStream,
+    clean: bool,
+}
+
+impl Drop for AbortiveSend {
+    fn drop(&mut self) {
+        if !self.clean {
+            let _ = self.stream.reset(hs::V3_REJECT_CODE.into());
+        }
+    }
+}
+
 async fn proxy_streams(
     mut tcp: TcpStream,
-    mut send: SendStream,
+    send: SendStream,
     mut recv: RecvStream,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut send = AbortiveSend {
+        stream: send,
+        clean: false,
+    };
     // Borrowed halves do not shut down on drop, so a failed session closes
     // the armed socket with RST instead of an implicit FIN.
     let (mut rd, mut wr) = tcp.split();
 
     let up = async {
-        copy(&mut rd, &mut send).await?;
+        copy(&mut rd, &mut send.stream).await?;
         // A local TCP EOF is a completed QUIC send direction.  Without this
         // explicit FIN, the receiver's stream copy waits for its idle timeout
         // and retains the Stage11C authority lease for every short-lived Fang
         // connection.
-        send.finish()?;
+        send.stream.finish()?;
         Ok::<(), std::io::Error>(())
     };
     let down = async {
@@ -211,6 +237,14 @@ async fn proxy_streams(
     };
 
     tokio::try_join!(up, down)?;
+    // The caller closes the connection next, and Quinn's close abandons data
+    // the peer has not acknowledged. Wait until the receiver has acknowledged
+    // the whole upload; a stop or a lost connection is a failed session.
+    match tokio::time::timeout(UPLOAD_ACK_WINDOW, send.stream.stopped()).await {
+        Ok(Ok(None)) => {}
+        _ => return Err("upload not acknowledged by the receiver".into()),
+    }
+    send.clean = true;
     crate::transport::disarm_reset_on_close(&tcp)?;
 
     Ok(())

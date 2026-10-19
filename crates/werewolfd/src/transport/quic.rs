@@ -33,6 +33,10 @@ const CONNECTION_RECEIVE_WINDOW: u32 = 512 * 1024;
 const SEND_WINDOW: u64 = 512 * 1024;
 const CRYPTO_BUFFER: usize = 16 * 1024;
 const QUIC_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+/// After the initiator closes a connection normally, how long its stream
+/// tasks may finish writing data already received (at most one stream
+/// window each) to their targets before they are aborted.
+const DRAIN_WINDOW: Duration = QUIC_IDLE_TIMEOUT;
 
 fn resource_bounded_server_config(
     crypto: quinn::crypto::rustls::QuicServerConfig,
@@ -175,11 +179,19 @@ pub(crate) async fn run_quic_fang_listener_with_ready(
             let first_deadline = Instant::now() + hs::READ_WINDOW;
             let mut first = true;
             let mut tasks = tokio::task::JoinSet::new();
+            let mut drain = false;
             loop {
                 tokio::select! {
                     biased;
                     _=silver.changed()=>{connection.close(hs::V3_REJECT_CODE.into(),b"");break},
-                    _=connection.closed()=>break,
+                    reason=connection.closed()=>{
+                        // The initiator closes with code 0 once its upload is
+                        // acknowledged; data received but not yet written to
+                        // the target must still be delivered
+                        // (docs/SESSION_END_SIGNALLING_PROPOSAL.md, gap 2).
+                        drain = matches!(&reason, quinn::ConnectionError::ApplicationClosed(close) if close.error_code == 0u32.into());
+                        break
+                    },
                     Some(_)=tasks.join_next(), if !tasks.is_empty()=>{},
                     incoming=async {
                         if first { timeout_at(first_deadline,connection.accept_bi()).await.map_err(|_|hs::rejected())?.map_err(|_|hs::rejected()) }
@@ -249,6 +261,13 @@ pub(crate) async fn run_quic_fang_listener_with_ready(
                         });
                     }
                 }
+            }
+            if drain {
+                // Leases stay owned by the tasks, so revocation and Silver
+                // still end them during the drain.
+                let _ = tokio::time::timeout(DRAIN_WINDOW, async {
+                    while tasks.join_next().await.is_some() {}
+                }).await;
             }
             tasks.abort_all();
             while tasks.join_next().await.is_some() {}

@@ -600,3 +600,138 @@ async fn target_reset_right_after_accept_reaches_local_client_as_reset() {
     .await
     .unwrap();
 }
+
+/// A receiver, a running QUIC Fang and a target listener for the
+/// session-end tests (docs/SESSION_END_SIGNALLING_PROPOSAL.md, gap 2).
+struct Rig {
+    local: SocketAddr,
+    target: TcpListener,
+    cancellation: crate::fang_registry::FangCancellation,
+    _fang: AbortOnDrop<()>,
+    _listener: AbortOnDrop<std::io::Result<()>>,
+}
+
+async fn rig() -> Rig {
+    let sender = generate_identity();
+    let receiver = generate_identity();
+    let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let target_address = target.local_addr().unwrap();
+    let state = Arc::new(Mutex::new(DaemonState {
+        pelt: Some(receiver.clone()),
+        runtime_tls_identity: Some(Arc::new(RuntimeTlsIdentity::from_pelt(&receiver).unwrap())),
+        peers: vec![peer(&sender, "sender")],
+        target_policy: TargetPolicy::Grants(HashMap::from([(
+            sender.fingerprint.clone(),
+            [target_address].into(),
+        )])),
+        ..Default::default()
+    }));
+    let quic_address = reserve_udp();
+    let listener = AbortOnDrop(tokio::spawn(async move {
+        crate::transport::run_quic_fang_listener(&quic_address.to_string(), state).await
+    }));
+    sleep(Duration::from_millis(30)).await;
+    let local = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let local_address = local.local_addr().unwrap();
+    drop(local);
+    let cancellation = crate::fang_registry::FangCancellation::default();
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let fang = AbortOnDrop(
+        open_quic_fang(
+            local_address.to_string(),
+            quic_address.to_string(),
+            target_address.to_string(),
+            sender,
+            cancellation.clone(),
+            ready_tx,
+            expected(&receiver),
+        )
+        .await
+        .unwrap(),
+    );
+    ready_rx.await.unwrap().unwrap();
+    Rig {
+        local: local_address,
+        target,
+        cancellation,
+        _fang: fang,
+        _listener: listener,
+    }
+}
+
+/// Gap 2a: a local client that resets mid-upload must reach the target as a
+/// reset. Quinn's `Drop for SendStream` would otherwise send a clean FIN.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_reset_mid_upload_reaches_target_as_reset() {
+    timeout(Duration::from_secs(60), async {
+        let rig = rig().await;
+        for _ in 0..50 {
+            let mut client = tokio::net::TcpStream::connect(rig.local).await.unwrap();
+            client.write_all(&[7u8; 64 * 1024]).await.unwrap();
+            let (mut target, _) = rig.target.accept().await.unwrap();
+            let mut first = [0u8; 1];
+            target.read_exact(&mut first).await.unwrap();
+            crate::transport::arm_reset_on_close(&client).unwrap();
+            drop(client);
+            let (_, reset) = crate::transport::drain_until_closed(&mut target).await;
+            assert!(reset, "target saw a clean EOF after the local client reset");
+        }
+    })
+    .await
+    .unwrap();
+}
+
+/// Gap 2a: cancelling the Fang mid-session aborts its tasks; the dropped
+/// stream must reach the target as a reset, not a FIN.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fang_cancellation_mid_session_reaches_target_as_reset() {
+    timeout(Duration::from_secs(30), async {
+        let rig = rig().await;
+        let mut client = tokio::net::TcpStream::connect(rig.local).await.unwrap();
+        client.write_all(b"partial upload").await.unwrap();
+        let (mut target, _) = rig.target.accept().await.unwrap();
+        let mut first = [0u8; 1];
+        target.read_exact(&mut first).await.unwrap();
+        rig.cancellation.abort_children();
+        let (_, reset) = crate::transport::drain_until_closed(&mut target).await;
+        assert!(reset, "target saw a clean EOF after the Fang was cancelled");
+    })
+    .await
+    .unwrap();
+}
+
+/// Gap 2b: the target answers and half-closes at once, then reads the whole
+/// upload. Closing the QUIC connection right after the local client's EOF
+/// must not cut the upload's tail or turn its FIN into a reset.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn clean_upload_after_early_target_half_close_arrives_complete() {
+    const UPLOAD: usize = 4 << 20;
+    timeout(Duration::from_secs(120), async {
+        let rig = rig().await;
+        for _ in 0..20 {
+            let client = tokio::net::TcpStream::connect(rig.local).await.unwrap();
+            let (mut target, _) = rig.target.accept().await.unwrap();
+            target.write_all(b"ready").await.unwrap();
+            target.shutdown().await.unwrap();
+            let (mut read, mut write) = client.into_split();
+            let upload = tokio::spawn(async move {
+                write.write_all(&vec![9u8; UPLOAD]).await.unwrap();
+                write.shutdown().await.unwrap();
+                write
+            });
+            let mut reply = Vec::new();
+            read.read_to_end(&mut reply).await.unwrap();
+            assert_eq!(reply, b"ready");
+            let (received, reset) = crate::transport::drain_until_closed(&mut target).await;
+            assert!(
+                !reset,
+                "clean upload ended with a reset after {} bytes",
+                received.len()
+            );
+            assert_eq!(received.len(), UPLOAD);
+            drop(upload.await.unwrap());
+        }
+    })
+    .await
+    .unwrap();
+}
