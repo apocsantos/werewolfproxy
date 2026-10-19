@@ -1,6 +1,7 @@
 # Stage24 step 2: FindNode/Ping RPC wire specification
 
-**Status: proposal for owner review. Not implemented.** This is the first
+**Status: approved by the owner 2026-10-19; implementation in progress.**
+This is the first
 extension of the frozen [v1 wire contract](V1_WIRE_CONTRACT.md). It follows
 the accepted [Stage24 design](STAGE24_FINDNODE_DESIGN.md) (transport option
 A, Pack-only queries) and reuses the [Stage10](STAGE10_REPLAY_HARDENING.md)
@@ -170,10 +171,9 @@ existing generic paths (TCP close; QUIC `V3_REJECT_CODE` reset/stop).
 - Lab: three wolves (A knows B, B knows C); A pings B and finds C's record
   through B over QUIC and encrypted TCP; A still cannot open a Fang to C.
 
-## Decisions for the owner
+## Decisions (approved 2026-10-19)
 
-1. Approve the messages and transcripts above as the v1 contract extension.
-2. **Decided 2026-10-19:** RPC over both QUIC and encrypted TCP in Phase 1.
-3. Limits: `RESULT_LIMIT` 32 KiB and per-peer rate burst 16 / 4 per second.
-4. Signed results (recommended, consistent with ACK) rather than relying on
-   TLS alone.
+1. The messages and transcripts above are the v1 contract extension.
+2. RPC runs over both QUIC and encrypted TCP in Phase 1.
+3. Limits: `RESULT_LIMIT` 32 KiB; per-peer rate burst 16, refill 4 per second.
+4. Results are signed, consistent with ACK.
