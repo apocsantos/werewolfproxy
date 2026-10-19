@@ -74,12 +74,13 @@ transport error, a dead path, cancellation, revocation or Silver. Only a
 clean end of both directions closes with FIN. An application therefore sees
 a failed transfer as an error, not as an EOF that looks like completion.
 
-Some cases still surface as a clean EOF and need protocol review to change:
-the QUIC receiver finishes its stream (instead of resetting it) when the
-target fails after the ACK, a failing QUIC initiator's dropped stream sends an
-implicit FIN, and encrypted TCP treats any cut at a frame's length prefix
-(missing TLS `close_notify`, TCP reset, partial prefix) as a clean end. See
-the [session-end signalling proposal](docs/SESSION_END_SIGNALLING_PROPOSAL.md).
+Between the wolves, the QUIC receiver resets its stream (it no longer
+finishes it) when the target fails after the ACK. Two cases still surface as
+a clean EOF and are being fixed under the approved
+[session-end signalling proposal](docs/SESSION_END_SIGNALLING_PROPOSAL.md): a
+failing QUIC initiator's dropped stream sends an implicit FIN, and encrypted
+TCP treats any cut at a frame's length prefix (missing TLS `close_notify`,
+TCP reset, partial prefix) as a clean end.
 
 ## Responsibilities
 

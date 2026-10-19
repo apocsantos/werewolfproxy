@@ -15,7 +15,7 @@ cleanly. Three places still turn an abnormal end into a clean one.
 
 | # | Where | Today | Effect |
 |---|---|---|---|
-| 1 | QUIC receiver, target fails after the ACK | `send.finish()` (clean FIN) | Initiator's app gets FIN after a truncated download |
+| 1 | QUIC receiver, target fails after the ACK | `send.finish()` (clean FIN) — **fixed: now resets** | Initiator's app gets FIN after a truncated download |
 | 2 | QUIC initiator, local side fails | `send` dropped → Quinn's `Drop` calls `finish()`; then `close(0)` | Receiver may give the target FIN after a truncated upload |
 | 3 | Encrypted TCP, either direction | Any error while reading a frame's length prefix → treated as EOF | Peer crash, TCP reset, path cut or missing TLS `close_notify` all look clean |
 
