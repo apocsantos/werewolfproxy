@@ -195,7 +195,10 @@ pub(crate) async fn run_quic_fang_listener_with_ready(
                             let result=timeout_at(started+hs::SERVER_WINDOW,server_handshake(&mut send,&mut recv,state,&mut permit,&replay,&binding,started,connection_id)).await;
                             drop(permit);drop(open_permit);
                             match result {
-                                Ok(Ok((mut target,lease)))=>{
+                                Ok(Ok(None))=>{
+                                    let _=send.finish();
+                                }
+                                Ok(Ok(Some((mut target,lease))))=>{
                                     let _=super::arm_reset_on_close(&target);
                                     let result=tokio::select! {
                                         biased;
@@ -271,8 +274,15 @@ async fn server_handshake(
     binding: &[u8; 32],
     started: Instant,
     connection_id: ConnectionId,
-) -> io::Result<(tokio::net::TcpStream, SessionLease)> {
-    let open: hs::QuicOpen = hs::read(recv, hs::MESSAGE_LIMIT, started + hs::READ_WINDOW).await?;
+) -> io::Result<Option<(tokio::net::TcpStream, SessionLease)>> {
+    let line = hs::read_line(recv, hs::MESSAGE_LIMIT, started + hs::READ_WINDOW).await?;
+    if hs::command(&line)? == hs::QUIC_RPC {
+        // Stage24 RPC: answered in place; no target, lease or ACK.
+        let rpc: hs::QuicRpc = hs::parse(&line)?;
+        crate::discovery::answer_quic(send, &rpc, binding, &state, permit, replay, started).await?;
+        return Ok(None);
+    }
+    let open: hs::QuicOpen = hs::parse(&line)?;
     let retained = open.transcript(binding)?;
     let (sender_key, receiver, policy, authority) = {
         let st = state.lock().await;
@@ -319,7 +329,7 @@ async fn server_handshake(
     let ack = hs::QuicAck::new(&open, &retained, &receiver)?;
     let mut writer = AuthorityWriter::new(send, lease.clone());
     hs::write(&mut writer, &ack, hs::MESSAGE_LIMIT, started + hs::SERVER_WINDOW).await?;
-    Ok((target, lease.clone()))
+    Ok(Some((target, lease.clone())))
         } => result,
     }
 }

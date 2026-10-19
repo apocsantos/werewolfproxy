@@ -2,6 +2,7 @@
 compile_error!("secure local control currently requires Linux");
 mod admission;
 mod control;
+mod discovery;
 mod fang_registry;
 mod handshake;
 mod lifecycle;

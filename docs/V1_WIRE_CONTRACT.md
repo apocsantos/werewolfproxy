@@ -49,6 +49,16 @@ The exact signed field encodings and frame/KDF definitions remain recorded in
 [Stage10 replay hardening](STAGE10_REPLAY_HARDENING.md); that certification is
 part of this freeze and this overview does not supersede it.
 
+## Stage24 extension: discovery RPC
+
+Stage24 adds `ping` and `find_node` RPCs in the OPEN position on both
+transports (`fang.quic.rpc`, `fang.tcp.rpc` and their signed results), with
+their own `/v1` transcript domains. They are read-only, Pack-only, take no
+target or authority lease, and are rejected by pre-Stage24 receivers like any
+malformed OPEN. OPEN, ACK, challenge, KDF and framing above are unchanged.
+The exact messages are in the
+[Stage24 RPC wire specification](STAGE24_FINDNODE_RPC_WIRE_SPEC.md).
+
 ## Fallback and time/resource behavior
 
 The default secure selector (secure/strict) tries QUIC secure, encrypted TCP
