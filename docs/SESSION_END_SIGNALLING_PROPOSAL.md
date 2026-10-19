@@ -1,8 +1,8 @@
 # Session-end signalling — proposal for review
 
-**Status: proposal, 2026-10-19. Nothing here is implemented.** It changes how
-an abnormal session end is signalled between wolves, so it needs explicit
-review before any code changes (see the crypto/protocol change discipline).
+**Status: approved 2026-10-19; implementation in progress, one PR per gap.**
+It changes how an abnormal session end is signalled between wolves; the
+decisions below were reviewed and accepted by the project owner.
 
 ## Goal
 
@@ -167,13 +167,13 @@ For each gap, a test that fails today and passes after the change:
 5. Lab gates (`run.py`, `service_gate.py`, `discovery_gate.py`) unchanged and
    passing; the D05B/idle-liveness lab checks repeated for QUIC and TCP.
 
-## Decisions requested
+## Decisions (approved 2026-10-19)
 
-1. Gap 1: reset with the existing `V3_REJECT_CODE` (recommended), or a new
-   "session aborted" code.
-2. Gap 2: explicit reset on error (recommended); for the clean path, option
-   (a) bounded `stopped()` wait (recommended first) or (b) receiver-initiated
-   close.
-3. Gap 3: require `close_notify` for a clean end (recommended, subject to the
-   RC1 interop result), or accept bare FIN at a frame boundary.
-4. Whether to implement all three in one PR (one review) or one PR per gap.
+1. Gap 1: reset with the existing `V3_REJECT_CODE`; no new code.
+2. Gap 2: explicit reset on error; on the clean path, option (a), a bounded
+   `stopped()` wait, first; option (b) only if testing still shows a clean
+   upload reported as reset.
+3. Gap 3: require `close_notify` for a clean end, subject to the RC1 interop
+   result.
+4. One PR per gap, in order 1, 2, 3, each with its own failing-then-passing
+   test, the RC1 interop matrix and the lab gates.
