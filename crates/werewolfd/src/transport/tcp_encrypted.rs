@@ -54,6 +54,8 @@ mod frame_write_tests;
 mod liveness_tests;
 #[cfg(test)]
 mod receiver_auth_tests;
+#[cfg(test)]
+mod session_end_tests;
 
 #[cfg(test)]
 pub(super) async fn run_fang_listener(
@@ -394,17 +396,16 @@ where
         // No application idle timeout: an idle session lives as long as
         // the kernel liveness checks in configure_liveness succeed.
         loop {
-            match read_encrypted_frame(&mut out_r, &key, 1, &mut counter).await {
-                Ok(plaintext) => {
+            match read_frame_or_end(&mut out_r, &key, 1, &mut counter).await? {
+                Some(plaintext) => {
                     let plaintext = Zeroizing::new(plaintext);
                     in_w.write_all(&plaintext).await?;
                     in_w.flush().await?;
                 }
-                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
+                None => {
                     in_w.shutdown().await?;
                     return Ok::<(), io::Error>(());
                 }
-                Err(error) => return Err(error),
             }
         }
     };
@@ -440,17 +441,16 @@ async fn secure_copy_server_side(
 
         // As on the client side, idle liveness is the kernel's job.
         loop {
-            match read_encrypted_frame(&mut fang_r, &key, 0, &mut counter).await {
-                Ok(plaintext) => {
+            match read_frame_or_end(&mut fang_r, &key, 0, &mut counter).await? {
+                Some(plaintext) => {
                     let plaintext = Zeroizing::new(plaintext);
                     remote_w.write_all(&plaintext).await?;
                     remote_w.flush().await?;
                 }
-                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                None => {
                     let _ = remote_w.shutdown().await;
                     return Ok::<(), io::Error>(());
                 }
-                Err(e) => return Err(e),
             }
         }
     };
@@ -536,17 +536,37 @@ async fn write_encrypted_frame<W: AsyncWriteExt + Unpin>(
     Ok(())
 }
 
+/// Like `read_frame_or_end`, with a clean end reported as `UnexpectedEof`.
+#[cfg(test)]
 async fn read_encrypted_frame<R: AsyncReadExt + Unpin>(
     reader: &mut R,
     key: &[u8; 32],
     direction: u8,
     counter: &mut u64,
 ) -> io::Result<Vec<u8>> {
+    read_frame_or_end(reader, key, direction, counter)
+        .await?
+        .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "closed"))
+}
+
+/// Reads one frame, or `None` if the peer ended this direction cleanly. A
+/// clean end exists only at a frame boundary after TLS `close_notify`, where
+/// tokio-rustls reads `Ok(0)`. A TCP close without `close_notify` (rustls
+/// `UnexpectedEof`), any I/O error and an end inside the length prefix are
+/// errors, so the caller resets instead of passing on a clean EOF
+/// (docs/SESSION_END_SIGNALLING_PROPOSAL.md, gap 3).
+async fn read_frame_or_end<R: AsyncReadExt + Unpin>(
+    reader: &mut R,
+    key: &[u8; 32],
+    direction: u8,
+    counter: &mut u64,
+) -> io::Result<Option<Vec<u8>>> {
     let mut len_buf = [0u8; 4];
 
-    if reader.read_exact(&mut len_buf).await.is_err() {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "closed"));
+    if reader.read(&mut len_buf[..1]).await? == 0 {
+        return Ok(None);
     }
+    reader.read_exact(&mut len_buf[1..]).await?;
 
     let len = usize::try_from(u32::from_be_bytes(len_buf)).map_err(|_| {
         io::Error::new(
@@ -588,7 +608,7 @@ async fn read_encrypted_frame<R: AsyncReadExt + Unpin>(
         ));
     }
 
-    Ok(padded_plaintext[2..2 + real_len].to_vec())
+    Ok(Some(padded_plaintext[2..2 + real_len].to_vec()))
 }
 
 fn derive_shared_key(
