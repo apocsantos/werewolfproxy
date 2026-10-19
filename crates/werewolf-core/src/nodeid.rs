@@ -19,6 +19,18 @@ impl NodeId {
         Self(id)
     }
 
+    /// Domain tag for Pelt-derived node IDs (Stage24 design).
+    pub const DOMAIN: &'static [u8] = b"werewolf/node-id/v1\0";
+
+    /// The overlay ID of the node holding this Pelt Ed25519 public key. It is
+    /// stable across address changes and cannot be claimed without the key.
+    pub fn from_public_key(public_key: &[u8; 32]) -> Self {
+        let mut h = Sha256::new();
+        h.update(Self::DOMAIN);
+        h.update(public_key);
+        Self(h.finalize().into())
+    }
+
     pub fn xor_distance(&self, other: &NodeId) -> [u8; 32] {
         let mut out = [0u8; 32];
 
@@ -80,6 +92,15 @@ mod tests {
         let b = NodeId::from_name_address("wolf-b", "127.0.0.1:9561");
 
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn public_key_id_is_domain_separated_and_key_bound() {
+        let a = NodeId::from_public_key(&[1u8; 32]);
+
+        assert_eq!(a, NodeId::from_public_key(&[1u8; 32]));
+        assert_ne!(a, NodeId::from_public_key(&[2u8; 32]));
+        assert_ne!(a.0, <[u8; 32]>::from(Sha256::digest([1u8; 32])));
     }
 
     #[test]

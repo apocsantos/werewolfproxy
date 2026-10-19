@@ -948,7 +948,13 @@ async fn legacy_interoperability_matrix() {
     }));
     rx.await.unwrap().unwrap();
     let mut client = TcpStream::connect(local).await.unwrap();
-    client.write_all(b"not forwarded").await.unwrap();
+    // The forwarder resets a rejected session, possibly before this write.
+    if let Err(error) = client.write_all(b"not forwarded").await {
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+        ));
+    }
     let mut data = [0; 32];
     let result = timeout(Duration::from_secs(7), client.read(&mut data))
         .await
