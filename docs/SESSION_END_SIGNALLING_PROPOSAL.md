@@ -16,7 +16,7 @@ cleanly. Three places still turn an abnormal end into a clean one.
 | # | Where | Today | Effect |
 |---|---|---|---|
 | 1 | QUIC receiver, target fails after the ACK | `send.finish()` (clean FIN) — **fixed: now resets** | Initiator's app gets FIN after a truncated download |
-| 2 | QUIC initiator, local side fails | `send` dropped → Quinn's `Drop` calls `finish()`; then `close(0)` | Receiver may give the target FIN after a truncated upload |
+| 2 | QUIC initiator, local side fails | `send` dropped → Quinn's `Drop` calls `finish()`; then `close(0)` — **fixed: explicit reset; clean end waits for ack, receiver drains** | Receiver may give the target FIN after a truncated upload |
 | 3 | Encrypted TCP, either direction | Any error while reading a frame's length prefix → treated as EOF | Peer crash, TCP reset, path cut or missing TLS `close_notify` all look clean |
 
 A related race on the **clean** path (2b below) can do the opposite: report
@@ -89,6 +89,18 @@ then reset the target, reporting a clean session as failed. Two options:
 
 Recommended: (a) now, plus test 2 below run many times; move to (b) only if
 the test still shows a clean upload reported as reset.
+
+**Implementation finding (2026-10-19).** With (a) alone the clean-upload test
+still failed under load (3 of 3 loaded runs). The cause was on the receiver,
+not the race above: when the initiator's normal `close(0)` arrived, the
+receiver's connection loop aborted every stream task, including one still
+writing the acknowledged tail (up to one 64 KiB stream window) to a slow
+target, whose armed socket then reset. Quinn itself keeps buffered stream
+data readable after a close. The fix is receiver-local, with no wire change:
+on a peer close with application code 0, stream tasks get up to the QUIC idle
+timeout (30 s) to finish before being aborted; Silver, revocation (leases
+stay owned by the tasks) and any other close still end them at once. With
+(a) plus this drain, the loaded runs pass 3 of 3, so (b) is not needed.
 
 **Wire impact:** none for 2a and (a); (b) changes who sends
 CONNECTION_CLOSE but uses existing frames and codes.
