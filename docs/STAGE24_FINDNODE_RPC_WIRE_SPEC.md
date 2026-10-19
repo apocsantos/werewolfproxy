@@ -173,7 +173,7 @@ existing generic paths (TCP close; QUIC `V3_REJECT_CODE` reset/stop).
 ## Decisions for the owner
 
 1. Approve the messages and transcripts above as the v1 contract extension.
-2. RPC over both QUIC and encrypted TCP in Phase 1 (recommended), or QUIC only.
+2. **Decided 2026-10-19:** RPC over both QUIC and encrypted TCP in Phase 1.
 3. Limits: `RESULT_LIMIT` 32 KiB and per-peer rate burst 16 / 4 per second.
 4. Signed results (recommended, consistent with ACK) rather than relying on
    TLS alone.
