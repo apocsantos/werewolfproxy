@@ -1,6 +1,6 @@
 # Session-end signalling — proposal for review
 
-**Status: approved 2026-10-19; implementation in progress, one PR per gap.**
+**Status: approved and implemented 2026-10-19 (gap 1 #19, gap 2 #20, gap 3).**
 It changes how an abnormal session end is signalled between wolves; the
 decisions below were reviewed and accepted by the project owner.
 
@@ -17,7 +17,7 @@ cleanly. Three places still turn an abnormal end into a clean one.
 |---|---|---|---|
 | 1 | QUIC receiver, target fails after the ACK | `send.finish()` (clean FIN) — **fixed: now resets** | Initiator's app gets FIN after a truncated download |
 | 2 | QUIC initiator, local side fails | `send` dropped → Quinn's `Drop` calls `finish()`; then `close(0)` — **fixed: explicit reset; clean end waits for ack, receiver drains** | Receiver may give the target FIN after a truncated upload |
-| 3 | Encrypted TCP, either direction | Any error while reading a frame's length prefix → treated as EOF | Peer crash, TCP reset, path cut or missing TLS `close_notify` all look clean |
+| 3 | Encrypted TCP, either direction | Any error while reading a frame's length prefix → treated as EOF — **fixed: clean only after `close_notify` at a frame boundary** | Peer crash, TCP reset, path cut or missing TLS `close_notify` all look clean |
 
 A related race on the **clean** path (2b below) can do the opposite: report
 a successful session as failed.
@@ -147,6 +147,19 @@ the RC1 binary) that ends a clean session without `close_notify` would now
 cause an RST. The server pipe ignores `shutdown()` errors (`let _ =`), so
 this must be checked by test, not assumed.
 
+**Implementation finding (2026-10-19).** RC1 (`v1.0.0-rc.1`) and current
+code send `close_notify` on every clean direction end (`shutdown()` on the
+TLS writer), so requiring it does not break clean RC1 sessions. One pattern
+ends without it on both: when the target finishes first, the client pipe
+ends the whole session (the characterized bounded cleanup of commit
+`3bd61cf`, which releases the receiver's authority lease even if the local
+application never closes its write side) and drops its upload direction. The
+owner chose to keep that behaviour: the receiver now reports that dropped
+direction to the target as a reset, and an upload attempted after the
+target finished is not forwarded. Unlike QUIC, encrypted TCP therefore does
+not support uploading after the remote direction has ended; it fails
+visibly instead of looking complete.
+
 **Alternative:** keep accepting a bare TCP FIN at a frame boundary and only
 treat resets, liveness timeouts and partial prefixes as abnormal. Smaller
 compatibility risk, but a crashed peer whose kernel sends FIN still looks
@@ -189,3 +202,7 @@ For each gap, a test that fails today and passes after the change:
    result.
 4. One PR per gap, in order 1, 2, 3, each with its own failing-then-passing
    test, the RC1 interop matrix and the lab gates.
+5. Encrypted TCP, target finishes first while the local write side is still
+   open: keep ending the session at once (bounded authority cleanup) and
+   report the unfinished upload direction as a reset; do not add QUIC-style
+   upload-after-remote-EOF.

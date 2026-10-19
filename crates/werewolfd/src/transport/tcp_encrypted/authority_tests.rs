@@ -6,20 +6,20 @@ use werewolf_core::{
     pelt::generate_identity,
 };
 
-struct Task(tokio::task::JoinHandle<io::Result<()>>);
+pub(super) struct Task(pub(super) tokio::task::JoinHandle<io::Result<()>>);
 impl Drop for Task {
     fn drop(&mut self) {
         self.0.abort();
     }
 }
 
-struct Session {
-    peer: ClientTlsStream<TcpStream>,
-    target: TcpStream,
-    key: Zeroizing<[u8; 32]>,
+pub(super) struct Session {
+    pub(super) peer: ClientTlsStream<TcpStream>,
+    pub(super) target: TcpStream,
+    pub(super) key: Zeroizing<[u8; 32]>,
     worker: Task,
 }
-async fn establish(state: Arc<Mutex<DaemonState>>, sender: &PeltIdentity) -> Session {
+pub(super) async fn establish(state: Arc<Mutex<DaemonState>>, sender: &PeltIdentity) -> Session {
     let target_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let target_address = target_listener.local_addr().unwrap();
     {
@@ -85,7 +85,7 @@ async fn establish(state: Arc<Mutex<DaemonState>>, sender: &PeltIdentity) -> Ses
         worker,
     }
 }
-fn fixture(senders: &[&PeltIdentity]) -> Arc<Mutex<DaemonState>> {
+pub(super) fn fixture(senders: &[&PeltIdentity]) -> Arc<Mutex<DaemonState>> {
     let receiver = generate_identity();
     let runtime_tls_identity =
         Arc::new(crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap());

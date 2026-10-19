@@ -80,11 +80,13 @@ initiator resets on a local error or cancellation (never Quinn's implicit FIN
 on drop). On a clean end the initiator closes the connection only after the
 receiver has acknowledged the whole upload, and the receiver lets its stream
 tasks finish writing received data to the target after that normal close
-(bounded by the idle timeout). One case still surfaces as a clean EOF and is
-being fixed under the approved
-[session-end signalling proposal](docs/SESSION_END_SIGNALLING_PROPOSAL.md):
-encrypted TCP treats any cut at a frame's length prefix (missing TLS
-`close_notify`, TCP reset, partial prefix) as a clean end.
+(bounded by the idle timeout). On encrypted TCP a direction ends cleanly only
+after TLS `close_notify` at a frame boundary; a TCP close without it, a reset
+or a cut inside a frame is reported as a reset. When the target finishes
+first, an encrypted TCP session ends as a whole (releasing authority at
+once), so an upload not yet finished is reported to the target as a reset;
+QUIC instead keeps the upload direction open. See the
+[session-end signalling proposal](docs/SESSION_END_SIGNALLING_PROPOSAL.md).
 
 ## Responsibilities
 
