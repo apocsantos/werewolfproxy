@@ -159,13 +159,20 @@ should be ignored is left to step 3.
 
 These narrow the proposal above for Phase 1; none changes the wire messages.
 
-1. **Lookup is one hop.** `discover find` queries only Pack members (the
-   eight nearest to the target, α = 3, one seven-second budget) instead of
-   iterating over discovered nodes. A discovered node is shown to the
-   operator and never contacted automatically, so a Pack member cannot steer
-   this node into connecting to arbitrary addresses. This also settles the
-   loopback/private-address question: no filter is needed while learned
-   addresses are never dialled. Multi-hop lookup is a later decision.
+1. **Lookup is iterative (multi-hop), chosen 2026-10-19.** `discover find`
+   seeds the shortlist with Pack members, then each hop asks the α = 3
+   nearest unasked nodes among the 20 nearest known and adds the nodes they
+   return. Discovered nodes are dialled at their advertised address for the
+   requested transport, with TLS pinned to the record's key. It stops when
+   the target's record arrives or the nearest nodes have all been asked, and
+   at 8 hops, 24 queries, 3 s per query or 7 s in total. Because receivers
+   answer only their Pack members, each hop works only through nodes that
+   trust the requester. Residual risk, accepted: a Pack member can return
+   self-signed records with chosen addresses and so make this node send TLS
+   ClientHellos / QUIC Initials to up to 23 other IP:port pairs per lookup;
+   pinning means no handshake or RPC content completes there. Learned
+   loopback and private addresses are not filtered, since the overlay
+   itself may use them.
 2. **A responder vouches only for its own Pack.** The "verified contact set"
    a FindNode answer draws from is the cached records whose key belongs to a
    current Pack member. Records learned from other nodes are cached for the

@@ -409,3 +409,83 @@ async fn find_returns_a_friend_of_a_friend_without_trusting_it() {
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn find_walks_hops_only_through_nodes_that_trust_the_requester() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let (a, b, c, d) = (
+            node(&[], Contacts::default()).await,
+            node(&[], Contacts::default()).await,
+            node(&[], Contacts::default()).await,
+            node(&[], Contacts::default()).await,
+        );
+        let mut dens = Vec::new();
+        for (node, pack) in [
+            (&a, vec![member("wolf-b", &b)]),
+            (&b, vec![member("wolf-a", &a), member("wolf-c", &c)]),
+            (&c, vec![member("wolf-b", &b), member("wolf-d", &d)]),
+            (&d, vec![member("wolf-c", &c)]),
+        ] {
+            let (path, den) = temporary_den();
+            dens.push(path);
+            let mut st = node.state.lock().await;
+            st.peers = pack;
+            st.den = Some(den);
+        }
+        for node in [&c, &d] {
+            node.state.lock().await.contacts.advertised = vec![format!("quic://{}", node.quic)];
+        }
+        for node in [&b, &c] {
+            let refreshed = operate(node, "discover.refresh", serde_json::json!({})).await;
+            assert_eq!(refreshed["ok"], true, "{refreshed}");
+        }
+        let find_d = || {
+            operate(
+                &a,
+                "discover.find",
+                serde_json::json!({"target": d.receiver.public_key_b64}),
+            )
+        };
+        let hop = |result: &serde_json::Value, n: u64| -> Vec<serde_json::Value> {
+            result["result"]["queried"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|s| s["hop"] == n)
+                .cloned()
+                .collect()
+        };
+
+        // B points A at C, but C does not trust A and refuses to answer.
+        let refused = find_d().await;
+        assert!(refused["result"]["found"].is_null(), "{refused}");
+        assert_eq!(hop(&refused, 1)[0]["peer"], "wolf-b");
+        assert_eq!(hop(&refused, 1)[0]["records"], 1);
+        assert_eq!(hop(&refused, 2).len(), 1);
+        assert_eq!(hop(&refused, 2)[0]["status"], "rejected");
+
+        // Once C trusts A, the second hop answers with D.
+        c.state.lock().await.peers.push(member("wolf-a", &a));
+        let found = find_d().await;
+        let record = &found["result"]["found"];
+        assert_eq!(
+            record["public_key_b64"],
+            d.receiver.public_key_b64.as_str(),
+            "{found}"
+        );
+        let second = hop(&found, 2);
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0]["status"], "ok");
+        assert!(second[0]["peer"].as_str().unwrap().starts_with("node:"));
+        assert!(hop(&found, 3).is_empty());
+
+        // Neither C nor D became trusted by A.
+        assert_eq!(a.state.lock().await.peers.len(), 1);
+
+        for path in dens {
+            let _ = std::fs::remove_dir_all(path);
+        }
+    })
+    .await
+    .unwrap();
+}

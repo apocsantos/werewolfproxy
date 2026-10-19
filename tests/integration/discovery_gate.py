@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Disposable checkout-only discovery gate (Stage24). See README.md.
 
-Three wolves: A trusts B, B trusts A and C, C trusts B. A finds C's signed
-record through B over QUIC and encrypted TCP, yet discovery grants nothing:
-A cannot reach C until both operators add each other to their Packs and C
-allows the target.
+Four wolves in a chain: A trusts B, B trusts A and C, C trusts B and D, D
+trusts C. A finds C's signed record through B, and D's through B and then C
+(multi-hop) once C trusts A, over QUIC and encrypted TCP. Discovery grants
+nothing: A cannot reach C until both operators add each other to their Packs
+and C allows the target.
 """
 import json
 import pathlib
@@ -16,7 +17,7 @@ from service_gate import REJECTED, ServiceGate
 
 
 class DiscoveryGate(ServiceGate):
-    WOLVES = ('a', 'b', 'c')
+    WOLVES = ('a', 'b', 'c', 'd')
 
     def find(self, wolf, node, transport='quic'):
         return self.ctl(wolf, 'discover', 'find', node, '--transport', transport)['result']
@@ -45,7 +46,8 @@ class DiscoveryGate(ServiceGate):
             keys[wolf] = self.ctl(wolf, 'pelt', 'show')['result']['public_key_b64']
             addresses[wolf] = self.address(wolf + '_quic')
             self.wait_for(lambda wolf=wolf: self.listener(wolf + '_tcp'), f'{wolf} TCP')
-        for wolf, peers in {'a': ('b',), 'b': ('a', 'c'), 'c': ('b',)}.items():
+        for wolf, peers in {'a': ('b',), 'b': ('a', 'c'), 'c': ('b', 'd'),
+                            'd': ('c',)}.items():
             for peer in peers:
                 self.ctl(wolf, 'pack', 'add', f'wolf-{peer}', keys[peer],
                          f'quic://{addresses[peer]}')
@@ -59,6 +61,12 @@ class DiscoveryGate(ServiceGate):
         node_c = shown['node_id']
         self.record('advertise signs an own record; hostnames rejected',
                     {'node_id': node_c, 'seq': shown['record']['seq']})
+        advertised_d = [f'quic://{addresses["d"]}', f'tcp://{addresses["d"]}']
+        self.ctl('d', 'discover', 'advertise', *advertised_d)
+        node_d = self.ctl('d', 'discover', 'show')['result']['node_id']
+        refreshed = self.ctl('c', 'discover', 'refresh')['result']
+        require({s['peer']: s.get('records') for s in refreshed['queried']}
+                == {'wolf-b': 0, 'wolf-d': 1}, f'C did not learn D: {refreshed}')
 
         refreshed = self.ctl('b', 'discover', 'refresh')['result']
         statuses = {s['peer']: s for s in refreshed['queried']}
@@ -103,10 +111,32 @@ class DiscoveryGate(ServiceGate):
                 'advertised addresses lost on restart')
         self.record('advertise and cache survive daemon restart', {'contacts': len(after)})
 
-        # Trust stays a deliberate operator step on both sides.
+        # Multi-hop: B points A at C, which answers only once it trusts A.
+        def hops(result):
+            return {(s['hop'], s['peer'].startswith('node:')): (s['status'], s.get('records'))
+                    for s in result['queried']}
+        refused = self.find('a', node_d)
+        require(refused['found'] is None, 'D found through a node that does not trust A')
+        require(hops(refused) == {(1, False): ('ok', 1), (2, True): ('rejected', None)},
+                f'unexpected hops: {refused["queried"]}')
+        self.record('a hop that does not trust A refuses to answer', refused['queried'])
+        self.ctl('c', 'pack', 'add', 'wolf-a', keys['a'], f'quic://{addresses["a"]}')
+        for transport in ('quic', 'tcp'):
+            result = self.find('a', keys['d'], transport)
+            record = result['found']
+            require(record is not None and record['node_id'] == node_d
+                    and record['addresses'] == advertised_d,
+                    f'A did not find D over {transport}: {result}')
+            require(hops(result) == {(1, False): ('ok', 1), (2, True): ('ok', 1)},
+                    f'{transport}: unexpected hops: {result["queried"]}')
+            self.record(f'A finds D in two hops (B, then C) over {transport}', result['queried'])
+        pack = self.ctl('a', 'pack', 'list')['result']
+        require([p['name'] for p in pack] == ['wolf-b'], f'multi-hop changed the Pack: {pack}')
+
+        # Trust stays a deliberate operator step on both sides (C added A
+        # above); C's Target Policy still governs its targets.
         self.ctl('a', 'pack', 'add', 'wolf-c', found['quic']['public_key_b64'],
                  found['quic']['addresses'][0])
-        self.ctl('c', 'pack', 'add', 'wolf-a', keys['a'], f'quic://{addresses["a"]}')
         self.ctl('c', 'target', 'allow', 'wolf-a', echo_target)
         self.release('echo')
         self.ctl('a', 'service', 'connect', 'echo-c', '--local-port', self.ports['echo'])
@@ -118,7 +148,7 @@ class DiscoveryGate(ServiceGate):
         self.ctl('b', 'pack', 'remove', 'wolf-c')
         result = self.find('a', node_c)
         statuses = {s['peer']: s for s in result['queried']}
-        require(statuses['wolf-b'] == {'peer': 'wolf-b', 'status': 'ok', 'records': 0},
+        require(statuses['wolf-b'] == {'peer': 'wolf-b', 'hop': 1, 'status': 'ok', 'records': 0},
                 f'B relayed a node outside its Pack: {statuses}')
         self.record('B relays only its own Pack members', statuses)
 

@@ -107,12 +107,15 @@ addresses change or less than a day of its seven-day validity is left.
 `withdraw` clears them. Both serialize with other mutations and are refused
 while storage is degraded.
 
-`refresh` pings every Pack member for its own record. `find` asks the eight
-Pack members nearest to the target, three at a time, and stops once the
-target's record arrives. Queries go only to Pack members: a node learned from
-discovery is never contacted automatically. Both finish within seven seconds,
-report a status per Pack member (`ok` with a record count, `rejected`,
-`timeout`, `not_queried`, `bad_address`), and are refused under Silver
+`refresh` pings every Pack member for its own record. `find` is an iterative
+lookup: it starts at the Pack members nearest to the target, asks three at a
+time, then asks the nodes they return, dialling each at its advertised address
+with TLS pinned to its record key, until the target's record arrives (at most
+8 hops and 24 queries). A hop answers only if the requester is in its Pack.
+Both finish within seven seconds and report a status per node asked (`ok`
+with a record count, `rejected`, `timeout`, `not_queried`, `bad_address`;
+`find` adds the `hop`, and names nodes outside the Pack `node:<id prefix>`),
+and are refused under Silver
 (`SILVER_ACTIVE`) and while another refresh or find runs (`DISCOVER_BUSY`).
 Verified records go to the cache `contacts.json` (at most 256, highest `seq`
 per node), written before it is published; a malformed cache is ignored

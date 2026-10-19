@@ -1,8 +1,9 @@
 //! Operator side of Stage24 discovery: `advertise.json`, the `contacts.json`
-//! cache and the `discover.*` control commands. Lookups query only Pack
-//! members: a discovered node is shown to the operator and never contacted
-//! automatically, so a Pack member cannot steer this node to arbitrary
-//! addresses. Nothing here changes Pack, Target Policy or authority.
+//! cache and the `discover.*` control commands. `find` is an iterative
+//! (multi-hop) lookup that starts at the Pack and then asks discovered
+//! nodes, with TLS pinned to each record's key. Queries, hops and time are
+//! bounded because relayed records choose where this node dials. Nothing
+//! here changes Pack, Target Policy or authority.
 use super::{pack_keys, query_quic, query_tcp, unix_now, Contacts};
 use crate::handshake::{self as hs, RpcRequest};
 use crate::policy::{select_peer_transport, ExpectedPeerIdentity};
@@ -31,8 +32,10 @@ use werewolf_core::{
 const LOOKUP_BUDGET: Duration = Duration::from_secs(7);
 /// Parallel queries (Kademlia α).
 const ALPHA: usize = 3;
-/// Pack members asked per lookup, nearest to the target first.
-const FIND_PEERS: usize = 8;
+/// Lookup bounds: hops, nodes asked in total, and time per query.
+const MAX_HOPS: usize = 8;
+const MAX_QUERIES: usize = 24;
+const QUERY_WINDOW: Duration = Duration::from_secs(3);
 pub(crate) const ADVERTISE_FILE: &str = "advertise.json";
 pub(crate) const CACHE_FILE: &str = "contacts.json";
 
@@ -184,24 +187,11 @@ async fn network(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> Control
         (identity, st.peers.clone(), guard)
     };
 
-    let mut seeds: Vec<Seed> = peers.iter().filter_map(Seed::from_peer).collect();
-    let request = match &target {
-        Some(target) => {
-            seeds.sort_by_key(|seed| target.xor_distance(&NodeId::from_public_key(&seed.key)));
-            seeds.truncate(FIND_PEERS);
-            RpcRequest::FindNode {
-                target: target.clone(),
-                k: MAX_K as u8,
-            }
-        }
-        None => RpcRequest::Ping,
+    let seeds: Vec<Seed> = peers.iter().filter_map(Seed::from_peer).collect();
+    let (outcomes, learned) = match &target {
+        Some(target) => lookup(seeds, &peers, &identity, transport, target).await,
+        None => run_queries(seeds, &identity, transport, &RpcRequest::Ping).await,
     };
-    let (outcomes, learned) = run_queries(seeds, &identity, transport, &request, |records| {
-        target
-            .as_ref()
-            .is_some_and(|target| records.iter().any(|r| r.node_id() == *target))
-    })
-    .await;
 
     let cached = remember(&state, &identity, learned.clone()).await;
     drop(guard);
@@ -259,6 +249,7 @@ async fn remember(
     true
 }
 
+#[derive(Clone)]
 struct Seed {
     name: String,
     key: [u8; 32],
@@ -279,16 +270,123 @@ impl Seed {
             },
         })
     }
+
+    /// A node learned from a verified record, dialled at its advertised
+    /// address for `transport` (never a scheme-swapped one) and pinned to
+    /// the record's key.
+    fn from_record(record: &ContactRecord, name: String, transport: &str) -> Option<Self> {
+        let address = record
+            .addresses
+            .iter()
+            .find(|address| address.starts_with(&format!("{transport}://")))?
+            .clone();
+        let public_key_b64 = STANDARD.encode(record.public_key);
+        Some(Self {
+            name,
+            key: record.public_key,
+            address,
+            expected: ExpectedPeerIdentity {
+                fingerprint: fingerprint_from_public_key_b64(&public_key_b64).ok()?,
+                public_key_b64: Some(public_key_b64),
+            },
+        })
+    }
 }
 
-/// Runs at most `ALPHA` queries at a time within `LOOKUP_BUDGET` and stops
-/// starting new ones once `done` holds. Every seed gets a status.
+/// Iterative Kademlia lookup. Each hop asks the `ALPHA` nearest unasked
+/// nodes among the `MAX_K` nearest known, Pack members first as seeds, and
+/// adds the nodes they return. It stops when the target's record arrives,
+/// when the nearest nodes have all been asked, or at `MAX_HOPS`,
+/// `MAX_QUERIES` or `LOOKUP_BUDGET`. A node answers only Pack members of its
+/// own, so each hop works only through nodes that trust this one.
+async fn lookup(
+    seeds: Vec<Seed>,
+    peers: &[PeerRecord],
+    identity: &PeltIdentity,
+    transport: &'static str,
+    target: &NodeId,
+) -> (Vec<Value>, Vec<ContactRecord>) {
+    let deadline = Instant::now() + LOOKUP_BUDGET;
+    let own = hs_key(identity);
+    let request = RpcRequest::FindNode {
+        target: target.clone(),
+        k: MAX_K as u8,
+    };
+    let distance = |key: &[u8; 32]| target.xor_distance(&NodeId::from_public_key(key));
+    let mut shortlist = seeds;
+    let mut asked: Vec<[u8; 32]> = Vec::new();
+    let mut statuses = Vec::new();
+    let mut learned: Vec<ContactRecord> = Vec::new();
+    for hop in 1..=MAX_HOPS {
+        shortlist.sort_by_key(|seed| distance(&seed.key));
+        let batch: Vec<Seed> = shortlist
+            .iter()
+            .take(MAX_K)
+            .filter(|seed| !asked.contains(&seed.key))
+            .take(ALPHA.min(MAX_QUERIES - asked.len()))
+            .cloned()
+            .collect();
+        if batch.is_empty() || Instant::now() >= deadline {
+            break;
+        }
+        let mut running = JoinSet::new();
+        for seed in batch {
+            asked.push(seed.key);
+            let (identity, request) = (identity.clone(), request.clone());
+            let until = deadline.min(Instant::now() + QUERY_WINDOW);
+            running.spawn(async move {
+                let result = timeout_at(until, query(&seed, &identity, transport, &request))
+                    .await
+                    .unwrap_or(Err("timeout"));
+                (seed.name, result)
+            });
+        }
+        while let Some(joined) = running.join_next().await {
+            let Ok((name, result)) = joined else { continue };
+            let status = match result {
+                Ok(records) => {
+                    let count = records.len();
+                    for record in records {
+                        let known = record.public_key == own
+                            || shortlist.iter().any(|s| s.key == record.public_key);
+                        if !known {
+                            let name = label(&record, peers);
+                            shortlist.extend(Seed::from_record(&record, name, transport));
+                        }
+                        learned.push(record);
+                    }
+                    json!({"peer": name, "hop": hop, "status": "ok", "records": count})
+                }
+                Err(reason) => json!({"peer": name, "hop": hop, "status": reason}),
+            };
+            statuses.push(status);
+        }
+        if learned.iter().any(|record| record.node_id() == *target) {
+            break;
+        }
+    }
+    (statuses, learned)
+}
+
+/// Pack name if the key is in the Pack, otherwise a short node ID.
+fn label(record: &ContactRecord, peers: &[PeerRecord]) -> String {
+    let public_key_b64 = STANDARD.encode(record.public_key);
+    peers
+        .iter()
+        .find(|peer| peer.public_key_b64.as_deref() == Some(public_key_b64.as_str()))
+        .map_or_else(
+            || format!("node:{}", &record.node_id().to_hex()[..16]),
+            |peer| peer.name.clone(),
+        )
+}
+
+/// Runs at most `ALPHA` queries at a time within `LOOKUP_BUDGET`. Every
+/// seed gets a status.
 async fn run_queries(
     seeds: Vec<Seed>,
     identity: &PeltIdentity,
     transport: &'static str,
     request: &RpcRequest,
-    done: impl Fn(&[ContactRecord]) -> bool,
 ) -> (Vec<Value>, Vec<ContactRecord>) {
     let deadline = Instant::now() + LOOKUP_BUDGET;
     let mut statuses: Vec<(String, Value)> = seeds
@@ -303,9 +401,8 @@ async fn run_queries(
     let mut learned = Vec::new();
     let mut pending = seeds.into_iter();
     let mut running = JoinSet::new();
-    let mut stop = false;
     loop {
-        while !stop && running.len() < ALPHA {
+        while running.len() < ALPHA {
             let Some(seed) = pending.next() else { break };
             set_status(
                 &mut statuses,
@@ -331,7 +428,6 @@ async fn run_queries(
             Err(reason) => json!({"peer": name, "status": reason}),
         };
         set_status(&mut statuses, &name, status);
-        stop = stop || done(&learned);
     }
     running.abort_all();
     (

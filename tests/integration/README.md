@@ -126,14 +126,16 @@ identification strings, so no `sshd` is needed.
 python3 -B tests/integration/discovery_gate.py [--keep-temp]
 ```
 
-`discovery_gate.py` extends the named-service gate to three wolves: A trusts
-B, B trusts A and C, C trusts B. All receivers start deny-by-default.
+`discovery_gate.py` extends the named-service gate to four wolves in a chain:
+A trusts B, B trusts A and C, C trusts B and D (and later A), D trusts C. All
+receivers start deny-by-default.
 
 | Assertion | Required evidence |
 |---|---|
 | Advertise | C's signed record lists exactly its two addresses; a hostname exits 70 |
 | Refresh | B pings its Pack: C answers with one record, A (advertising nothing) with none |
 | Find | A finds C's record through B over QUIC (by key) and encrypted TCP (by node ID); both identical |
+| Multi-hop | A's lookup for D asks B (hop 1) then C (hop 2); C rejects until it trusts A, then returns D over QUIC and encrypted TCP; A's Pack unchanged |
 | No trust from discovery | A's Pack still lists only B; `service connect` to C exits 70 and opens nothing |
 | Persistence | Cache and advertised addresses identical after daemon restart |
 | Explicit trust | After `pack add` on A and C and C's `target allow`, 1 MiB echo through the discovered address matches |
