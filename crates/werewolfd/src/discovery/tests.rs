@@ -56,12 +56,16 @@ fn find_node_orders_by_distance_excludes_requester_and_caps_k() {
     let known: Vec<_> = identities.iter().map(|id| record(id, 3600)).collect();
     let requester = known[0].public_key;
     let target = known[3].node_id();
+    let stranger = record(&generate_identity(), 3600);
+    let mut pack: Vec<_> = known.iter().map(|r| r.public_key).collect();
+    let lapsed = expired(&generate_identity());
+    pack.push(lapsed.public_key);
     let contacts = Contacts {
-        own: None,
-        known: [known.clone(), vec![expired(&generate_identity())]].concat(),
+        known: [known.clone(), vec![lapsed, stranger.clone()]].concat(),
+        ..Default::default()
     };
 
-    let answer = contacts.answer(&find(target.clone(), 3), &requester, unix_now());
+    let answer = contacts.answer(&find(target.clone(), 3), &requester, &pack, unix_now());
 
     assert_eq!(answer.len(), 3);
     assert_eq!(answer[0], known[3]);
@@ -71,6 +75,11 @@ fn find_node_orders_by_distance_excludes_requester_and_caps_k() {
         .map(|r| target.xor_distance(&r.node_id()))
         .collect();
     assert!(distances.windows(2).all(|pair| pair[0] <= pair[1]));
+
+    // Records of nodes outside the responder's Pack are never relayed.
+    let everything = contacts.answer(&find(stranger.node_id(), 20), &requester, &pack, unix_now());
+    assert_eq!(everything.len(), known.len() - 1);
+    assert!(!everything.contains(&stranger));
 }
 
 #[test]
@@ -79,12 +88,16 @@ fn ping_answers_with_own_record_only_while_valid() {
     let contacts = Contacts {
         own: Some(record(&identity, 3600)),
         known: vec![record(&generate_identity(), 3600)],
+        ..Default::default()
     };
     let now = unix_now();
 
-    assert_eq!(contacts.answer(&RpcRequest::Ping, &[0; 32], now).len(), 1);
+    assert_eq!(
+        contacts.answer(&RpcRequest::Ping, &[0; 32], &[], now).len(),
+        1
+    );
     assert!(contacts
-        .answer(&RpcRequest::Ping, &[0; 32], now + 3600)
+        .answer(&RpcRequest::Ping, &[0; 32], &[], now + 3600)
         .is_empty());
 }
 
@@ -208,17 +221,27 @@ async fn both(
 async fn packmate_pings_and_finds_nodes_over_quic_and_tcp() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let sender = generate_identity();
-        let known: Vec<_> = (0..4).map(|_| record(&generate_identity(), 3600)).collect();
-        let node = node(&[&sender], Contacts::default()).await;
-        let own = record(&node.receiver, 3600);
+        let members: Vec<_> = (0..4).map(|_| generate_identity()).collect();
+        let known: Vec<_> = members.iter().map(|id| record(id, 3600)).collect();
+        let pack: Vec<_> = [&sender].into_iter().chain(&members).collect();
+        let node = node(&pack, Contacts::default()).await;
+        let advertised = vec!["tcp://198.51.100.4:9560".to_string()];
         node.state.lock().await.contacts = Contacts {
-            own: Some(own.clone()),
+            advertised: advertised.clone(),
             known: known.clone(),
+            ..Default::default()
         };
 
+        // The responder signs its own record from the advertised addresses.
         let (quic, tcp) = both(&node, &sender, &RpcRequest::Ping).await;
-        assert_eq!(quic.unwrap(), vec![own.clone()]);
-        assert_eq!(tcp.unwrap(), vec![own]);
+        let (quic, tcp) = (quic.unwrap(), tcp.unwrap());
+        assert_eq!(quic, tcp);
+        assert_eq!(quic.len(), 1);
+        assert_eq!(quic[0].addresses, advertised);
+        assert_eq!(
+            quic[0].public_key,
+            hs::binary::<32>(&node.receiver.public_key_b64).unwrap()
+        );
 
         let target = known[2].node_id();
         let (quic, tcp) = both(&node, &sender, &find(target, 2)).await;
@@ -266,6 +289,202 @@ async fn non_packmates_silver_and_rate_limit_are_rejected() {
         node.state.lock().await.inbound_authority.lock().unwrap();
         let (quic, tcp) = both(&node, &other, &RpcRequest::Ping).await;
         assert!(quic.is_err() && tcp.is_err());
+    })
+    .await
+    .unwrap();
+}
+
+fn member(name: &str, node: &Node) -> PeerRecord {
+    PeerRecord {
+        name: name.into(),
+        address: format!("quic://{}", node.quic),
+        ..peer(&node.receiver)
+    }
+}
+
+fn temporary_den() -> (
+    std::path::PathBuf,
+    Arc<werewolf_core::local_fs::PrivateDirectory>,
+) {
+    let path = std::env::temp_dir().join(format!(
+        "wwp-discovery-{}",
+        hs::hex(&hs::random::<16>().unwrap())
+    ));
+    let den = werewolf_core::local_fs::PrivateDirectory::open(&path, true).unwrap();
+    (path, Arc::new(den))
+}
+
+async fn operate(node: &Node, cmd: &str, args: serde_json::Value) -> serde_json::Value {
+    let request = werewolf_core::protocol::ControlRequest {
+        id: "test".into(),
+        cmd: cmd.into(),
+        args,
+    };
+    let response = operator::handle(request, node.state.clone()).await;
+    serde_json::to_value(response).unwrap()
+}
+
+#[tokio::test]
+async fn find_returns_a_friend_of_a_friend_without_trusting_it() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let (a, b, c) = (
+            node(&[], Contacts::default()).await,
+            node(&[], Contacts::default()).await,
+            node(&[], Contacts::default()).await,
+        );
+        let mut dens = Vec::new();
+        for (node, pack) in [
+            (&a, vec![member("wolf-b", &b)]),
+            (&b, vec![member("wolf-a", &a), member("wolf-c", &c)]),
+            (&c, vec![member("wolf-b", &b)]),
+        ] {
+            let (path, den) = temporary_den();
+            dens.push(path);
+            let mut st = node.state.lock().await;
+            st.peers = pack;
+            st.den = Some(den);
+        }
+        let advertised = format!("quic://{}", c.quic);
+        c.state.lock().await.contacts.advertised = vec![advertised.clone()];
+
+        // B learns C's own record directly from C.
+        let refreshed = operate(&b, "discover.refresh", serde_json::json!({})).await;
+        assert_eq!(refreshed["ok"], true, "{refreshed}");
+        let statuses = refreshed["result"]["queried"].as_array().unwrap();
+        assert!(statuses
+            .iter()
+            .any(|s| s["peer"] == "wolf-c" && s["status"] == "ok" && s["records"] == 1));
+        assert_eq!(refreshed["result"]["cached"], true);
+        assert_eq!(b.state.lock().await.contacts.known.len(), 1);
+
+        // A finds C through B, which vouches only for its own Pack members.
+        let found = operate(
+            &a,
+            "discover.find",
+            serde_json::json!({"target": c.receiver.public_key_b64}),
+        )
+        .await;
+        assert_eq!(found["ok"], true, "{found}");
+        let record = &found["result"]["found"];
+        assert_eq!(record["public_key_b64"], c.receiver.public_key_b64.as_str());
+        assert_eq!(record["addresses"][0], advertised.as_str());
+        assert!(record["pack_name"].is_null());
+
+        // Discovery never changes trust: C is cached but not in A's Pack.
+        {
+            let st = a.state.lock().await;
+            assert_eq!(st.peers.len(), 1);
+            assert_eq!(st.contacts.known.len(), 1);
+        }
+        let contacts = operate(&a, "discover.contacts", serde_json::json!({})).await;
+        assert_eq!(
+            contacts["result"][0]["public_key_b64"],
+            c.receiver.public_key_b64.as_str()
+        );
+
+        // B does not relay C to A once C leaves B's Pack.
+        b.state.lock().await.peers.retain(|p| p.name != "wolf-c");
+        a.state.lock().await.contacts.known.clear();
+        let missing = operate(
+            &a,
+            "discover.find",
+            serde_json::json!({"target": c.receiver.public_key_b64}),
+        )
+        .await;
+        assert!(missing["result"]["found"].is_null(), "{missing}");
+
+        a.state.lock().await.status.mode = werewolf_core::state::WolfMode::Silver;
+        let fenced = operate(
+            &a,
+            "discover.find",
+            serde_json::json!({"target": c.receiver.public_key_b64}),
+        )
+        .await;
+        assert_eq!(fenced["error"]["code"], "SILVER_ACTIVE");
+
+        for path in dens {
+            let _ = std::fs::remove_dir_all(path);
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn find_walks_hops_only_through_nodes_that_trust_the_requester() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let (a, b, c, d) = (
+            node(&[], Contacts::default()).await,
+            node(&[], Contacts::default()).await,
+            node(&[], Contacts::default()).await,
+            node(&[], Contacts::default()).await,
+        );
+        let mut dens = Vec::new();
+        for (node, pack) in [
+            (&a, vec![member("wolf-b", &b)]),
+            (&b, vec![member("wolf-a", &a), member("wolf-c", &c)]),
+            (&c, vec![member("wolf-b", &b), member("wolf-d", &d)]),
+            (&d, vec![member("wolf-c", &c)]),
+        ] {
+            let (path, den) = temporary_den();
+            dens.push(path);
+            let mut st = node.state.lock().await;
+            st.peers = pack;
+            st.den = Some(den);
+        }
+        for node in [&c, &d] {
+            node.state.lock().await.contacts.advertised = vec![format!("quic://{}", node.quic)];
+        }
+        for node in [&b, &c] {
+            let refreshed = operate(node, "discover.refresh", serde_json::json!({})).await;
+            assert_eq!(refreshed["ok"], true, "{refreshed}");
+        }
+        let find_d = || {
+            operate(
+                &a,
+                "discover.find",
+                serde_json::json!({"target": d.receiver.public_key_b64}),
+            )
+        };
+        let hop = |result: &serde_json::Value, n: u64| -> Vec<serde_json::Value> {
+            result["result"]["queried"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|s| s["hop"] == n)
+                .cloned()
+                .collect()
+        };
+
+        // B points A at C, but C does not trust A and refuses to answer.
+        let refused = find_d().await;
+        assert!(refused["result"]["found"].is_null(), "{refused}");
+        assert_eq!(hop(&refused, 1)[0]["peer"], "wolf-b");
+        assert_eq!(hop(&refused, 1)[0]["records"], 1);
+        assert_eq!(hop(&refused, 2).len(), 1);
+        assert_eq!(hop(&refused, 2)[0]["status"], "rejected");
+
+        // Once C trusts A, the second hop answers with D.
+        c.state.lock().await.peers.push(member("wolf-a", &a));
+        let found = find_d().await;
+        let record = &found["result"]["found"];
+        assert_eq!(
+            record["public_key_b64"],
+            d.receiver.public_key_b64.as_str(),
+            "{found}"
+        );
+        let second = hop(&found, 2);
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0]["status"], "ok");
+        assert!(second[0]["peer"].as_str().unwrap().starts_with("node:"));
+        assert!(hop(&found, 3).is_empty());
+
+        // Neither C nor D became trusted by A.
+        assert_eq!(a.state.lock().await.peers.len(), 1);
+
+        for path in dens {
+            let _ = std::fs::remove_dir_all(path);
+        }
     })
     .await
     .unwrap();

@@ -89,6 +89,19 @@ pub(super) fn load_startup_state(
             services
         }
     };
+    initial_state.contacts.advertised =
+        match den.read(OsStr::new(crate::discovery::operator::ADVERTISE_FILE), 4096)? {
+            None => Vec::new(),
+            Some(data) => crate::discovery::operator::parse_advertise(&data)?,
+        };
+    // Den errors still fail closed; only the cache contents are advisory.
+    initial_state.contacts.known = match den.read(
+        OsStr::new(crate::discovery::operator::CACHE_FILE),
+        1024 * 1024,
+    )? {
+        None => Vec::new(),
+        Some(data) => crate::discovery::operator::parse_cache(&data, crate::discovery::unix_now()),
+    };
 
     if let Some(data) = den.read(OsStr::new("pelt.json"), 4096)? {
         let data = Zeroizing::new(data);

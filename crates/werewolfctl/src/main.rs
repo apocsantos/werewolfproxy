@@ -82,6 +82,11 @@ enum Commands {
         #[command(subcommand)]
         command: ServiceCommands,
     },
+    /// Find Pack members' contacts. Discovery never adds anyone to the Pack.
+    Discover {
+        #[command(subcommand)]
+        command: DiscoverCommands,
+    },
 }
 #[derive(Subcommand)]
 enum DenCommands {
@@ -224,6 +229,33 @@ enum ServiceCommands {
         bind: String,
 
         #[arg(long, default_value = "quic", value_parser = ["quic", "tcp", "tcp-plain"])]
+        transport: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum DiscoverCommands {
+    /// Publish where this node is reachable (1 to 4 quic:// or tcp:// IP:port).
+    Advertise {
+        #[arg(required = true, num_args = 1..=4)]
+        addresses: Vec<String>,
+    },
+    /// Stop advertising an address.
+    Withdraw,
+    /// Show this node's ID and signed record.
+    Show,
+    /// List cached contact records.
+    Contacts,
+    /// Ask every Pack member for its own record.
+    Refresh {
+        #[arg(long, default_value = "quic", value_parser = ["quic", "tcp"])]
+        transport: String,
+    },
+    /// Ask the nearest Pack members for a node by public key or node ID.
+    Find {
+        /// Public key (base64) or node ID (64 hex digits).
+        node: String,
+        #[arg(long, default_value = "quic", value_parser = ["quic", "tcp"])]
         transport: String,
     },
 }
@@ -466,6 +498,22 @@ fn request_for(command: Commands) -> Result<(String, Value), CliError> {
                 json!({"name":name,"local":local,"transport":transport}),
             )
         }
+        Commands::Discover { command } => match command {
+            DiscoverCommands::Advertise { addresses } => (
+                "discover.advertise",
+                json!({"addresses":addresses.join(",")}),
+            ),
+            DiscoverCommands::Withdraw => ("discover.advertise", json!({"addresses":""})),
+            DiscoverCommands::Show => ("discover.show", json!({})),
+            DiscoverCommands::Contacts => ("discover.contacts", json!({})),
+            DiscoverCommands::Refresh { transport } => {
+                ("discover.refresh", json!({"transport":transport}))
+            }
+            DiscoverCommands::Find { node, transport } => (
+                "discover.find",
+                json!({"target":node,"transport":transport}),
+            ),
+        },
         Commands::Version
         | Commands::Doctor
         | Commands::Den {
@@ -631,6 +679,60 @@ mod tests {
             request(&["service", "remove", "web"]),
             ("service.remove".into(), json!({"name":"web"}))
         );
+    }
+
+    #[test]
+    fn discover_commands_map_to_control_requests() {
+        assert_eq!(
+            request(&[
+                "discover",
+                "advertise",
+                "quic://192.0.2.1:9560",
+                "tcp://192.0.2.1:9560"
+            ]),
+            (
+                "discover.advertise".into(),
+                json!({"addresses":"quic://192.0.2.1:9560,tcp://192.0.2.1:9560"})
+            )
+        );
+        assert_eq!(
+            request(&["discover", "withdraw"]),
+            ("discover.advertise".into(), json!({"addresses":""}))
+        );
+        assert_eq!(
+            request(&["discover", "find", "abcd", "--transport", "tcp"]),
+            (
+                "discover.find".into(),
+                json!({"target":"abcd","transport":"tcp"})
+            )
+        );
+        assert_eq!(
+            request(&["discover", "refresh"]),
+            ("discover.refresh".into(), json!({"transport":"quic"}))
+        );
+        for bad in [
+            &["werewolfctl", "discover", "advertise"][..],
+            &[
+                "werewolfctl",
+                "discover",
+                "find",
+                "x",
+                "--transport",
+                "tcp-plain",
+            ],
+            &[
+                "werewolfctl",
+                "discover",
+                "advertise",
+                "a",
+                "b",
+                "c",
+                "d",
+                "e",
+            ],
+        ] {
+            assert!(Cli::try_parse_from(bad).is_err());
+        }
     }
 
     #[test]

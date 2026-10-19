@@ -42,8 +42,26 @@ pub(super) fn handles(command: &str) -> bool {
             | "fang.profile.remove"
             | "service.add"
             | "service.remove"
+            | "discover.advertise"
             | "state.manifest.migrate"
     )
+}
+
+/// Writes the non-authoritative discovery cache through the same durable
+/// path as other Den files. Called outside the mutation coordinator: the
+/// cache is serialized by the discovery lock and grants nothing.
+pub(crate) async fn persist_discovery_cache(
+    state: &Arc<Mutex<DaemonState>>,
+    cache: &crate::discovery::operator::CacheFile,
+) -> io::Result<()> {
+    durable(
+        Path::new(""),
+        crate::discovery::operator::CACHE_FILE,
+        cache,
+        false,
+        state,
+    )
+    .await
 }
 fn error(id: &str, code: &str) -> ControlResponse {
     ControlResponse::err(id, code, "local state mutation rejected")
@@ -417,6 +435,50 @@ pub(super) async fn handle(
                 "name": name,
                 "services": live.services.len()
             }),
+        );
+    }
+
+    if req.cmd == "discover.advertise" {
+        // Advertising publishes reachability only; it grants no access.
+        // Control arguments are strings: comma-separated, empty withdraws.
+        let addresses: Vec<String> = arg(&req, "addresses")
+            .split(',')
+            .map(|address| address.trim().to_owned())
+            .filter(|address| !address.is_empty())
+            .collect();
+        if !addresses.is_empty() && werewolf_core::contact::check_addresses(&addresses).is_err() {
+            return error(&req.id, "DISCOVER_ADDRESS_INVALID");
+        }
+        let file = crate::discovery::operator::AdvertiseFile {
+            version: 1,
+            addresses: addresses.clone(),
+        };
+        if durable(
+            &home,
+            crate::discovery::operator::ADVERTISE_FILE,
+            &file,
+            false,
+            &state,
+        )
+        .await
+        .is_err()
+        {
+            return error(&req.id, "DISCOVER_SAVE_FAILED");
+        }
+        let mut live = state.lock().await;
+        live.contacts.advertised = addresses;
+        if let Some(pelt) = live.pelt.clone() {
+            live.contacts
+                .refresh_own(&pelt, crate::discovery::unix_now());
+        }
+        let record = live
+            .contacts
+            .own
+            .as_ref()
+            .map(|record| crate::discovery::operator::view(record, &live.peers));
+        return ControlResponse::ok(
+            req.id,
+            json!({"advertised": live.contacts.advertised, "record": record}),
         );
     }
 

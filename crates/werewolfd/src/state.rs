@@ -100,6 +100,8 @@ pub(super) struct DaemonState {
     /// Stage24 discovery records this node answers with (in memory only).
     pub(super) contacts: crate::discovery::Contacts,
     pub(super) rpc_limiter: std::sync::Arc<crate::discovery::RpcLimiter>,
+    /// Serializes operator refresh/find so cache writes never interleave.
+    pub(super) discovery: std::sync::Arc<tokio::sync::Mutex<()>>,
 }
 
 impl DaemonState {
