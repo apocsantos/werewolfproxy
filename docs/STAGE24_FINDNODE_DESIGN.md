@@ -1,8 +1,15 @@
 # Stage24 FindNode RPC — design proposal
 
-**Status: proposal for review. Nothing here is implemented, and nothing here
-changes the frozen [v1 wire contract](V1_WIRE_CONTRACT.md).** Implementation
-starts only after the decisions in the last section are made.
+**Status: design accepted 2026-10-18; implementation in progress.** Nothing
+here changes the frozen [v1 wire contract](V1_WIRE_CONTRACT.md) yet; the RPC
+step will extend it and is reviewed on its own.
+
+| Step | Scope | State |
+|---|---|---|
+| 0 | Bounded k-buckets, XOR ordering, `k` cap (`werewolf-core`) | Done (PR #8) |
+| 1 | Pelt-derived `NodeId`, signed `ContactRecord` (`werewolf-core::contact`) | Done |
+| 2 | FindNode/Ping RPC as a new signed request kind on the OPEN path, Pack-only | Next |
+| 3 | Lookup, `contacts.json` cache, `werewolfctl discover`, three-wolf lab gate | Planned |
 
 Next item in [ARCHITECTURE.md §65](ARCHITECTURE.md): run FindNode over
 authenticated Werewolf transport (§18), as the base for distributed peer
@@ -130,12 +137,20 @@ deliberate, separate `pack add`.
   non-Pack querier, querier under Silver, replayed RPC OPEN, unknown request
   kind on a receiver without support.
 
-## Decisions for the owner
+## Decisions (accepted 2026-10-18)
 
-1. Transport: A (extend OPEN, recommended), B or C.
-2. Query admission: Pack-only closed overlay for Phase 1?
-3. Is a stable `NodeId` from the Pelt public key acceptable? It makes a node
-   linkable across addresses inside the overlay.
-4. Record lifetime: 7-day maximum `expires_at`, re-signed on address change?
-5. Is replacing the current `werewolf-core` Kademlia types acceptable, given
-   that only `peer_lab` uses them?
+1. Transport: **A**, a new signed request kind on the existing OPEN path.
+2. Query admission: **Pack-only** closed overlay for Phase 1.
+3. `NodeId` is derived from the Pelt public key and stable across addresses,
+   accepting that a node is linkable inside the overlay.
+4. Records live at most **7 days** (checked against the verifier's clock) and
+   are re-signed with a higher `seq` on address change.
+5. The current `werewolf-core` Kademlia types may be replaced; only
+   `peer_lab` uses them.
+
+Step 1 notes: records use a canonical binary encoding (key, length-prefixed
+addresses, `seq`, `expires_at`, signature), strict bounded decoding and
+Ed25519 `verify_strict`. Addresses must be literal `IP:port` with a
+`quic://` or `tcp://` scheme; hostnames are rejected so discovery never
+triggers DNS. Whether loopback/private addresses learned from other nodes
+should be ignored is left to step 3.

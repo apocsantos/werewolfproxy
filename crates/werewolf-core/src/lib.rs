@@ -21,6 +21,8 @@ pub mod message;
 
 pub mod find_node;
 
+pub mod contact;
+
 #[cfg(target_os = "linux")]
 pub mod local_fs;
 
