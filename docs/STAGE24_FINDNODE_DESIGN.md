@@ -1,15 +1,15 @@
 # Stage24 FindNode RPC — design proposal
 
-**Status: design accepted 2026-10-18; implementation in progress.** Nothing
-here changes the frozen [v1 wire contract](V1_WIRE_CONTRACT.md) yet; the RPC
-step will extend it and is reviewed on its own.
+**Status: design accepted 2026-10-18; Phase 1 implemented.** The RPC
+extends the [v1 wire contract](V1_WIRE_CONTRACT.md) as described in the
+[wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md).
 
 | Step | Scope | State |
 |---|---|---|
 | 0 | Bounded k-buckets, XOR ordering, `k` cap (`werewolf-core`) | Done (PR #8) |
 | 1 | Pelt-derived `NodeId`, signed `ContactRecord` (`werewolf-core::contact`) | Done |
-| 2 | FindNode/Ping RPC on the OPEN path, Pack-only ([wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)) | Done; requester not yet exposed in the CLI |
-| 3 | Advertised own record, lookup, `contacts.json` cache, `werewolfctl discover`, three-wolf lab gate | Next |
+| 2 | FindNode/Ping RPC on the OPEN path, Pack-only ([wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)) | Done |
+| 3 | Advertised own record, lookup, `contacts.json` cache, `werewolfctl discover`, three-wolf lab gate | Done ([CLI contract](V1_CLI_CONTRACT.md#stage24-extension-discovery)) |
 
 Next item in [ARCHITECTURE.md §65](ARCHITECTURE.md): run FindNode over
 authenticated Werewolf transport (§18), as the base for distributed peer
@@ -154,3 +154,35 @@ Ed25519 `verify_strict`. Addresses must be literal `IP:port` with a
 `quic://` or `tcp://` scheme; hostnames are rejected so discovery never
 triggers DNS. Whether loopback/private addresses learned from other nodes
 should be ignored is left to step 3.
+
+## Step 3 decisions (2026-10-19)
+
+These narrow the proposal above for Phase 1; none changes the wire messages.
+
+1. **Lookup is one hop.** `discover find` queries only Pack members (the
+   eight nearest to the target, α = 3, one seven-second budget) instead of
+   iterating over discovered nodes. A discovered node is shown to the
+   operator and never contacted automatically, so a Pack member cannot steer
+   this node into connecting to arbitrary addresses. This also settles the
+   loopback/private-address question: no filter is needed while learned
+   addresses are never dialled. Multi-hop lookup is a later decision.
+2. **A responder vouches only for its own Pack.** The "verified contact set"
+   a FindNode answer draws from is the cached records whose key belongs to a
+   current Pack member. Records learned from other nodes are cached for the
+   operator but never relayed, and removing a member stops relaying it at
+   once.
+3. **Own record.** The operator sets the addresses (`discover advertise`,
+   persisted as `advertise.json`); nothing is inferred from listener binds.
+   The record is signed in memory with `seq` = max(clock, previous + 1) and
+   re-signed when addresses change or less than a day of validity is left,
+   so `seq` needs no persistence. A clock set backwards can make peers keep
+   an older record until it expires.
+4. **Operator-driven traffic.** `discover refresh` (ping every Pack member)
+   and `discover find` run only on request; there is no background refresh
+   or bucket maintenance, so discovery adds no unsolicited traffic.
+5. **Cache.** `contacts.json` holds at most 256 verified records, the highest
+   `seq` per node, evicting non-Pack records and the earliest expiry first.
+   It is written before it is published, outside the Stage15B manifest; a
+   malformed cache is ignored at startup, while Den errors still fail
+   closed.
+6. **Silver** refuses refresh and find, like a Fang open.

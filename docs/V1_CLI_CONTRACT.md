@@ -82,3 +82,44 @@ not-found and failed-save outcomes as `SERVICE_INVALID`, `SERVICE_EXISTS`,
 message (with --json, `ok:false`, `error`, `exit_class`). A failed save leaves
 the previous registry live. The disposable gate
 `tests/integration/service_gate.py` exercises this contract.
+
+## Stage24 extension: discovery
+
+Stage24 adds an online `discover` group
+([design](STAGE24_FINDNODE_DESIGN.md), wire messages in
+[V1_WIRE_CONTRACT.md](V1_WIRE_CONTRACT.md)). Earlier commands and exit
+classes are unchanged.
+
+- discover advertise ADDRESS... (1 to 4 `quic://IP:PORT` or `tcp://IP:PORT`)
+- discover withdraw
+- discover show; discover contacts
+- discover refresh [--transport quic|tcp]
+- discover find PUBLIC_KEY_B64|NODE_ID_HEX [--transport quic|tcp]
+
+Discovery answers where a node is, never whether to trust it. No command
+changes the Pack, Target Policy or authority; reaching a discovered node still
+needs `pack add` on both sides and the receiver's `target allow`.
+
+`advertise` validates the addresses (literal IPs only, no hostnames), persists
+them as `advertise.json` and then publishes them; the daemon signs its own
+record from them with `seq` taken from the clock and re-signs it when the
+addresses change or less than a day of its seven-day validity is left.
+`withdraw` clears them. Both serialize with other mutations and are refused
+while storage is degraded.
+
+`refresh` pings every Pack member for its own record. `find` asks the eight
+Pack members nearest to the target, three at a time, and stops once the
+target's record arrives. Queries go only to Pack members: a node learned from
+discovery is never contacted automatically. Both finish within seven seconds,
+report a status per Pack member (`ok` with a record count, `rejected`,
+`timeout`, `not_queried`, `bad_address`), and are refused under Silver
+(`SILVER_ACTIVE`) and while another refresh or find runs (`DISCOVER_BUSY`).
+Verified records go to the cache `contacts.json` (at most 256, highest `seq`
+per node), written before it is published; a malformed cache is ignored
+rather than blocking startup. A node answers FindNode only with cached records
+of its own current Pack members.
+
+Errors are `DISCOVER_INVALID`, `DISCOVER_ADDRESS_INVALID`,
+`DISCOVER_SAVE_FAILED`, `DISCOVER_BUSY`, `SILVER_ACTIVE` and `NO_PELT`;
+werewolfctl exits 70. The disposable gate `tests/integration/discovery_gate.py`
+exercises this contract with three wolves.

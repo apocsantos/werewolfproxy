@@ -49,6 +49,11 @@ impl NodeId {
         if hex.len() != 64 {
             return Err(format!("invalid NodeId hex length: {}", hex.len()));
         }
+        // Byte slicing below needs ASCII, and from_str_radix alone would
+        // accept a leading sign.
+        if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("invalid NodeId hex digit".into());
+        }
 
         let mut out = [0u8; 32];
 
@@ -101,6 +106,16 @@ mod tests {
         assert_eq!(a, NodeId::from_public_key(&[1u8; 32]));
         assert_ne!(a, NodeId::from_public_key(&[2u8; 32]));
         assert_ne!(a.0, <[u8; 32]>::from(Sha256::digest([1u8; 32])));
+    }
+
+    #[test]
+    fn hex_round_trips_and_rejects_non_hex_without_panicking() {
+        let id = NodeId::from_public_key(&[7u8; 32]);
+
+        assert_eq!(NodeId::from_hex(&id.to_hex()), Ok(id));
+        assert!(NodeId::from_hex(&format!("+{}", &"0".repeat(63))).is_err());
+        assert!(NodeId::from_hex(&format!("é{}", "0".repeat(62))).is_err());
+        assert!(NodeId::from_hex(&"0".repeat(63)).is_err());
     }
 
     #[test]

@@ -120,6 +120,26 @@ identification strings, so no `sshd` is needed.
 | Persistence | Service list identical after daemon restart |
 | Silver | `silver on` closes Fangs; `service connect` then exits 70 and opens nothing |
 
+## Discovery gate (Stage24)
+
+```bash
+python3 -B tests/integration/discovery_gate.py [--keep-temp]
+```
+
+`discovery_gate.py` extends the named-service gate to three wolves: A trusts
+B, B trusts A and C, C trusts B. All receivers start deny-by-default.
+
+| Assertion | Required evidence |
+|---|---|
+| Advertise | C's signed record lists exactly its two addresses; a hostname exits 70 |
+| Refresh | B pings its Pack: C answers with one record, A (advertising nothing) with none |
+| Find | A finds C's record through B over QUIC (by key) and encrypted TCP (by node ID); both identical |
+| No trust from discovery | A's Pack still lists only B; `service connect` to C exits 70 and opens nothing |
+| Persistence | Cache and advertised addresses identical after daemon restart |
+| Explicit trust | After `pack add` on A and C and C's `target allow`, 1 MiB echo through the discovered address matches |
+| Pack-only relay | Once B removes C from its Pack, B returns no records for C |
+| Silver | `discover find` and `discover refresh` exit 70 |
+
 ## Stage 1 execution results — 2026-09-07
 
 Executed against checkout `63691aade2aa165b16864a80272f2a55eadcee00` with its

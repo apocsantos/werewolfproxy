@@ -67,6 +67,8 @@ def control_request(path, cmd, args=None, timeout=5):
 
 
 class Lab:
+    WOLVES = ('a', 'b')
+
     def __init__(self, keep=False, binary_dir=None):
         self.base = pathlib.Path(tempfile.mkdtemp(prefix='wwp-lab-'))
         self.keep = keep
@@ -193,7 +195,7 @@ class Lab:
     def start_wolves(self):
         self.generation += 1
         self.wolves = []
-        for wolf in ('a', 'b'):
+        for wolf in self.WOLVES:
             den = self.base / wolf
             den.mkdir(mode=0o700, exist_ok=True)
             # The daemon defaults missing Silver state to fail-closed LOCKED.
@@ -313,7 +315,7 @@ class Lab:
     def reserve_wolf_ports(self):
         # One Pack identity has one address. Reserve both protocol sockets at
         # the same numeric port instead of aliasing an identity in the Pack.
-        for wolf in ('a', 'b'):
+        for wolf in self.WOLVES:
             for _ in range(128):
                 self.reserve(wolf + '_tcp')
                 udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

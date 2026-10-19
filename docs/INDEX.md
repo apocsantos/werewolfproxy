@@ -11,7 +11,7 @@
 - [Current status](STATUS.md)
 - [Architecture and final objective](ARCHITECTURE.md)
 - [Transport architecture](../TRANSPORT_ARCHITECTURE.md)
-- [Stage24 FindNode design](STAGE24_FINDNODE_DESIGN.md) and [step 2 RPC wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md) (approved spec)
+- [Stage24 FindNode design](STAGE24_FINDNODE_DESIGN.md) (Phase 1 implemented), [RPC wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md) (approved) and [discover CLI](V1_CLI_CONTRACT.md#stage24-extension-discovery)
 
 ## Frozen v1 contracts
 

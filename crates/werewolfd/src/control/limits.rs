@@ -189,6 +189,9 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
         "fang.close" => &["fang_id"],
         "target.policy.set" => &["document"],
         "target.allow" | "target.remove" => &["peer", "target"],
+        "discover.advertise" => &["addresses"],
+        "discover.refresh" => &["transport"],
+        "discover.find" => &["target", "transport"],
         _ => &[],
     };
     for (key, value) in args {
@@ -200,6 +203,8 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
             "name" | "peer" => 128,
             "local" | "remote" | "address" | "public_key_b64" | "target" => 512,
             "document" => 12 * 1024,
+            // Up to four 256-byte addresses and their separators.
+            "addresses" => 4 * 257,
             _ => 128,
         };
         if value.len() > limit {
@@ -282,6 +287,7 @@ pub(super) fn mutates(cmd: &str) -> bool {
             | "target.remove"
             | "service.add"
             | "service.remove"
+            | "discover.advertise"
             | "state.manifest.migrate"
             | "fang.open"
             | "service.connect"
@@ -336,6 +342,30 @@ mod tests {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
         assert!(mutates("service.connect"));
+    }
+
+    #[test]
+    fn discover_arguments_are_allowlisted_strings() {
+        for good in [
+            br#"{"id":"1","cmd":"discover.advertise","args":{"addresses":"quic://192.0.2.1:9560"}}"#
+                .as_slice(),
+            br#"{"id":"1","cmd":"discover.find","args":{"target":"ab","transport":"tcp"}}"#,
+            br#"{"id":"1","cmd":"discover.refresh","args":{"transport":"quic"}}"#,
+        ] {
+            assert!(parse(good).is_ok(), "{good:?}");
+        }
+        for bad in [
+            br#"{"id":"1","cmd":"discover.advertise","args":{"addresses":["quic://192.0.2.1:1"]}}"#
+                .as_slice(),
+            br#"{"id":"1","cmd":"discover.find","args":{"target":"ab","peer":"wolf-c"}}"#,
+            br#"{"id":"1","cmd":"discover.refresh","args":{"address":"quic://192.0.2.1:1"}}"#,
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+        // Only advertising writes operator state; lookups stay outside the
+        // mutation coordinator.
+        assert!(mutates("discover.advertise"));
+        assert!(!mutates("discover.find") && !mutates("discover.refresh"));
     }
 
     #[tokio::test]

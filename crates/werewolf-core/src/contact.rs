@@ -150,12 +150,7 @@ impl ContactRecord {
     }
 
     fn check_fields(&self, now: u64) -> Result<(), ContactError> {
-        if self.addresses.is_empty() || self.addresses.len() > MAX_ADDRESSES {
-            return Err(ContactError::AddressCount);
-        }
-        if !self.addresses.iter().all(|address| valid_address(address)) {
-            return Err(ContactError::Address);
-        }
+        check_addresses(&self.addresses)?;
         if self.expires_at <= now || self.expires_at - now > MAX_LIFETIME_SECS {
             return Err(ContactError::Lifetime);
         }
@@ -180,6 +175,18 @@ impl ContactRecord {
         out.extend_from_slice(&self.body());
         out
     }
+}
+
+/// Checks an address list with the rules `sign` and `verify` apply, so an
+/// operator's advertised addresses can be validated before any signing.
+pub fn check_addresses(addresses: &[String]) -> Result<(), ContactError> {
+    if addresses.is_empty() || addresses.len() > MAX_ADDRESSES {
+        return Err(ContactError::AddressCount);
+    }
+    if !addresses.iter().all(|address| valid_address(address)) {
+        return Err(ContactError::Address);
+    }
+    Ok(())
 }
 
 /// `quic://` or `tcp://` followed by a literal, specified IP and a non-zero

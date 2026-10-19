@@ -15,7 +15,7 @@ use werewolf_core::{
 mod limits;
 mod mutation;
 mod socket;
-pub(crate) use mutation::persist_active;
+pub(crate) use mutation::{persist_active, persist_discovery_cache};
 pub(crate) use socket::bind as bind_socket;
 
 type MutationTasks = Arc<Mutex<JoinSet<()>>>;
@@ -165,6 +165,9 @@ async fn handle_request(
     }
     if mutation::handles(&req.cmd) {
         return mutation::handle(req, state, home).await;
+    }
+    if crate::discovery::operator::handles(&req.cmd) {
+        return crate::discovery::operator::handle(req, state).await;
     }
     match req.cmd.as_str() {
         "den.info" => {
