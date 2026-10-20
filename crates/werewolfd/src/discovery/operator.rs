@@ -4,7 +4,12 @@
 //! nodes, with TLS pinned to each record's key. Queries, hops and time are
 //! bounded because relayed records choose where this node dials. Nothing
 //! here changes Pack, Target Policy or authority.
-use super::{pack_keys, query_quic, query_tcp, unix_now, Contacts};
+//!
+//! Stage25 adds `published.json` (the services this node publishes),
+//! `discover.services` and the lookup behind `service add --from`.
+use super::{
+    pack_keys, query_quic, query_services_quic, query_services_tcp, query_tcp, unix_now, Contacts,
+};
 use crate::handshake::{self as hs, RpcRequest};
 use crate::policy::{select_peer_transport, ExpectedPeerIdentity};
 use crate::state::DaemonState;
@@ -25,6 +30,7 @@ use werewolf_core::{
     pack::PeerRecord,
     pelt::{fingerprint_from_public_key_b64, PeltIdentity},
     protocol::{ControlRequest, ControlResponse},
+    published::{validate_published, PublishedService},
     state::WolfMode,
 };
 
@@ -38,6 +44,7 @@ const MAX_QUERIES: usize = 24;
 const QUERY_WINDOW: Duration = Duration::from_secs(3);
 pub(crate) const ADVERTISE_FILE: &str = "advertise.json";
 pub(crate) const CACHE_FILE: &str = "contacts.json";
+pub(crate) const PUBLISHED_FILE: &str = "published.json";
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -65,6 +72,13 @@ pub(crate) fn parse_advertise(data: &[u8]) -> io::Result<Vec<String>> {
         check_addresses(&file.addresses).map_err(|_| invalid())?;
     }
     Ok(file.addresses)
+}
+
+/// Published services: operator configuration, strict like `services.json`.
+pub(crate) fn parse_published(data: &[u8]) -> io::Result<Vec<PublishedService>> {
+    let services: Vec<PublishedService> = serde_json::from_slice(data).map_err(|_| invalid())?;
+    validate_published(&services).map_err(|_| invalid())?;
+    Ok(services)
 }
 
 /// The cache is only a hint: a malformed file is ignored as a whole and
@@ -103,7 +117,11 @@ fn invalid() -> io::Error {
 pub(crate) fn handles(command: &str) -> bool {
     matches!(
         command,
-        "discover.show" | "discover.contacts" | "discover.refresh" | "discover.find"
+        "discover.show"
+            | "discover.contacts"
+            | "discover.refresh"
+            | "discover.find"
+            | "discover.services"
     )
 }
 
@@ -137,6 +155,7 @@ pub(crate) async fn handle(req: ControlRequest, state: Arc<Mutex<DaemonState>>) 
                 .collect();
             ControlResponse::ok(req.id, json!(records))
         }
+        "discover.services" => services(req, state).await,
         _ => network(req, state).await,
     }
 }
@@ -215,6 +234,182 @@ async fn network(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> Control
             .collect::<Vec<_>>());
     }
     ControlResponse::ok(req.id, result)
+}
+
+fn transport_arg(req: &ControlRequest) -> Result<&'static str, ControlResponse> {
+    match req.args["transport"].as_str().unwrap_or("quic") {
+        "quic" => Ok("quic"),
+        "tcp" => Ok("tcp"),
+        _ => Err(ControlResponse::err(
+            req.id.clone(),
+            "DISCOVER_INVALID",
+            "transport must be quic or tcp",
+        )),
+    }
+}
+
+/// Silver and Pelt checks shared by the `services` queries; returns our
+/// identity and the current Pack.
+async fn prepare(
+    id: &str,
+    state: &Arc<Mutex<DaemonState>>,
+) -> Result<(PeltIdentity, Vec<PeerRecord>), ControlResponse> {
+    let st = state.lock().await;
+    if matches!(st.status.mode, WolfMode::Silver) {
+        return Err(ControlResponse::err(
+            id,
+            "SILVER_ACTIVE",
+            "Silver mode is active. Discovery rejected.",
+        ));
+    }
+    let Some(identity) = st.pelt.clone() else {
+        return Err(ControlResponse::err(
+            id,
+            "NO_PELT",
+            "No local Pelt identity exists",
+        ));
+    };
+    Ok((identity, st.peers.clone()))
+}
+
+/// `discover.services`: asks every Pack member (or one, with `peer`) for the
+/// services it publishes and shows this node. Nothing is stored; adding one
+/// to the registry is a separate `service add`.
+async fn services(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> ControlResponse {
+    let transport = match transport_arg(&req) {
+        Ok(transport) => transport,
+        Err(response) => return response,
+    };
+    let (identity, peers) = match prepare(&req.id, &state).await {
+        Ok(prepared) => prepared,
+        Err(response) => return response,
+    };
+    let only = req.args["peer"].as_str().unwrap_or("").trim().to_owned();
+    if !only.is_empty() && !peers.iter().any(|peer| peer.name == only) {
+        return ControlResponse::err(req.id, "DISCOVER_INVALID", "peer is not a Pack member");
+    }
+    let seeds: Vec<Seed> = peers
+        .iter()
+        .filter(|peer| only.is_empty() || peer.name == only)
+        .filter_map(Seed::from_peer)
+        .collect();
+
+    let deadline = Instant::now() + LOOKUP_BUDGET;
+    let mut statuses: Vec<(String, Value)> = seeds
+        .iter()
+        .map(|seed| {
+            (
+                seed.name.clone(),
+                json!({"peer": seed.name, "status": "not_queried"}),
+            )
+        })
+        .collect();
+    let mut pending = seeds.into_iter();
+    let mut running = JoinSet::new();
+    loop {
+        while running.len() < ALPHA {
+            let Some(seed) = pending.next() else { break };
+            set_status(
+                &mut statuses,
+                &seed.name,
+                json!({"peer": seed.name, "status": "timeout"}),
+            );
+            let identity = identity.clone();
+            running.spawn(async move {
+                let result = query_services(&seed, &identity, transport).await;
+                (seed.name, result)
+            });
+        }
+        let Ok(Some(joined)) = timeout_at(deadline, running.join_next()).await else {
+            break;
+        };
+        let Ok((name, result)) = joined else { continue };
+        let status = match result {
+            Ok(entries) => json!({"peer": name, "status": "ok", "services": entries}),
+            Err(reason) => json!({"peer": name, "status": reason}),
+        };
+        set_status(&mut statuses, &name, status);
+    }
+    running.abort_all();
+    ControlResponse::ok(
+        req.id,
+        json!({
+            "transport": transport,
+            "queried": statuses.into_iter().map(|(_, status)| status).collect::<Vec<_>>(),
+        }),
+    )
+}
+
+/// `service add NAME --from PEER`: asks PEER now for the services it shows
+/// this node and turns NAME's entry into an ordinary `service.add` request,
+/// so saving goes through the normal mutation path. The control loop calls
+/// this before mutation admission, so the network query never holds the
+/// mutation slot. Nothing is cached.
+pub(crate) async fn resolve_add_from(
+    req: ControlRequest,
+    state: &Arc<Mutex<DaemonState>>,
+) -> Result<ControlRequest, ControlResponse> {
+    let transport = transport_arg(&req)?;
+    let name = req.args["name"].as_str().unwrap_or("").to_owned();
+    let peer_name = req.args["peer"].as_str().unwrap_or("").trim().to_owned();
+    if name.is_empty() || peer_name.is_empty() {
+        return Err(ControlResponse::err(
+            req.id,
+            "SERVICE_INVALID",
+            "name and peer are required",
+        ));
+    }
+    let (identity, peers) = prepare(&req.id, state).await?;
+    let Some(seed) = peers
+        .iter()
+        .find(|peer| peer.name == peer_name)
+        .and_then(Seed::from_peer)
+    else {
+        return Err(ControlResponse::err(
+            req.id,
+            "DISCOVER_INVALID",
+            "peer is not a Pack member",
+        ));
+    };
+    let entries = match timeout_at(
+        Instant::now() + LOOKUP_BUDGET,
+        query_services(&seed, &identity, transport),
+    )
+    .await
+    {
+        Ok(Ok(entries)) => entries,
+        Ok(Err(reason)) => {
+            return Err(ControlResponse::err(
+                req.id,
+                "DISCOVER_FAILED",
+                format!("{peer_name}: {reason}"),
+            ))
+        }
+        Err(_) => {
+            return Err(ControlResponse::err(
+                req.id,
+                "DISCOVER_FAILED",
+                format!("{peer_name}: timeout"),
+            ))
+        }
+    };
+    let Some(entry) = entries.into_iter().find(|entry| entry.name == name) else {
+        return Err(ControlResponse::err(
+            req.id,
+            "SERVICE_NOT_FOUND",
+            format!("{peer_name} offers no service {name} to this node"),
+        ));
+    };
+    Ok(ControlRequest {
+        id: req.id,
+        cmd: "service.add".into(),
+        args: json!({
+            "name": entry.name,
+            "peer": peer_name,
+            "target": entry.target,
+            "kind": entry.kind,
+        }),
+    })
 }
 
 /// Persists the merged cache before publishing it ("persist before
@@ -460,6 +655,31 @@ async fn query(
                 .map_err(|_| "rejected")
         }
         Ok(FangTransport::Tcp(address)) => query_tcp(&address, identity, &seed.expected, request)
+            .await
+            .map_err(|_| "rejected"),
+        Err(_) => Err("bad_address"),
+    }
+}
+
+/// One `services` query, dialled like `query` (never a scheme-swapped
+/// address). Any bad entry has already rejected the whole answer.
+async fn query_services(
+    seed: &Seed,
+    identity: &PeltIdentity,
+    transport: &str,
+) -> Result<Vec<PublishedService>, &'static str> {
+    match select_peer_transport(transport, &seed.address) {
+        Ok(FangTransport::Quic(address)) => {
+            let address = tokio::net::lookup_host(address.as_str())
+                .await
+                .ok()
+                .and_then(|mut addresses| addresses.next())
+                .ok_or("bad_address")?;
+            query_services_quic(address, identity, &seed.expected)
+                .await
+                .map_err(|_| "rejected")
+        }
+        Ok(FangTransport::Tcp(address)) => query_services_tcp(&address, identity, &seed.expected)
             .await
             .map_err(|_| "rejected"),
         Err(_) => Err("bad_address"),

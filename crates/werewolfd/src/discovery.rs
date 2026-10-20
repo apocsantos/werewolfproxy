@@ -391,7 +391,6 @@ pub(crate) async fn query_quic(
 
 /// `services` over QUIC: the responder's published services visible to us.
 /// Any bad entry rejects the whole answer.
-#[cfg_attr(not(test), expect(dead_code, reason = "used by Stage25 step 3"))]
 pub(crate) async fn query_services_quic(
     address: SocketAddr,
     identity: &PeltIdentity,
@@ -458,7 +457,6 @@ pub(crate) async fn query_tcp(
 }
 
 /// `services` over encrypted TCP (see `query_services_quic`).
-#[cfg_attr(not(test), expect(dead_code, reason = "used by Stage25 step 3"))]
 pub(crate) async fn query_services_tcp(
     peer_addr: &str,
     identity: &PeltIdentity,

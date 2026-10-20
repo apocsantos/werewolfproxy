@@ -202,12 +202,33 @@ enum ServiceCommands {
     Add {
         name: String,
         /// Peer name; it need not be in the Pack yet.
-        peer: String,
+        #[arg(required_unless_present = "from")]
+        peer: Option<String>,
         /// Target on the peer, for example 127.0.0.1:8080.
+        #[arg(required_unless_present = "from")]
+        target: Option<String>,
+        #[arg(required_unless_present = "from", value_parser = ["tcp", "http", "https", "ssh"])]
+        kind: Option<String>,
+        /// Copy NAME as Pack member PEER publishes it to this node, asked now.
+        #[arg(long, value_name = "PEER", conflicts_with_all = ["peer", "target", "kind"])]
+        from: Option<String>,
+        /// Transport for --from (default quic).
+        #[arg(long, requires = "from", value_parser = ["quic", "tcp"])]
+        transport: Option<String>,
+    },
+    /// Offer a local target to Pack members already granted it. Grants nothing.
+    Publish {
+        name: String,
+        /// Literal IP:port on this node, for example 127.0.0.1:8080.
         target: String,
         #[arg(value_parser = ["tcp", "http", "https", "ssh"])]
         kind: String,
     },
+    Unpublish {
+        name: String,
+    },
+    /// List published services and the Pack members each is visible to.
+    Published,
     List,
     Show {
         name: String,
@@ -255,6 +276,14 @@ enum DiscoverCommands {
     Find {
         /// Public key (base64) or node ID (64 hex digits).
         node: String,
+        #[arg(long, default_value = "quic", value_parser = ["quic", "tcp"])]
+        transport: String,
+    },
+    /// Ask Pack members which services they publish to this node.
+    Services {
+        /// Ask only this Pack member.
+        #[arg(long)]
+        peer: Option<String>,
         #[arg(long, default_value = "quic", value_parser = ["quic", "tcp"])]
         transport: String,
     },
@@ -468,11 +497,43 @@ fn request_for(command: Commands) -> Result<(String, Value), CliError> {
                     peer,
                     target,
                     kind,
+                    from: Some(from),
+                    transport,
+                },
+        } => {
+            // The daemon asks the peer itself; the CLI never supplies the target.
+            let _ = (peer, target, kind);
+            (
+                "service.add_from",
+                json!({"name":name,"peer":from,"transport":transport.unwrap_or_else(|| "quic".into())}),
+            )
+        }
+        Commands::Service {
+            command:
+                ServiceCommands::Add {
+                    name,
+                    peer,
+                    target,
+                    kind,
+                    from: None,
+                    ..
                 },
         } => (
             "service.add",
-            json!({"name":name,"peer":peer,"target":target,"kind":kind}),
+            json!({"name":name,"peer":peer.unwrap_or_default(),"target":target.unwrap_or_default(),"kind":kind.unwrap_or_default()}),
         ),
+        Commands::Service {
+            command: ServiceCommands::Publish { name, target, kind },
+        } => (
+            "service.publish",
+            json!({"name":name,"target":target,"kind":kind}),
+        ),
+        Commands::Service {
+            command: ServiceCommands::Unpublish { name },
+        } => ("service.unpublish", json!({"name":name})),
+        Commands::Service {
+            command: ServiceCommands::Published,
+        } => ("service.published", json!({})),
         Commands::Service {
             command: ServiceCommands::List,
         } => ("service.list", json!({})),
@@ -512,6 +573,10 @@ fn request_for(command: Commands) -> Result<(String, Value), CliError> {
             DiscoverCommands::Find { node, transport } => (
                 "discover.find",
                 json!({"target":node,"transport":transport}),
+            ),
+            DiscoverCommands::Services { peer, transport } => (
+                "discover.services",
+                json!({"peer":peer.unwrap_or_default(),"transport":transport}),
             ),
         },
         Commands::Version
@@ -679,6 +744,81 @@ mod tests {
             request(&["service", "remove", "web"]),
             ("service.remove".into(), json!({"name":"web"}))
         );
+    }
+
+    #[test]
+    fn stage25_service_commands_map_to_daemon_requests() {
+        assert_eq!(
+            request(&["service", "publish", "web", "127.0.0.1:8080", "http"]),
+            (
+                "service.publish".into(),
+                json!({"name":"web","target":"127.0.0.1:8080","kind":"http"})
+            )
+        );
+        assert_eq!(
+            request(&["service", "unpublish", "web"]),
+            ("service.unpublish".into(), json!({"name":"web"}))
+        );
+        assert_eq!(
+            request(&["service", "published"]),
+            ("service.published".into(), json!({}))
+        );
+        // --from sends only the name and peer; the daemon asks the peer.
+        assert_eq!(
+            request(&["service", "add", "web", "--from", "wolf-b"]),
+            (
+                "service.add_from".into(),
+                json!({"name":"web","peer":"wolf-b","transport":"quic"})
+            )
+        );
+        assert_eq!(
+            request(&[
+                "service",
+                "add",
+                "web",
+                "--from",
+                "wolf-b",
+                "--transport",
+                "tcp"
+            ]),
+            (
+                "service.add_from".into(),
+                json!({"name":"web","peer":"wolf-b","transport":"tcp"})
+            )
+        );
+        assert_eq!(
+            request(&["discover", "services"]),
+            (
+                "discover.services".into(),
+                json!({"peer":"","transport":"quic"})
+            )
+        );
+        assert_eq!(
+            request(&[
+                "discover",
+                "services",
+                "--peer",
+                "wolf-b",
+                "--transport",
+                "tcp"
+            ]),
+            (
+                "discover.services".into(),
+                json!({"peer":"wolf-b","transport":"tcp"})
+            )
+        );
+        for bad in [
+            &["service", "add", "web", "--from", "wolf-b", "wolf-a"][..],
+            &["service", "add", "web", "wolf-a", "127.0.0.1:8080"],
+            &["service", "add", "web", "--transport", "tcp"],
+            &["service", "publish", "web", "127.0.0.1:8080", "ftp"],
+        ] {
+            assert!(
+                Cli::try_parse_from(std::iter::once("werewolfctl").chain(bad.iter().copied()))
+                    .is_err(),
+                "{bad:?}"
+            );
+        }
     }
 
     #[test]

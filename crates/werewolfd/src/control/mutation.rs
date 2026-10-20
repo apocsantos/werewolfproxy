@@ -42,6 +42,8 @@ pub(super) fn handles(command: &str) -> bool {
             | "fang.profile.remove"
             | "service.add"
             | "service.remove"
+            | "service.publish"
+            | "service.unpublish"
             | "discover.advertise"
             | "state.manifest.migrate"
     )
@@ -65,6 +67,15 @@ pub(crate) async fn persist_discovery_cache(
 }
 fn error(id: &str, code: &str) -> ControlResponse {
     ControlResponse::err(id, code, "local state mutation rejected")
+}
+fn service_kind(kind: &str) -> Option<ServiceKind> {
+    Some(match kind {
+        "tcp" => ServiceKind::Tcp,
+        "http" => ServiceKind::Http,
+        "https" => ServiceKind::Https,
+        "ssh" => ServiceKind::Ssh,
+        _ => return None,
+    })
 }
 fn arg(req: &ControlRequest, field: &str) -> String {
     req.args[field].as_str().unwrap_or("").trim().to_owned()
@@ -387,12 +398,8 @@ pub(super) async fn handle(
                 return error(&req.id, "SERVICE_EXISTS");
             }
 
-            let kind = match arg(&req, "kind").as_str() {
-                "tcp" => ServiceKind::Tcp,
-                "http" => ServiceKind::Http,
-                "https" => ServiceKind::Https,
-                "ssh" => ServiceKind::Ssh,
-                _ => return error(&req.id, "SERVICE_INVALID"),
+            let Some(kind) = service_kind(&arg(&req, "kind")) else {
+                return error(&req.id, "SERVICE_INVALID");
             };
 
             candidate.push(ServiceDefinition {
@@ -435,6 +442,58 @@ pub(super) async fn handle(
                 "name": name,
                 "services": live.services.len()
             }),
+        );
+    }
+
+    if matches!(req.cmd.as_str(), "service.publish" | "service.unpublish") {
+        // Publishing announces a service to peers already granted its
+        // target; it grants nothing (Stage25 decision 2).
+        let mut candidate = state.lock().await.published.clone();
+        let name = arg(&req, "name");
+        if name.is_empty() {
+            return error(&req.id, "SERVICE_INVALID");
+        }
+        let status = if req.cmd == "service.publish" {
+            if candidate.iter().any(|service| service.name == name) {
+                return error(&req.id, "SERVICE_EXISTS");
+            }
+            let Some(kind) = service_kind(&arg(&req, "kind")) else {
+                return error(&req.id, "SERVICE_INVALID");
+            };
+            candidate.push(werewolf_core::published::PublishedService {
+                name: name.clone(),
+                kind,
+                target: arg(&req, "target"),
+            });
+            "published"
+        } else {
+            let before = candidate.len();
+            candidate.retain(|service| service.name != name);
+            if candidate.len() == before {
+                return error(&req.id, "SERVICE_NOT_FOUND");
+            }
+            "unpublished"
+        };
+        if werewolf_core::published::validate_published(&candidate).is_err() {
+            return error(&req.id, "SERVICE_INVALID");
+        }
+        if durable(
+            &home,
+            crate::discovery::operator::PUBLISHED_FILE,
+            &candidate,
+            false,
+            &state,
+        )
+        .await
+        .is_err()
+        {
+            return error(&req.id, "SERVICE_SAVE_FAILED");
+        }
+        let mut live = state.lock().await;
+        live.published = candidate;
+        return ControlResponse::ok(
+            req.id,
+            json!({"status": status, "name": name, "published": live.published.len()}),
         );
     }
 
@@ -1303,5 +1362,143 @@ mod tests {
         );
         assert!(!state.lock().await.inbound_authority.is_locked());
         assert_eq!(state.lock().await.protected_state_generation, Some(3));
+    }
+
+    // Stage25 `service.publish` / `service.unpublish`.
+
+    fn publish(name: &str, target: &str, kind: &str) -> ControlRequest {
+        ControlRequest {
+            id: "publish".into(),
+            cmd: "service.publish".into(),
+            args: json!({"name": name, "target": target, "kind": kind}),
+        }
+    }
+
+    fn unpublish(name: &str) -> ControlRequest {
+        ControlRequest {
+            id: "unpublish".into(),
+            cmd: "service.unpublish".into(),
+            args: json!({"name": name}),
+        }
+    }
+
+    fn published_on_disk(fixture: &Fixture) -> Vec<werewolf_core::published::PublishedService> {
+        crate::discovery::operator::parse_published(
+            &std::fs::read(fixture.0.join("published.json")).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn publish_persists_then_publishes_and_unpublish_removes() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+
+        let response = handle(
+            publish("web", "127.0.0.1:8080", "http"),
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert!(response.ok, "{response:?}");
+        let live = state.lock().await.published.clone();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].target, "127.0.0.1:8080");
+        assert_eq!(published_on_disk(&fixture), live);
+        // Publishing grants nothing: no Pack peer or target grant is needed
+        // or created.
+        assert!(matches!(
+            state.lock().await.target_policy,
+            crate::target_policy::TargetPolicy::Deny
+        ));
+
+        let response = handle(unpublish("web"), state.clone(), fixture.0.clone()).await;
+        assert!(response.ok, "{response:?}");
+        assert!(state.lock().await.published.is_empty());
+        assert!(published_on_disk(&fixture).is_empty());
+    }
+
+    #[tokio::test]
+    async fn invalid_duplicate_and_missing_publications_change_nothing() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        assert!(
+            handle(
+                publish("web", "127.0.0.1:8080", "http"),
+                state.clone(),
+                fixture.0.clone()
+            )
+            .await
+            .ok
+        );
+        let committed = std::fs::read(fixture.0.join("published.json")).unwrap();
+
+        for (request, code) in [
+            (publish("web", "127.0.0.1:9090", "tcp"), "SERVICE_EXISTS"),
+            (publish("db", "db.internal:5432", "tcp"), "SERVICE_INVALID"),
+            (publish("db", "0.0.0.0:5432", "tcp"), "SERVICE_INVALID"),
+            (publish("db", "127.0.0.1:5432", "ftp"), "SERVICE_INVALID"),
+            (
+                publish("d\u{1b}b", "127.0.0.1:5432", "tcp"),
+                "SERVICE_INVALID",
+            ),
+            (publish("", "127.0.0.1:5432", "tcp"), "SERVICE_INVALID"),
+            (unpublish("db"), "SERVICE_NOT_FOUND"),
+        ] {
+            let response = handle(request, state.clone(), fixture.0.clone()).await;
+            assert!(!response.ok);
+            assert_eq!(response.error.unwrap().code, code);
+        }
+        assert_eq!(state.lock().await.published.len(), 1);
+        assert_eq!(
+            std::fs::read(fixture.0.join("published.json")).unwrap(),
+            committed
+        );
+    }
+
+    #[tokio::test]
+    async fn publication_count_is_capped() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        for i in 0..werewolf_core::published::MAX_PUBLISHED {
+            let name = format!("s{i}");
+            assert!(
+                handle(
+                    publish(&name, "127.0.0.1:8080", "tcp"),
+                    state.clone(),
+                    fixture.0.clone()
+                )
+                .await
+                .ok
+            );
+        }
+        let response = handle(
+            publish("one-more", "127.0.0.1:8080", "tcp"),
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert_eq!(response.error.unwrap().code, "SERVICE_INVALID");
+        assert_eq!(
+            state.lock().await.published.len(),
+            werewolf_core::published::MAX_PUBLISHED
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_publish_save_preserves_live_memory() {
+        let fixture = Fixture::new();
+        std::fs::create_dir(fixture.0.join("published.json")).unwrap();
+        let state = fixture.state();
+
+        let response = handle(
+            publish("web", "127.0.0.1:8080", "http"),
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert_eq!(response.error.unwrap().code, "SERVICE_SAVE_FAILED");
+        assert!(state.lock().await.published.is_empty());
+        assert!(!state.lock().await.storage_degraded);
     }
 }

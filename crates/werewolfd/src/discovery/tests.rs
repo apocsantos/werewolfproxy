@@ -614,3 +614,94 @@ async fn services_refuse_strangers_silver_and_exhausted_rate() {
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn discover_services_and_add_from_ask_pack_members_now() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let (a, b, c) = (
+            node(&[], Contacts::default()).await,
+            node(&[], Contacts::default()).await,
+            node(&[], Contacts::default()).await,
+        );
+        a.state.lock().await.peers = vec![member("wolf-b", &b), member("wolf-c", &c)];
+        // B trusts A; C does not, so C rejects A's queries.
+        b.state.lock().await.peers = vec![member("wolf-a", &a)];
+        {
+            let mut st = b.state.lock().await;
+            st.published = published();
+            st.target_policy = grants(&[(&a.receiver, &["127.0.0.1:8080"])]);
+        }
+        c.state.lock().await.published = published();
+
+        let found = operate(&a, "discover.services", serde_json::json!({})).await;
+        assert_eq!(found["ok"], true, "{found}");
+        assert_eq!(found["result"]["transport"], "quic");
+        let queried = found["result"]["queried"].as_array().unwrap();
+        assert_eq!(
+            queried[0],
+            serde_json::json!({"peer": "wolf-b", "status": "ok", "services": [
+                {"name": "web", "kind": "http", "target": "127.0.0.1:8080"}
+            ]})
+        );
+        assert_eq!(
+            queried[1],
+            serde_json::json!({"peer": "wolf-c", "status": "rejected"})
+        );
+
+        let one = operate(&a, "discover.services", serde_json::json!({"peer": "wolf-b"})).await;
+        assert_eq!(one["result"]["queried"].as_array().unwrap().len(), 1);
+        let unknown = operate(&a, "discover.services", serde_json::json!({"peer": "wolf-x"})).await;
+        assert_eq!(unknown["error"]["code"], "DISCOVER_INVALID");
+        // Over encrypted TCP the answer is the same; a tcp:// Pack address
+        // is never dialled as QUIC.
+        a.state.lock().await.peers[0].address = format!("tcp://{}", b.tcp);
+        let tcp = operate(
+            &a,
+            "discover.services",
+            serde_json::json!({"peer": "wolf-b", "transport": "tcp"}),
+        )
+        .await;
+        assert_eq!(tcp["result"]["queried"][0], queried[0]);
+        let quic = operate(&a, "discover.services", serde_json::json!({"peer": "wolf-b"})).await;
+        assert_eq!(quic["result"]["queried"][0]["status"], "bad_address");
+        a.state.lock().await.peers[0] = member("wolf-b", &b);
+
+        // --from turns the entry B shows A into an ordinary service.add.
+        let request = |name: &str, peer: &str| werewolf_core::protocol::ControlRequest {
+            id: "from".into(),
+            cmd: "service.add_from".into(),
+            args: serde_json::json!({"name": name, "peer": peer}),
+        };
+        let add = operator::resolve_add_from(request("web", "wolf-b"), &a.state)
+            .await
+            .unwrap();
+        assert_eq!(add.cmd, "service.add");
+        assert_eq!(
+            add.args,
+            serde_json::json!({"name": "web", "peer": "wolf-b", "target": "127.0.0.1:8080", "kind": "http"})
+        );
+        for (name, peer, code) in [
+            ("ssh", "wolf-b", "SERVICE_NOT_FOUND"), // published but not granted to A
+            ("web", "wolf-c", "DISCOVER_FAILED"),
+            ("web", "wolf-x", "DISCOVER_INVALID"),
+            ("", "wolf-b", "SERVICE_INVALID"),
+        ] {
+            let error = operator::resolve_add_from(request(name, peer), &a.state)
+                .await
+                .unwrap_err();
+            assert_eq!(error.error.unwrap().code, code, "{name} {peer}");
+        }
+        // Nothing was stored on A by any of this.
+        assert!(a.state.lock().await.services.is_empty());
+
+        a.state.lock().await.status.mode = werewolf_core::state::WolfMode::Silver;
+        let fenced = operate(&a, "discover.services", serde_json::json!({})).await;
+        assert_eq!(fenced["error"]["code"], "SILVER_ACTIVE");
+        let error = operator::resolve_add_from(request("web", "wolf-b"), &a.state)
+            .await
+            .unwrap_err();
+        assert_eq!(error.error.unwrap().code, "SILVER_ACTIVE");
+    })
+    .await
+    .unwrap();
+}

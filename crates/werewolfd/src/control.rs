@@ -125,6 +125,19 @@ async fn handle_control_client(
                 return Ok(());
             }
         };
+        // `service add --from` queries the peer first, outside mutation
+        // admission, then saves through the ordinary `service.add` path.
+        let req = if req.cmd == "service.add_from" {
+            match crate::discovery::operator::resolve_add_from(req, &state).await {
+                Ok(add) => add,
+                Err(response) => {
+                    limits::write_response(&mut writer, &response, end).await?;
+                    continue;
+                }
+            }
+        } else {
+            req
+        };
         let response = if limits::mutates(&req.cmd) {
             let permit = mutations.admit().await?;
             let state = state.clone();
@@ -253,6 +266,38 @@ async fn handle_request(
         "service.list" => {
             let st = state.lock().await;
             ControlResponse::ok(req.id, json!(st.services))
+        }
+
+        "service.published" => {
+            // For each published service, the Pack members its target is
+            // currently granted to: the peers a `services` answer shows it to.
+            let (published, peers, policy) = {
+                let st = state.lock().await;
+                (
+                    st.published.clone(),
+                    st.peers.clone(),
+                    st.target_policy.clone(),
+                )
+            };
+            let mut entries = Vec::new();
+            for service in published {
+                let mut visible_to = Vec::new();
+                for peer in &peers {
+                    if crate::target_policy::authorize(&policy, &peer.fingerprint, &service.target)
+                        .await
+                        .is_ok()
+                    {
+                        visible_to.push(peer.name.clone());
+                    }
+                }
+                entries.push(json!({
+                    "name": service.name,
+                    "kind": service.kind,
+                    "target": service.target,
+                    "visible_to": visible_to,
+                }));
+            }
+            ControlResponse::ok(req.id, json!(entries))
         }
 
         "service.show" => {
