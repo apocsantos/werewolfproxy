@@ -59,6 +59,16 @@ malformed OPEN. OPEN, ACK, challenge, KDF and framing above are unchanged.
 The exact messages are in the
 [Stage24 RPC wire specification](STAGE24_FINDNODE_RPC_WIRE_SPEC.md).
 
+## Stage25 extension: services RPC
+
+Stage25 adds one `op` value, `services`, to the Stage24 RPC on both
+transports. Commands, fields, transcript domains and signatures are
+unchanged; the result's `records` carry published service entries, and a
+receiver returns only its own published services whose target its Target
+Policy would grant that requester. Receivers without it reject the unknown
+`op` like any invalid RPC. The exact rules are in the
+[Stage25 services RPC wire specification](STAGE25_SERVICES_RPC_WIRE_SPEC.md).
+
 ## Fallback and time/resource behavior
 
 The default secure selector (secure/strict) tries QUIC secure, encrypted TCP

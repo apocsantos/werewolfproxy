@@ -1,6 +1,6 @@
 # Stage25 step 2: `services` RPC wire specification
 
-**Status: approved by the owner 2026-10-20; implementation in progress.** This extends the [Stage24 RPC](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)
+**Status: approved by the owner 2026-10-20; implemented (Stage25 step 2).** This extends the [Stage24 RPC](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)
 as decided in the [Stage25 design](STAGE25_SERVICE_DISCOVERY_DESIGN.md)
 (decisions 1, 2 and 4). It adds one `op` value. Commands, message fields,
 transcript domains, signatures, OPEN, ACK, challenge, KDF and framing are

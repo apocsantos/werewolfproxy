@@ -1,4 +1,5 @@
-//! Stage24 FindNode/Ping RPC messages (`docs/STAGE24_FINDNODE_RPC_WIRE_SPEC.md`).
+//! Stage24 FindNode/Ping RPC messages (`docs/STAGE24_FINDNODE_RPC_WIRE_SPEC.md`)
+//! and the Stage25 `services` op (`docs/STAGE25_SERVICES_RPC_WIRE_SPEC.md`).
 //! These share the OPEN position on each transport but use their own `/v1`
 //! transcript domains, so no RPC signature verifies as an OPEN or ACK.
 use super::{
@@ -8,7 +9,12 @@ use super::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use std::io;
-use werewolf_core::{contact::ContactRecord, nodeid::NodeId, pelt::PeltIdentity};
+use werewolf_core::{
+    contact::ContactRecord,
+    nodeid::NodeId,
+    pelt::PeltIdentity,
+    published::{self, PublishedService},
+};
 
 pub(crate) const QUIC_RPC: &str = "fang.quic.rpc";
 pub(crate) const TCP_RPC: &str = "fang.tcp.rpc";
@@ -16,6 +22,7 @@ const QUIC_RESULT: &str = "fang.quic.rpc.result";
 const TCP_RESULT: &str = "fang.tcp.rpc.result";
 const PING: &str = "ping";
 const FIND_NODE: &str = "find_node";
+const SERVICES: &str = "services";
 /// Largest RPC result line; responders drop the farthest records to fit.
 pub(crate) const RESULT_LIMIT: usize = 32 * 1024;
 const MAX_K: u8 = werewolf_core::lookup::MAX_K as u8;
@@ -23,7 +30,30 @@ const MAX_K: u8 = werewolf_core::lookup::MAX_K as u8;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RpcRequest {
     Ping,
-    FindNode { target: NodeId, k: u8 },
+    FindNode {
+        target: NodeId,
+        k: u8,
+    },
+    /// The responder's own published services visible to the requester.
+    Services,
+}
+
+/// What a result's `records` carry: contact records for `ping` and
+/// `find_node`, published service entries for `services`.
+pub(crate) trait RpcEntry {
+    fn encode(&self) -> Vec<u8>;
+}
+
+impl RpcEntry for ContactRecord {
+    fn encode(&self) -> Vec<u8> {
+        ContactRecord::encode(self)
+    }
+}
+
+impl RpcEntry for PublishedService {
+    fn encode(&self) -> Vec<u8> {
+        PublishedService::encode(self)
+    }
 }
 
 impl RpcRequest {
@@ -31,6 +61,7 @@ impl RpcRequest {
         match self {
             Self::Ping => (PING.into(), String::new(), 0),
             Self::FindNode { target, k } => (FIND_NODE.into(), target.to_hex(), *k),
+            Self::Services => (SERVICES.into(), String::new(), 0),
         }
     }
 
@@ -47,6 +78,10 @@ impl RpcRequest {
                     k,
                 })
             }
+            SERVICES => {
+                require(target.is_empty() && k == 0)?;
+                Ok(Self::Services)
+            }
             _ => Err(rejected()),
         }
     }
@@ -56,12 +91,13 @@ impl RpcRequest {
         match self {
             Self::Ping => 1,
             Self::FindNode { k, .. } => *k as usize,
+            Self::Services => published::MAX_PUBLISHED,
         }
     }
 
     fn target_bytes(&self) -> Vec<u8> {
         match self {
-            Self::Ping => Vec::new(),
+            Self::Ping | Self::Services => Vec::new(),
             Self::FindNode { target, .. } => target.0.to_vec(),
         }
     }
@@ -175,12 +211,27 @@ fn accepted_records(
     request: &RpcRequest,
     receiver_pubkey: &[u8; 32],
     now: u64,
-) -> Vec<ContactRecord> {
-    raw.iter()
+) -> io::Result<Vec<ContactRecord>> {
+    require(*request != RpcRequest::Services)?;
+    Ok(raw
+        .iter()
         .filter_map(|bytes| ContactRecord::decode(bytes).ok())
         .filter(|record| record.verify(now).is_ok())
         .filter(|record| *request != RpcRequest::Ping || record.public_key == *receiver_pubkey)
-        .collect()
+        .collect())
+}
+
+/// Decodes service entries from a verified `services` result. Entries share
+/// the result signature instead of carrying their own, so one bad entry
+/// means the responder is faulty or hostile and rejects the whole result.
+fn accepted_services(raw: Vec<Vec<u8>>, request: &RpcRequest) -> io::Result<Vec<PublishedService>> {
+    require(*request == RpcRequest::Services)?;
+    let entries = raw
+        .iter()
+        .map(|bytes| PublishedService::decode(bytes).map_err(|_| rejected()))
+        .collect::<io::Result<Vec<_>>>()?;
+    published::validate_published(&entries).map_err(|_| rejected())?;
+    Ok(entries)
 }
 
 impl QuicRpc {
@@ -232,11 +283,11 @@ impl QuicRpc {
 }
 
 impl QuicRpcResult {
-    pub(crate) fn new(
+    pub(crate) fn new<R: RpcEntry>(
         rpc: &QuicRpc,
         retained: &[u8],
         receiver: &PeltIdentity,
-        records: &[ContactRecord],
+        records: &[R],
     ) -> io::Result<Self> {
         let mut value = Self {
             cmd: QUIC_RESULT.into(),
@@ -249,7 +300,7 @@ impl QuicRpcResult {
             op: rpc.op.clone(),
             records: records
                 .iter()
-                .map(|r| STANDARD.encode(r.encode()))
+                .map(|r| STANDARD.encode(RpcEntry::encode(r)))
                 .collect(),
             signature: String::new(),
         };
@@ -285,7 +336,19 @@ impl QuicRpcResult {
     ) -> io::Result<Vec<ContactRecord>> {
         let (transcript, (raw, receiver)) = self.transcript(rpc, retained)?;
         super::verify(&self.receiver_pubkey, &transcript, &self.signature)?;
-        Ok(accepted_records(raw, &rpc.request()?, &receiver, now))
+        accepted_records(raw, &rpc.request()?, &receiver, now)
+    }
+
+    /// As `verify`, for a `services` request: the whole result is rejected if
+    /// any entry is malformed or names repeat.
+    pub(crate) fn verify_services(
+        &self,
+        rpc: &QuicRpc,
+        retained: &[u8],
+    ) -> io::Result<Vec<PublishedService>> {
+        let (transcript, (raw, _)) = self.transcript(rpc, retained)?;
+        super::verify(&self.receiver_pubkey, &transcript, &self.signature)?;
+        accepted_services(raw, &rpc.request()?)
     }
 }
 
@@ -342,11 +405,11 @@ impl TcpRpc {
 }
 
 impl TcpRpcResult {
-    pub(crate) fn new(
+    pub(crate) fn new<R: RpcEntry>(
         rpc: &TcpRpc,
         retained: &[u8],
         receiver: &PeltIdentity,
-        records: &[ContactRecord],
+        records: &[R],
     ) -> io::Result<Self> {
         let mut value = Self {
             cmd: TCP_RESULT.into(),
@@ -360,7 +423,7 @@ impl TcpRpcResult {
             op: rpc.op.clone(),
             records: records
                 .iter()
-                .map(|r| STANDARD.encode(r.encode()))
+                .map(|r| STANDARD.encode(RpcEntry::encode(r)))
                 .collect(),
             signature: String::new(),
         };
@@ -395,7 +458,18 @@ impl TcpRpcResult {
     ) -> io::Result<Vec<ContactRecord>> {
         let (transcript, (raw, receiver)) = self.transcript(rpc, retained)?;
         super::verify(&self.receiver_pubkey, &transcript, &self.signature)?;
-        Ok(accepted_records(raw, &rpc.request()?, &receiver, now))
+        accepted_records(raw, &rpc.request()?, &receiver, now)
+    }
+
+    /// As `verify`, for a `services` request (see `QuicRpcResult`).
+    pub(crate) fn verify_services(
+        &self,
+        rpc: &TcpRpc,
+        retained: &[u8],
+    ) -> io::Result<Vec<PublishedService>> {
+        let (transcript, (raw, _)) = self.transcript(rpc, retained)?;
+        super::verify(&self.receiver_pubkey, &transcript, &self.signature)?;
+        accepted_services(raw, &rpc.request()?)
     }
 }
 
