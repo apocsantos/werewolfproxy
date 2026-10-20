@@ -1,7 +1,6 @@
 # Stage25 step 2: `services` RPC wire specification
 
-**Status: proposal, awaiting owner approval.** No wire code lands before
-approval. This extends the [Stage24 RPC](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)
+**Status: approved by the owner 2026-10-20; implementation in progress.** This extends the [Stage24 RPC](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)
 as decided in the [Stage25 design](STAGE25_SERVICE_DISCOVERY_DESIGN.md)
 (decisions 1, 2 and 4). It adds one `op` value. Commands, message fields,
 transcript domains, signatures, OPEN, ACK, challenge, KDF and framing are
@@ -126,11 +125,10 @@ result signature over the retained request) apply unchanged. Then:
   `find_node` is rejected; OPEN, `ping` and `find_node` regression suites are
   unchanged and passing.
 
-## Decisions needed
+## Decisions (approved 2026-10-20)
 
-1. Approve the messages and rules above as the v1 contract extension (one
-   new `op` value, no new domains).
-2. A bad entry rejects the **whole** result (recommended), rather than
-   dropping that entry as `find_node` does with bad records.
-3. Entries keep the provider's published order (recommended), rather than
-   being sorted by name.
+1. The messages and rules above are the v1 contract extension: one new `op`
+   value, no new domains.
+2. A bad entry rejects the **whole** result, rather than dropping that entry
+   as `find_node` does with bad records.
+3. Entries keep the provider's published order.
