@@ -50,6 +50,7 @@ dependency/license review, release artifact hashes and tag record are in
 - [Stage22R D05A hard path loss](STAGE22R_D05A_HARD_PATH_LOSS_CERTIFICATION.md)
 - [Stage22R D05B temporary blackhole](STAGE22R_D05B_TEMPORARY_BLACKHOLE_CERTIFICATION.md)
 - [Stage22R D06 repeated loss and recovery](STAGE22R_D06_REPEATED_LOSS_RECOVERY_CERTIFICATION.md)
+- [Stage22R D07 target failure](STAGE22R_D07_TARGET_FAILURE_CERTIFICATION.md)
 
 ## History
 
