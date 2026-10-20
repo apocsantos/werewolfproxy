@@ -146,8 +146,8 @@ like `discover refresh`, and a Silver-locked responder rejects the RPC.
 | Step | Scope |
 |---|---|
 | 0 | This proposal; owner decisions 1–4 |
-| 1 | `werewolf-core`: `PublishedService` validation, canonical entry encoding and strict decoding, unit tests |
-| 2 | Wire: `services` op, receiver filter (2b), requester checks; transcript vectors and negative tests; wire contract updated |
+| 1 | `werewolf-core`: `PublishedService` validation, canonical entry encoding and strict decoding, unit tests (PR #30) |
+| 2 | Wire: `services` op, receiver filter (2b), requester checks; transcript vectors and negative tests; wire contract updated ([spec](STAGE25_SERVICES_RPC_WIRE_SPEC.md), awaiting approval) |
 | 3 | Operator: `service publish/unpublish/published`, `published.json`, `discover services`, optional `service add --from`; CLI contract; lab gate (provider grants one target to one of two requesters; only that requester sees it; connect works; revoking hides it) |
 | 4 | Real-WAN check DarkSide ↔ VPS |
 
@@ -168,3 +168,10 @@ like `discover refresh`, and a Silver-locked responder rejects the RPC.
 4. **Wire:** the extension above (one new `op`, the service entry encoding,
    at most 32 entries within `RESULT_LIMIT`) is accepted for specification
    and review in step 2.
+
+Step 1 notes: entry names follow the Stage23 rules and also reject control
+characters, because a requester prints names received from another node;
+targets must be a canonical literal `IP:port` (exactly as Rust formats a
+`SocketAddr`, port non-zero, IP specified), so each target has one byte
+form and checking it never resolves DNS. Kind codes are `tcp` 0, `http` 1,
+`https` 2, `ssh` 3.
