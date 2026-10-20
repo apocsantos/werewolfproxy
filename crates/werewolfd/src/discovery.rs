@@ -1,11 +1,14 @@
-//! Stage24 discovery (`docs/STAGE24_FINDNODE_RPC_WIRE_SPEC.md`): what a
-//! receiver answers to FindNode/Ping, the per-peer RPC rate limit, and the
-//! requester side. Discovery is read-only and never grants trust: nothing
-//! here touches Pack, Target Policy, authority leases or persisted state.
+//! Stage24 discovery (`docs/STAGE24_FINDNODE_RPC_WIRE_SPEC.md`) and the
+//! Stage25 `services` op (`docs/STAGE25_SERVICES_RPC_WIRE_SPEC.md`): what a
+//! receiver answers, the per-peer RPC rate limit, and the requester side.
+//! Discovery is read-only and never grants trust: nothing here changes Pack,
+//! Target Policy, authority leases or persisted state. `services` only reads
+//! Target Policy, to show a requester the targets it may already open.
 use crate::admission::{HandshakePermit, QuicReplayV3};
 use crate::handshake::{self as hs, RpcRequest};
 use crate::policy::ExpectedPeerIdentity;
 use crate::state::DaemonState;
+use crate::target_policy::TargetPolicy;
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -23,6 +26,7 @@ use werewolf_core::{
     contact::{ContactRecord, MAX_LIFETIME_SECS},
     pack::PeerRecord,
     pelt::PeltIdentity,
+    published::PublishedService,
 };
 
 /// Per-peer RPC token bucket: burst and refill per second (spec "Limits").
@@ -79,6 +83,8 @@ impl Contacts {
                     .cloned()
                     .collect()
             }
+            // Answered from published services, never from contact records.
+            RpcRequest::Services => Vec::new(),
         }
     }
 
@@ -217,6 +223,8 @@ struct Responder {
     receiver: PeltIdentity,
     contacts: Contacts,
     pack: Vec<[u8; 32]>,
+    published: Vec<PublishedService>,
+    policy: TargetPolicy,
     limiter: Arc<RpcLimiter>,
     locked: bool,
 }
@@ -228,9 +236,32 @@ fn responder(st: &mut DaemonState) -> io::Result<Responder> {
         receiver,
         contacts: st.contacts.clone(),
         pack: pack_keys(&st.peers),
+        published: st.published.clone(),
+        policy: st.target_policy.clone(),
         limiter: st.rpc_limiter.clone(),
         locked: st.inbound_authority.is_locked(),
     })
+}
+
+/// Published services this requester could open right now: the same Target
+/// Policy decision OPEN applies to that sender and target, in published
+/// order. Published targets are literal, so this never resolves DNS.
+async fn visible_services(
+    published: &[PublishedService],
+    policy: &TargetPolicy,
+    requester_fingerprint: &str,
+) -> Vec<PublishedService> {
+    let mut visible = Vec::new();
+    for entry in published {
+        if entry.target.parse::<SocketAddr>().is_ok()
+            && crate::target_policy::authorize(policy, requester_fingerprint, &entry.target)
+                .await
+                .is_ok()
+        {
+            visible.push(entry.clone());
+        }
+    }
+    visible
 }
 
 /// Receiver side of a QUIC RPC, after the line was dispatched on `cmd`.
@@ -264,15 +295,27 @@ pub(crate) async fn answer_quic<W: AsyncWrite + Unpin>(
     permit.authenticated(&rpc.sender_fingerprint)?;
     replay.reserve(&rpc.sender_fingerprint, &rpc.nonce)?;
     hs::require(responder.limiter.allow(&rpc.sender_fingerprint))?;
-    let records = responder.contacts.answer(
-        &rpc.request()?,
-        &hs::binary::<32>(&sender_key)?,
-        &responder.pack,
-        unix_now(),
-    );
-    let result = fit(records, |records| {
-        hs::QuicRpcResult::new(rpc, &retained, &responder.receiver, records)
-    })?;
+    let request = rpc.request()?;
+    let result = if request == RpcRequest::Services {
+        let entries = visible_services(
+            &responder.published,
+            &responder.policy,
+            &rpc.sender_fingerprint,
+        )
+        .await;
+        // Never truncated: `write` rejects a line over `RESULT_LIMIT`.
+        hs::QuicRpcResult::new(rpc, &retained, &responder.receiver, &entries)?
+    } else {
+        let records = responder.contacts.answer(
+            &request,
+            &hs::binary::<32>(&sender_key)?,
+            &responder.pack,
+            unix_now(),
+        );
+        fit(records, |records| {
+            hs::QuicRpcResult::new(rpc, &retained, &responder.receiver, records)
+        })?
+    };
     hs::write(send, &result, hs::RESULT_LIMIT, started + hs::SERVER_WINDOW).await
 }
 
@@ -302,13 +345,23 @@ pub(crate) async fn answer_tcp<S: AsyncRead + AsyncWrite + Unpin>(
     permit.authenticated(&rpc.sender_fingerprint)?;
     context.consume_binding(&rpc.challenge, &rpc.receiver_fingerprint)?;
     hs::require(responder.limiter.allow(&rpc.sender_fingerprint))?;
-    let records =
-        responder
+    let request = rpc.request()?;
+    let result = if request == RpcRequest::Services {
+        let entries = visible_services(
+            &responder.published,
+            &responder.policy,
+            &rpc.sender_fingerprint,
+        )
+        .await;
+        hs::TcpRpcResult::new(rpc, &retained, &context.receiver, &entries)?
+    } else {
+        let records = responder
             .contacts
-            .answer(&rpc.request()?, &requester, &responder.pack, unix_now());
-    let result = fit(records, |records| {
-        hs::TcpRpcResult::new(rpc, &retained, &context.receiver, records)
-    })?;
+            .answer(&request, &requester, &responder.pack, unix_now());
+        fit(records, |records| {
+            hs::TcpRpcResult::new(rpc, &retained, &context.receiver, records)
+        })?
+    };
     hs::write(
         stream,
         &result,
@@ -326,6 +379,41 @@ pub(crate) async fn query_quic(
     expected: &ExpectedPeerIdentity,
     request: &RpcRequest,
 ) -> io::Result<Vec<ContactRecord>> {
+    rpc_quic(
+        address,
+        identity,
+        expected,
+        request,
+        |result, rpc, retained| result.verify(rpc, retained, unix_now()),
+    )
+    .await
+}
+
+/// `services` over QUIC: the responder's published services visible to us.
+/// Any bad entry rejects the whole answer.
+#[cfg_attr(not(test), expect(dead_code, reason = "used by Stage25 step 3"))]
+pub(crate) async fn query_services_quic(
+    address: SocketAddr,
+    identity: &PeltIdentity,
+    expected: &ExpectedPeerIdentity,
+) -> io::Result<Vec<PublishedService>> {
+    rpc_quic(
+        address,
+        identity,
+        expected,
+        &RpcRequest::Services,
+        |result, rpc, retained| result.verify_services(rpc, retained),
+    )
+    .await
+}
+
+async fn rpc_quic<T>(
+    address: SocketAddr,
+    identity: &PeltIdentity,
+    expected: &ExpectedPeerIdentity,
+    request: &RpcRequest,
+    check: impl FnOnce(&hs::QuicRpcResult, &hs::QuicRpc, &[u8]) -> io::Result<T>,
+) -> io::Result<T> {
     let endpoint = crate::quic_fang::client_endpoint(expected)?;
     let connecting = endpoint
         .connect(address, &address.ip().to_string())
@@ -343,7 +431,7 @@ pub(crate) async fn query_quic(
         hs::write(&mut send, &rpc, hs::MESSAGE_LIMIT, deadline).await?;
         let _ = send.finish();
         let result: hs::QuicRpcResult = hs::read(&mut recv, hs::RESULT_LIMIT, deadline).await?;
-        result.verify(&rpc, &retained, unix_now())
+        check(&result, &rpc, &retained)
     })
     .await
     .map_err(|_| hs::rejected())
@@ -359,6 +447,40 @@ pub(crate) async fn query_tcp(
     expected: &ExpectedPeerIdentity,
     request: &RpcRequest,
 ) -> io::Result<Vec<ContactRecord>> {
+    rpc_tcp(
+        peer_addr,
+        identity,
+        expected,
+        request,
+        |result, rpc, retained| result.verify(rpc, retained, unix_now()),
+    )
+    .await
+}
+
+/// `services` over encrypted TCP (see `query_services_quic`).
+#[cfg_attr(not(test), expect(dead_code, reason = "used by Stage25 step 3"))]
+pub(crate) async fn query_services_tcp(
+    peer_addr: &str,
+    identity: &PeltIdentity,
+    expected: &ExpectedPeerIdentity,
+) -> io::Result<Vec<PublishedService>> {
+    rpc_tcp(
+        peer_addr,
+        identity,
+        expected,
+        &RpcRequest::Services,
+        |result, rpc, retained| result.verify_services(rpc, retained),
+    )
+    .await
+}
+
+async fn rpc_tcp<T>(
+    peer_addr: &str,
+    identity: &PeltIdentity,
+    expected: &ExpectedPeerIdentity,
+    request: &RpcRequest,
+    check: impl FnOnce(&hs::TcpRpcResult, &hs::TcpRpc, &[u8]) -> io::Result<T>,
+) -> io::Result<T> {
     let mut stream =
         crate::transport::tcp_encrypted::connect_authenticated_tcp(peer_addr, expected).await?;
     let deadline = Instant::now() + hs::CLIENT_WINDOW;
@@ -371,7 +493,7 @@ pub(crate) async fn query_tcp(
         let retained = rpc.transcript()?;
         hs::write(&mut stream, &rpc, hs::MESSAGE_LIMIT, deadline).await?;
         let result: hs::TcpRpcResult = hs::read(&mut stream, hs::RESULT_LIMIT, deadline).await?;
-        result.verify(&rpc, &retained, unix_now())
+        check(&result, &rpc, &retained)
     })
     .await
     .map_err(|_| hs::rejected())?

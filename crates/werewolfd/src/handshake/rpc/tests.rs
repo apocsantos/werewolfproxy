@@ -252,3 +252,244 @@ fn tcp_rpc_round_trip_is_bound_to_the_challenge() {
     other_key.sender_pubkey = generate_identity().public_key_b64.clone();
     assert!(tcp_sender_key(&other_key).is_err());
 }
+
+// Stage25 `services` op (docs/STAGE25_SERVICES_RPC_WIRE_SPEC.md).
+
+use werewolf_core::service::ServiceKind;
+
+fn entry(name: &str, kind: ServiceKind, target: &str) -> PublishedService {
+    PublishedService {
+        name: name.into(),
+        kind,
+        target: target.into(),
+    }
+}
+
+fn entries() -> Vec<PublishedService> {
+    vec![
+        entry("web", ServiceKind::Http, "127.0.0.1:8080"),
+        entry("ssh-admin", ServiceKind::Ssh, "[2001:db8::1]:22"),
+    ]
+}
+
+/// Arbitrary bytes a hostile responder could sign as an entry.
+struct Raw(Vec<u8>);
+
+impl RpcEntry for Raw {
+    fn encode(&self) -> Vec<u8> {
+        self.0.clone()
+    }
+}
+
+/// The spec's transcript formula, written out independently of `transcript`.
+fn spec_transcript(domain: &str, fields: &[&[u8]]) -> Vec<u8> {
+    let mut out = b"WWP-HS\0".to_vec();
+    for field in [domain.as_bytes()].iter().chain(fields) {
+        out.extend_from_slice(&(field.len() as u32).to_be_bytes());
+        out.extend_from_slice(field);
+    }
+    out
+}
+
+#[test]
+fn services_transcripts_follow_the_spec() {
+    let (sender, receiver) = (generate_identity(), generate_identity());
+    let mut rpc = QuicRpc::new(
+        &sender,
+        &receiver.fingerprint,
+        &RpcRequest::Services,
+        &BINDING,
+    )
+    .unwrap();
+    rpc.nonce = hex(&[0x11; 16]);
+    let retained = rpc.transcript(&BINDING).unwrap();
+    assert_eq!(
+        retained,
+        spec_transcript(
+            "fang.quic.rpc/v1",
+            &[
+                QUIC.as_bytes(),
+                sender.fingerprint.as_bytes(),
+                receiver.fingerprint.as_bytes(),
+                &[0x11; 16],
+                b"services",
+                b"",
+                &[0],
+                &BINDING,
+            ],
+        )
+    );
+    let result = QuicRpcResult::new(&rpc, &retained, &receiver, &entries()).unwrap();
+    let (transcript, _) = result.transcript(&rpc, &retained).unwrap();
+    let receiver_key = binary::<32>(&receiver.public_key_b64).unwrap();
+    let encoded: Vec<Vec<u8>> = entries().iter().map(PublishedService::encode).collect();
+    assert_eq!(
+        transcript,
+        spec_transcript(
+            "fang.quic.rpc.result/v1",
+            &[
+                QUIC.as_bytes(),
+                &[1],
+                &retained,
+                &receiver_key,
+                &[2],
+                &encoded[0],
+                &encoded[1],
+            ],
+        )
+    );
+
+    let tcp = TcpRpc::new(&sender, &challenge(&receiver), &RpcRequest::Services).unwrap();
+    let sender_key = binary::<32>(&sender.public_key_b64).unwrap();
+    assert_eq!(
+        tcp.transcript().unwrap(),
+        spec_transcript(
+            "fang.tcp.rpc/v1",
+            &[
+                TCP.as_bytes(),
+                sender.fingerprint.as_bytes(),
+                &sender_key,
+                receiver.fingerprint.as_bytes(),
+                &[9; 32],
+                &unhex::<16>(&tcp.nonce).unwrap(),
+                b"services",
+                b"",
+                &[0],
+            ],
+        )
+    );
+}
+
+#[test]
+fn services_round_trip_on_both_transports() {
+    let (sender, receiver) = (generate_identity(), generate_identity());
+    let quic = QuicRpc::new(
+        &sender,
+        &receiver.fingerprint,
+        &RpcRequest::Services,
+        &BINDING,
+    )
+    .unwrap();
+    assert_eq!(
+        parse::<QuicRpc>(&line(&quic)).unwrap().request().unwrap(),
+        RpcRequest::Services
+    );
+    let retained = quic.transcript(&BINDING).unwrap();
+    verify(&sender.public_key_b64, &retained, &quic.signature).unwrap();
+    let result = QuicRpcResult::new(&quic, &retained, &receiver, &entries()).unwrap();
+    let parsed: QuicRpcResult = parse(&line(&result)).unwrap();
+    assert_eq!(parsed.verify_services(&quic, &retained).unwrap(), entries());
+    // An empty answer is valid: nothing published, or nothing granted.
+    let empty = QuicRpcResult::new::<PublishedService>(&quic, &retained, &receiver, &[]).unwrap();
+    assert!(empty.verify_services(&quic, &retained).unwrap().is_empty());
+
+    let tcp = TcpRpc::new(&sender, &challenge(&receiver), &RpcRequest::Services).unwrap();
+    let retained = tcp.transcript().unwrap();
+    let result = TcpRpcResult::new(&tcp, &retained, &receiver, &entries()).unwrap();
+    let parsed: TcpRpcResult = parse(&line(&result)).unwrap();
+    assert_eq!(parsed.verify_services(&tcp, &retained).unwrap(), entries());
+}
+
+#[test]
+fn services_request_fields_are_checked() {
+    let sender = generate_identity();
+    let valid = QuicRpc::new(
+        &sender,
+        &generate_identity().fingerprint,
+        &RpcRequest::Services,
+        &BINDING,
+    )
+    .unwrap();
+    let mut with_k = valid.clone();
+    with_k.k = 1;
+    let mut with_target = valid.clone();
+    with_target.target = hex(&[0xab; 32]);
+    let mut misspelled = valid.clone();
+    misspelled.op = "Services".into();
+    for bad in [with_k, with_target, misspelled] {
+        assert!(bad.transcript(&BINDING).is_err(), "{bad:?}");
+    }
+    assert_eq!(RpcRequest::Services.max_records(), published::MAX_PUBLISHED);
+}
+
+#[test]
+fn services_and_contact_results_never_cross() {
+    let (sender, receiver) = (generate_identity(), generate_identity());
+    let services = QuicRpc::new(
+        &sender,
+        &receiver.fingerprint,
+        &RpcRequest::Services,
+        &BINDING,
+    )
+    .unwrap();
+    let retained = services.transcript(&BINDING).unwrap();
+    let result = QuicRpcResult::new(&services, &retained, &receiver, &entries()).unwrap();
+    // A services answer is never read as contact records...
+    assert!(result.verify(&services, &retained, NOW).is_err());
+
+    // ...and a ping answer is never read as services.
+    let ping = QuicRpc::new(&sender, &receiver.fingerprint, &RpcRequest::Ping, &BINDING).unwrap();
+    let ping_retained = ping.transcript(&BINDING).unwrap();
+    let own = record(&receiver, NOW + 3600);
+    let ping_result =
+        QuicRpcResult::new(&ping, &ping_retained, &receiver, std::slice::from_ref(&own)).unwrap();
+    assert!(ping_result.verify_services(&ping, &ping_retained).is_err());
+
+    // A services result cannot be replayed against the ping request: the
+    // echoed op differs, and forcing it breaks the signature.
+    assert!(result.verify_services(&ping, &ping_retained).is_err());
+    let mut relabelled = result.clone();
+    relabelled.op = "ping".into();
+    assert!(relabelled.verify_services(&ping, &ping_retained).is_err());
+}
+
+#[test]
+fn one_bad_entry_rejects_the_whole_services_result() {
+    let (sender, receiver) = (generate_identity(), generate_identity());
+    let rpc = QuicRpc::new(
+        &sender,
+        &receiver.fingerprint,
+        &RpcRequest::Services,
+        &BINDING,
+    )
+    .unwrap();
+    let retained = rpc.transcript(&BINDING).unwrap();
+    let good = entries()[0].encode();
+    let raw = |name: &[u8], target: &[u8]| -> Raw {
+        let mut out = vec![0u8];
+        for field in [name, target] {
+            out.extend_from_slice(&(field.len() as u16).to_be_bytes());
+            out.extend_from_slice(field);
+        }
+        Raw(out)
+    };
+    // Each answer is correctly signed by the responder and still rejected.
+    for bad in [
+        raw(b"we\x1bb", b"127.0.0.1:22"),
+        raw(b"db", b"db.internal:5432"),
+        raw(b"db", b"127.0.0.1:0"),
+        Raw(vec![9, 0, 0]),
+        Raw(Vec::new()),
+        Raw(good.clone()), // duplicate of the first entry's name
+    ] {
+        let result =
+            QuicRpcResult::new(&rpc, &retained, &receiver, &[Raw(good.clone()), bad]).unwrap();
+        assert!(result.verify_services(&rpc, &retained).is_err());
+    }
+    // Non-canonical base64 is rejected as for contact records.
+    let mut padded = QuicRpcResult::new(&rpc, &retained, &receiver, &entries()).unwrap();
+    padded.records[0].push('=');
+    assert!(padded.verify_services(&rpc, &retained).is_err());
+    // More than 32 entries cannot be built or accepted.
+    let many: Vec<_> = (0..=published::MAX_PUBLISHED)
+        .map(|i| entry(&format!("s{i}"), ServiceKind::Tcp, "127.0.0.1:8080"))
+        .collect();
+    assert!(QuicRpcResult::new(&rpc, &retained, &receiver, &many).is_err());
+    assert!(QuicRpcResult::new(
+        &rpc,
+        &retained,
+        &receiver,
+        &many[..published::MAX_PUBLISHED]
+    )
+    .is_ok());
+}

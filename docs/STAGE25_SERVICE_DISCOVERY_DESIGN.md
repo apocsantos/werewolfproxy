@@ -147,7 +147,7 @@ like `discover refresh`, and a Silver-locked responder rejects the RPC.
 |---|---|
 | 0 | This proposal; owner decisions 1–4 |
 | 1 | `werewolf-core`: `PublishedService` validation, canonical entry encoding and strict decoding, unit tests (done, PR #30) |
-| 2 | Wire: `services` op, receiver filter (2b), requester checks; transcript vectors and negative tests; wire contract updated ([spec](STAGE25_SERVICES_RPC_WIRE_SPEC.md), approved) |
+| 2 | Wire: `services` op, receiver filter (2b), requester checks; transcript vectors and negative tests; wire contract updated ([spec](STAGE25_SERVICES_RPC_WIRE_SPEC.md), done) |
 | 3 | Operator: `service publish/unpublish/published`, `published.json`, `discover services`, optional `service add --from`; CLI contract; lab gate (provider grants one target to one of two requesters; only that requester sees it; connect works; revoking hides it) |
 | 4 | Real-WAN check DarkSide ↔ VPS |
 

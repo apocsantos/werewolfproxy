@@ -489,3 +489,128 @@ async fn find_walks_hops_only_through_nodes_that_trust_the_requester() {
     .await
     .unwrap();
 }
+
+// Stage25 `services` op (docs/STAGE25_SERVICES_RPC_WIRE_SPEC.md).
+
+fn published() -> Vec<PublishedService> {
+    use werewolf_core::service::ServiceKind;
+    [
+        ("web", ServiceKind::Http, "127.0.0.1:8080"),
+        ("ssh", ServiceKind::Ssh, "127.0.0.1:22"),
+        ("db", ServiceKind::Tcp, "10.0.0.5:5432"),
+    ]
+    .into_iter()
+    .map(|(name, kind, target)| PublishedService {
+        name: name.into(),
+        kind,
+        target: target.into(),
+    })
+    .collect()
+}
+
+fn grants(entries: &[(&PeltIdentity, &[&str])]) -> TargetPolicy {
+    TargetPolicy::Grants(
+        entries
+            .iter()
+            .map(|(id, targets)| {
+                (
+                    id.fingerprint.clone(),
+                    targets.iter().map(|t| t.parse().unwrap()).collect(),
+                )
+            })
+            .collect(),
+    )
+}
+
+/// The same `services` query over QUIC and TCP; both must agree.
+async fn services(node: &Node, sender: &PeltIdentity) -> io::Result<Vec<String>> {
+    let expected = expected(node);
+    let quic = query_services_quic(node.quic, sender, &expected).await;
+    let tcp = query_services_tcp(&node.tcp.to_string(), sender, &expected).await;
+    match (quic, tcp) {
+        (Ok(quic), Ok(tcp)) => {
+            assert_eq!(quic, tcp);
+            Ok(quic.into_iter().map(|entry| entry.name).collect())
+        }
+        (Err(quic), Err(_)) => Err(quic),
+        (quic, tcp) => panic!("transports disagree: {quic:?} / {tcp:?}"),
+    }
+}
+
+#[tokio::test]
+async fn services_show_each_requester_only_its_granted_targets() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let (alice, bob) = (generate_identity(), generate_identity());
+        let node = node(&[&alice, &bob], Contacts::default()).await;
+        {
+            let mut st = node.state.lock().await;
+            st.published = published();
+            st.target_policy = grants(&[
+                (&alice, &["127.0.0.1:22", "127.0.0.1:8080"]),
+                (&bob, &["127.0.0.1:22"]),
+            ]);
+        }
+        // Published order, filtered per requester by the OPEN decision.
+        assert_eq!(services(&node, &alice).await.unwrap(), ["web", "ssh"]);
+        assert_eq!(services(&node, &bob).await.unwrap(), ["ssh"]);
+
+        // Revoking a grant hides the entry on the next request.
+        node.state.lock().await.target_policy = grants(&[(&alice, &["127.0.0.1:8080"])]);
+        assert_eq!(services(&node, &alice).await.unwrap(), ["web"]);
+        assert!(services(&node, &bob).await.unwrap().is_empty());
+
+        node.state.lock().await.target_policy = TargetPolicy::LegacyAllow;
+        assert_eq!(services(&node, &bob).await.unwrap(), ["web", "ssh", "db"]);
+        for policy in [TargetPolicy::Deny, TargetPolicy::Invalid] {
+            node.state.lock().await.target_policy = policy;
+            assert!(services(&node, &alice).await.unwrap().is_empty());
+        }
+
+        // Nothing published: an empty answer, as for nothing granted.
+        {
+            let mut st = node.state.lock().await;
+            st.target_policy = TargetPolicy::LegacyAllow;
+            st.published.clear();
+        }
+        assert!(services(&node, &alice).await.unwrap().is_empty());
+
+        // A services RPC never takes an inbound authority lease.
+        let summary = node.state.lock().await.inbound_authority.summary();
+        assert_eq!(summary["active"], 0);
+        assert_eq!(summary["establishing"], 0);
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn services_refuse_strangers_silver_and_exhausted_rate() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let (member, stranger) = (generate_identity(), generate_identity());
+        let node = node(&[&member], Contacts::default()).await;
+        {
+            let mut st = node.state.lock().await;
+            st.published = published();
+            st.target_policy = TargetPolicy::LegacyAllow;
+        }
+        // Even LegacyAllow shows nothing to a node outside the Pack.
+        assert!(services(&node, &stranger).await.is_err());
+        assert_eq!(services(&node, &member).await.unwrap().len(), 3);
+
+        // Shared per-peer bucket with ping and find_node.
+        let limiter = node.state.lock().await.rpc_limiter.clone();
+        while limiter.allow(&member.fingerprint) {}
+        let expected = expected(&node);
+        assert!(query_services_quic(node.quic, &member, &expected)
+            .await
+            .is_err());
+
+        let other = generate_identity();
+        node.state.lock().await.peers.push(peer(&other));
+        assert_eq!(services(&node, &other).await.unwrap().len(), 3);
+        node.state.lock().await.inbound_authority.lock().unwrap();
+        assert!(services(&node, &other).await.is_err());
+    })
+    .await
+    .unwrap();
+}
