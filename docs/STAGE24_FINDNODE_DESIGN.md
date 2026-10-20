@@ -9,7 +9,7 @@ extends the [v1 wire contract](V1_WIRE_CONTRACT.md) as described in the
 | 0 | Bounded k-buckets, XOR ordering, `k` cap (`werewolf-core`) | Done (PR #8) |
 | 1 | Pelt-derived `NodeId`, signed `ContactRecord` (`werewolf-core::contact`) | Done |
 | 2 | FindNode/Ping RPC on the OPEN path, Pack-only ([wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)) | Done |
-| 3 | Advertised own record, lookup, `contacts.json` cache, `werewolfctl discover`, three-wolf lab gate | Done ([CLI contract](V1_CLI_CONTRACT.md#stage24-extension-discovery)) |
+| 3 | Advertised own record, lookup, `contacts.json` cache, `werewolfctl discover`, four-wolf lab gate | Done ([CLI contract](V1_CLI_CONTRACT.md#stage24-extension-discovery)); WAN-checked ([below](#real-wan-check-2026-10-20)) |
 
 Next item in [ARCHITECTURE.md §65](ARCHITECTURE.md): run FindNode over
 authenticated Werewolf transport (§18), as the base for distributed peer
@@ -193,3 +193,31 @@ These narrow the proposal above for Phase 1; none changes the wire messages.
    malformed cache is ignored at startup, while Den errors still fail
    closed.
 6. **Silver** refuses refresh and find, like a Fang open.
+
+## Real-WAN check (2026-10-20)
+
+Both nodes ran `b911e41` (`werewolfd`
+`a71ad688ad120e617c1b851969e584ed08175e9dbce18ea55f8daaf9793fb0c9`), the
+build certified in
+[Stage22R-D06](STAGE22R_D06_REPEATED_LOSS_RECOVERY_CERTIFICATION.md): the
+Debian VPS receiver (`werewolfd.service`, bound to `0.0.0.0:8443` and
+`0.0.0.0:9560`) and the DarkSide Stage22R node, Pack members of each other.
+Before the check DarkSide advertised nothing and its contact cache was
+empty. No firewall, Target Policy or Fang setting was involved.
+
+| Step | Node | Result |
+|---|---|---|
+| `discover advertise quic://51.83.41.28:9560 tcp://51.83.41.28:8443` | VPS | Record signed, node ID `c0cb7713…74b1962b`, `seq 1792500588`, valid 7 days; protected-state generation unchanged (16), since `advertise.json` is outside the manifest |
+| `pack set-address node-b quic://51.83.41.28:9560`, `discover refresh --transport quic` | DarkSide | `ok`, 1 record: the VPS record, verified and cached with `pack_name` `node-b` |
+| `pack set-address node-b tcp://51.83.41.28:8443`, `discover refresh --transport tcp` | DarkSide | `ok`, 1 record; same `seq`, still one cache entry |
+| `discover find` by the VPS key and by its node ID, over QUIC and TCP | DarkSide | Hop 1 `ok` with 0 records, `found: null` |
+| Pack address `tcp://…`, `discover refresh --transport quic` | DarkSide | `bad_address`; the scheme is never swapped |
+| Cache file | DarkSide | `contacts.json` present with mode 0600 and the one record |
+
+`find` returning nothing is the designed behaviour, not a failure: a
+FindNode answer contains only the responder's other Pack members (decision
+2), never its own record, which only `ping` returns; the VPS's only other
+member is DarkSide, whose record it has not cached. With two nodes and a
+DarkSide that listens on loopback only, the VPS cannot reach DarkSide, so
+multi-hop lookup over the WAN was not exercised; it is covered by the
+four-wolf lab gate (`tests/integration/discovery_gate.py`).
