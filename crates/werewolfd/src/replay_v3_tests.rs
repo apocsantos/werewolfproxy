@@ -52,6 +52,28 @@ fn peer(identity: &PeltIdentity) -> PeerRecord {
 /// are slow under parallel test load; this only bounds how long a genuinely
 /// broken start takes to fail and is unrelated to protocol deadlines.
 const READY_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a test waits for a reply it expects from a fixture or daemon
+/// process. The daemon enforces the protocol deadlines itself; a tighter
+/// test-side wait only turned slow replies under parallel load into false
+/// "rejected" results.
+const REPLY_WINDOW: Duration = Duration::from_secs(15);
+
+/// Writes a Den fixture file, retrying while another thread's forked child
+/// still holds an inherited copy of the `.den.lock` descriptor. `flock`
+/// belongs to the open file description, and a child keeps it until its
+/// exec closes the CLOEXEC descriptor, so a writer that relocks right after
+/// releasing can see `WouldBlock` while parallel tests spawn processes.
+fn write_fixture(write: impl Fn() -> std::io::Result<()>) {
+    for _ in 0..200 {
+        match write() {
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            result => return result.unwrap(),
+        }
+    }
+    panic!("Den fixture lock stayed busy");
+}
 async fn ready(address: SocketAddr) {
     timeout(READY_TIMEOUT, async {
         loop {
@@ -70,15 +92,30 @@ struct Target {
     _task: Task,
 }
 impl Target {
+    /// Counts accepted connections and drops each one at once.
     async fn new() -> Self {
+        Self::start(false).await
+    }
+    /// Counts accepted connections and keeps them open, so forwarding to
+    /// the target does not fail right after the ACK. Since gap 1 of
+    /// docs/SESSION_END_SIGNALLING_PROPOSAL.md such a failure resets the
+    /// stream, and the reset may overtake the ACK a test is waiting for.
+    async fn holding() -> Self {
+        Self::start(true).await
+    }
+    async fn start(hold: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let count = Arc::new(AtomicUsize::new(0));
         let c = count.clone();
         let task = Task(tokio::spawn(async move {
+            let mut held = Vec::new();
             loop {
-                let (_stream, _) = listener.accept().await.unwrap();
+                let (stream, _) = listener.accept().await.unwrap();
                 c.fetch_add(1, Ordering::SeqCst);
+                if hold {
+                    held.push(stream);
+                }
             }
         }));
         Self {
@@ -103,9 +140,11 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
+        Self::with_target(Target::new().await).await
+    }
+    async fn with_target(target: Target) -> Self {
         let sender = generate_identity();
         let receiver = generate_identity();
-        let target = Target::new().await;
         let runtime_tls_identity =
             Arc::new(crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap());
         let state = Arc::new(Mutex::new(DaemonState {
@@ -170,7 +209,7 @@ async fn tcp_open(
         crate::transport::tcp_encrypted::connect_authenticated_tcp(&address.to_string(), &selected)
             .await
             .unwrap();
-    let challenge: hs::TcpChallenge = hs::read(&mut stream, 512, Instant::now() + hs::READ_WINDOW)
+    let challenge: hs::TcpChallenge = hs::read(&mut stream, 512, Instant::now() + REPLY_WINDOW)
         .await
         .unwrap();
     let open = hs::TcpOpen::new(sender, &challenge, remote, &[7; 32]).unwrap();
@@ -180,17 +219,17 @@ async fn tcp_send(
     stream: &mut tokio_rustls::client::TlsStream<TcpStream>,
     open: &hs::TcpOpen,
 ) -> Option<hs::TcpAck> {
-    hs::write(stream, open, 4096, Instant::now() + hs::READ_WINDOW)
+    hs::write(stream, open, 4096, Instant::now() + REPLY_WINDOW)
         .await
         .unwrap();
-    hs::read(stream, 4096, Instant::now() + hs::READ_WINDOW)
+    hs::read(stream, 4096, Instant::now() + REPLY_WINDOW)
         .await
         .ok()
 }
 async fn quic_connection(address: SocketAddr) -> quinn::Connection {
     let endpoint = crate::quic_lab::make_client_endpoint().unwrap();
     timeout(
-        hs::READ_WINDOW,
+        REPLY_WINDOW,
         endpoint.connect(address, "localhost").unwrap(),
     )
     .await
@@ -199,11 +238,11 @@ async fn quic_connection(address: SocketAddr) -> quinn::Connection {
 }
 async fn quic_send(connection: &quinn::Connection, open: &hs::QuicOpen) -> Option<hs::QuicAck> {
     let (mut send, mut recv) = connection.open_bi().await.unwrap();
-    hs::write(&mut send, open, 4096, Instant::now() + hs::READ_WINDOW)
+    hs::write(&mut send, open, 4096, Instant::now() + REPLY_WINDOW)
         .await
         .unwrap();
     send.finish().unwrap();
-    hs::read(&mut recv, 4096, Instant::now() + hs::READ_WINDOW)
+    hs::read(&mut recv, 4096, Instant::now() + REPLY_WINDOW)
         .await
         .ok()
 }
@@ -275,7 +314,7 @@ async fn tcp_one_open_and_real_expiry() {
         serde_json::to_string(&open).unwrap()
     );
     stream.write_all(bytes.as_bytes()).await.unwrap();
-    let _: hs::TcpAck = hs::read(&mut stream, 4096, Instant::now() + hs::READ_WINDOW)
+    let _: hs::TcpAck = hs::read(&mut stream, 4096, Instant::now() + REPLY_WINDOW)
         .await
         .unwrap();
     f.target.expect(1).await;
@@ -422,7 +461,7 @@ async fn exporter_equality_separation_and_ack_substitution() {
     let fake = tokio::spawn(async move {
         let c = server.accept().await.unwrap().await.unwrap();
         let (mut send, mut recv) = c.accept_bi().await.unwrap();
-        let open: hs::QuicOpen = hs::read(&mut recv, 4096, Instant::now() + hs::READ_WINDOW)
+        let open: hs::QuicOpen = hs::read(&mut recv, 4096, Instant::now() + REPLY_WINDOW)
             .await
             .unwrap();
         let wrong = hs::QuicAck::new(
@@ -431,7 +470,7 @@ async fn exporter_equality_separation_and_ack_substitution() {
             &receiver_for_server,
         )
         .unwrap();
-        hs::write(&mut send, &wrong, 4096, Instant::now() + hs::READ_WINDOW)
+        hs::write(&mut send, &wrong, 4096, Instant::now() + REPLY_WINDOW)
             .await
             .unwrap();
         let _ = timeout(Duration::from_secs(2), c.closed()).await;
@@ -632,8 +671,8 @@ impl Daemon {
         .unwrap();
         let sender = generate_identity();
         let receiver = generate_identity();
-        werewolf_core::pelt::save_identity(&home.join("pelt.json"), &receiver).unwrap();
-        werewolf_core::pack::save_pack(&home.join("pack.json"), &[peer(&sender)]).unwrap();
+        write_fixture(|| werewolf_core::pelt::save_identity(&home.join("pelt.json"), &receiver));
+        write_fixture(|| werewolf_core::pack::save_pack(&home.join("pack.json"), &[peer(&sender)]));
         std::fs::write(home.join("target_policy.json"),serde_json::json!({"mode":"deny-by-default","peers":{sender.fingerprint.clone():{"targets":[{"address":target.ip().to_string(),"port":target.port()}]}}}).to_string()).unwrap();
         std::fs::set_permissions(
             home.join("target_policy.json"),
@@ -750,7 +789,7 @@ impl Daemon {
         let mut stream = tokio::net::UnixStream::connect(self.home.join("control.sock"))
             .await
             .unwrap();
-        let deadline = Instant::now() + hs::READ_WINDOW;
+        let deadline = Instant::now() + REPLY_WINDOW;
         hs::write(
             &mut stream,
             &serde_json::json!({"id":"stage10","cmd":cmd,"args":{}}),
@@ -782,7 +821,7 @@ async fn legacy_request(daemon: &Daemon, target: SocketAddr, quic: bool) -> bool
         )
     };
     let request = serde_json::json!({"cmd":if quic{"fang.quic.open"}else{"fang.pipe"},"protocol":"fang-quic-v2","sender_fingerprint":daemon.sender.fingerprint,"sender_pubkey":daemon.sender.public_key_b64,"nonce":nonce,"remote":remote,"client_x25519":key,"signature":hs::sign(&daemon.sender,signed.as_bytes()).unwrap()});
-    let deadline = Instant::now() + hs::READ_WINDOW;
+    let deadline = Instant::now() + REPLY_WINDOW;
     let ack = if quic {
         let connection = quic_connection(daemon.quic).await;
         let (mut send, mut recv) = connection.open_bi().await.unwrap();
@@ -947,19 +986,25 @@ async fn legacy_interoperability_matrix() {
         .unwrap();
     }));
     rx.await.unwrap().unwrap();
-    let mut client = TcpStream::connect(local).await.unwrap();
-    // The forwarder resets a rejected session, possibly before this write.
-    if let Err(error) = client.write_all(b"not forwarded").await {
-        assert!(matches!(
-            error.kind(),
-            std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
-        ));
+    // The forwarder resets a rejected session at once. Under load the reset
+    // can arrive before connect() observes the connection, or before this
+    // write; either way the session has terminated.
+    match TcpStream::connect(local).await {
+        Ok(mut client) => {
+            if let Err(error) = client.write_all(b"not forwarded").await {
+                assert!(matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+                ));
+            }
+            let mut data = [0; 32];
+            let result = timeout(Duration::from_secs(7), client.read(&mut data))
+                .await
+                .expect("new TCP -> old must terminate");
+            assert!(matches!(result, Ok(0) | Err(_)));
+        }
+        Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::ConnectionReset),
     }
-    let mut data = [0; 32];
-    let result = timeout(Duration::from_secs(7), client.read(&mut data))
-        .await
-        .expect("new TCP -> old must terminate");
-    assert!(matches!(result, Ok(0) | Err(_)));
     cancellation.abort_children();
     assert!(timeout(
         Duration::from_secs(7),
@@ -1035,7 +1080,7 @@ async fn live_strict_open_parser_matrix() {
             .await
             .unwrap();
         assert!(
-            hs::read::<hs::TcpAck, _>(&mut stream, 4096, Instant::now() + hs::READ_WINDOW)
+            hs::read::<hs::TcpAck, _>(&mut stream, 4096, Instant::now() + REPLY_WINDOW)
                 .await
                 .is_err()
         );
@@ -1047,7 +1092,7 @@ async fn live_strict_open_parser_matrix() {
             .unwrap();
         send.finish().unwrap();
         assert!(
-            hs::read::<hs::QuicAck, _>(&mut recv, 4096, Instant::now() + hs::READ_WINDOW)
+            hs::read::<hs::QuicAck, _>(&mut recv, 4096, Instant::now() + REPLY_WINDOW)
                 .await
                 .is_err()
         );
@@ -1062,7 +1107,7 @@ async fn live_strict_open_parser_matrix() {
         stream.write_all(&[byte]).await.unwrap();
         tokio::task::yield_now().await;
     }
-    let _: hs::TcpAck = hs::read(&mut stream, 4096, Instant::now() + hs::READ_WINDOW)
+    let _: hs::TcpAck = hs::read(&mut stream, 4096, Instant::now() + REPLY_WINDOW)
         .await
         .unwrap();
     f.target.expect(1).await;
@@ -1097,7 +1142,9 @@ async fn quic_open_limit_and_incomplete_sender_release() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn quic_same_stream_has_only_one_open() {
-    let f = Fixture::new().await;
+    // The duplicate OPEN bytes are forwarded as data, so the target must
+    // accept them for the ACK to be guaranteed.
+    let f = Fixture::with_target(Target::holding().await).await;
     let c = f.quic_connection().await;
     let open = quic_open(&f, &c);
     let (mut send, mut recv) = c.open_bi().await.unwrap();
@@ -1107,7 +1154,7 @@ async fn quic_same_stream_has_only_one_open() {
     bytes.extend_from_slice(&duplicate);
     send.write_all(&bytes).await.unwrap();
     send.finish().unwrap();
-    let ack: hs::QuicAck = hs::read(&mut recv, 4096, Instant::now() + hs::READ_WINDOW)
+    let ack: hs::QuicAck = hs::read(&mut recv, 4096, Instant::now() + REPLY_WINDOW)
         .await
         .unwrap();
     hs::verify(
