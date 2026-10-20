@@ -47,6 +47,7 @@ real WAN between an initiator and a remote Debian VPS receiver:
 | [D05B](STAGE22R_D05B_TEMPORARY_BLACKHOLE_CERTIFICATION.md) | Temporary WAN blackhole, same-session survival | Certified |
 | [D06](STAGE22R_D06_REPEATED_LOSS_RECOVERY_CERTIFICATION.md) | Repeated WAN blackholes and hard path loss without restart | Certified on `b911e41` |
 | [D07](STAGE22R_D07_TARGET_FAILURE_CERTIFICATION.md) | Target failure mid-session (RST, crash, half-close, absent) | Certified on `b911e41` |
+| [D09](STAGE22R_D09_STORAGE_FAULT_CERTIFICATION.md) | Storage faults fail closed (full, unwritable, read-only, torn state) | Certified on `b911e41`; indeterminate commit unit-tested only |
 
 The HC02 and LC-01 fixes are on `main` after the RC1 tag, so they are not in
 the 1.0.0-rc.1 archive.
