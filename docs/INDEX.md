@@ -13,7 +13,7 @@
 - [Transport architecture](../TRANSPORT_ARCHITECTURE.md)
 - [Session-end signalling proposal](SESSION_END_SIGNALLING_PROPOSAL.md) (approved; gaps 1–3 fixed)
 - [Stage24 FindNode design](STAGE24_FINDNODE_DESIGN.md) (Phase 1 implemented), [RPC wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md) (approved) and [discover CLI](V1_CLI_CONTRACT.md#stage24-extension-discovery)
-- [Stage25 service discovery design](STAGE25_SERVICE_DISCOVERY_DESIGN.md) (proposal, awaiting decisions)
+- [Stage25 service discovery design](STAGE25_SERVICE_DISCOVERY_DESIGN.md) (design accepted)
 
 ## Frozen v1 contracts
 

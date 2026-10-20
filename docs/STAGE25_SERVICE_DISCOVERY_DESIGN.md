@@ -1,9 +1,10 @@
 # Stage25 service discovery — design proposal
 
-**Status: proposal, awaiting owner decisions.** No code, wire message or
-persisted format changes until the decisions below are accepted. Anything
-that extends the [v1 wire contract](V1_WIRE_CONTRACT.md) also needs the
-same review as the [Stage24 wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md).
+**Status: design accepted 2026-10-20 (all recommendations; see
+[Decisions](#decisions-accepted-2026-10-20)).** The wire extension is
+specified and reviewed in step 2 with the same review as the
+[Stage24 wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md) before any wire code
+lands.
 
 This is the next step in [ARCHITECTURE.md §65](ARCHITECTURE.md) after
 distributed peer discovery: §19 ("who provides service X?") and §20
@@ -150,12 +151,20 @@ like `discover refresh`, and a Silver-locked responder rejects the RPC.
 | 3 | Operator: `service publish/unpublish/published`, `published.json`, `discover services`, optional `service add --from`; CLI contract; lab gate (provider grants one target to one of two requesters; only that requester sees it; connect works; revoking hides it) |
 | 4 | Real-WAN check DarkSide ↔ VPS |
 
-## Decisions needed
+## Decisions (accepted 2026-10-20)
 
-1. Distribution: **A** ask the provider (recommended), B relay, or C DHT store.
-2. Visibility: a all Pack members, or **b** only peers already granted the
-   target (recommended).
-3. Import: **show, then deliberate `service add`** (recommended), with or
-   without the `--from PEER` convenience form; or auto-import.
-4. Accept the wire extension above (one new `op`, entry encoding, limits)
-   for review in step 2.
+1. **Distribution: A.** A requester asks each Pack member directly with the
+   new read-only `services` op; a responder returns only its own published
+   services. No relaying, no DHT store.
+2. **Visibility: b.** A responder returns an entry only if its Target Policy
+   would accept an OPEN from that requester to that target at that moment
+   (`Grants` containing it, or `LegacyAllow`; never under `Deny` or
+   `Invalid`).
+3. **Import: show, then deliberate.** `discover services` lists entries and
+   changes nothing; `service add` stays the operator's step. The
+   `service add NAME --from PEER` form is included and copies only from a
+   fresh, verified answer, never from a cache; Phase 1 keeps no cache of
+   discovered services.
+4. **Wire:** the extension above (one new `op`, the service entry encoding,
+   at most 32 entries within `RESULT_LIMIT`) is accepted for specification
+   and review in step 2.
