@@ -92,15 +92,30 @@ struct Target {
     _task: Task,
 }
 impl Target {
+    /// Counts accepted connections and drops each one at once.
     async fn new() -> Self {
+        Self::start(false).await
+    }
+    /// Counts accepted connections and keeps them open, so forwarding to
+    /// the target does not fail right after the ACK. Since gap 1 of
+    /// docs/SESSION_END_SIGNALLING_PROPOSAL.md such a failure resets the
+    /// stream, and the reset may overtake the ACK a test is waiting for.
+    async fn holding() -> Self {
+        Self::start(true).await
+    }
+    async fn start(hold: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let count = Arc::new(AtomicUsize::new(0));
         let c = count.clone();
         let task = Task(tokio::spawn(async move {
+            let mut held = Vec::new();
             loop {
-                let (_stream, _) = listener.accept().await.unwrap();
+                let (stream, _) = listener.accept().await.unwrap();
                 c.fetch_add(1, Ordering::SeqCst);
+                if hold {
+                    held.push(stream);
+                }
             }
         }));
         Self {
@@ -125,9 +140,11 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
+        Self::with_target(Target::new().await).await
+    }
+    async fn with_target(target: Target) -> Self {
         let sender = generate_identity();
         let receiver = generate_identity();
-        let target = Target::new().await;
         let runtime_tls_identity =
             Arc::new(crate::tls_identity::RuntimeTlsIdentity::from_pelt(&receiver).unwrap());
         let state = Arc::new(Mutex::new(DaemonState {
@@ -1125,7 +1142,9 @@ async fn quic_open_limit_and_incomplete_sender_release() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn quic_same_stream_has_only_one_open() {
-    let f = Fixture::new().await;
+    // The duplicate OPEN bytes are forwarded as data, so the target must
+    // accept them for the ACK to be guaranteed.
+    let f = Fixture::with_target(Target::holding().await).await;
     let c = f.quic_connection().await;
     let open = quic_open(&f, &c);
     let (mut send, mut recv) = c.open_bi().await.unwrap();
