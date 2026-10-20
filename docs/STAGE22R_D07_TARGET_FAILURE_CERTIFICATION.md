@@ -133,8 +133,29 @@ every status `READY`, `storage_degraded=false`, `inbound_authority.active=0`:
 
 Descriptors and threads did not grow. RSS rose in two steps outside the
 sessions (on the switch to QUIC, and in the idle 1.5 minutes before the
-`absent` series) and stayed flat across sessions within each series. This
-is not a per-session leak, but its cause is not established here.
+`absent` series) and stayed flat across sessions within each series.
+
+Follow-up the same day (15:06–15:22), on the same daemon, idle between
+steps: of 16,100 kB RSS, 7,580 kB was file-backed (4,672 kB of
+`werewolfd`'s own text, paged in as code paths run for the first time and
+bounded by the 8.9 MB binary) and 8,520 kB anonymous, almost all in four
+64 MB-aligned regions, one glibc malloc arena per tokio worker
+(3,260 / 2,076 / 2,064 / 360 kB; the main `[heap]` held 116 kB). Repeated
+8 MiB echo sessions through the direct WAN path to the VPS echo target,
+in batches of four sequential and four concurrent sessions, then gave:
+
+| Load | Sessions | RSS change | Descriptors, threads |
+|---|---|---|---|
+| Encrypted TCP | 48 | +4 kB | flat (17, 5) |
+| QUIC Fang activation | — | +1,112 kB (endpoint) | +1 descriptor |
+| QUIC | 48 | +388 kB (two steps, both in concurrent batches) | flat (18, 5) |
+| QUIC, continued | 96 | +152 kB (two steps, concurrent batches 8 and 9); none in the first 64 or last 24 | flat (18, 5) |
+
+Growth does not scale with sessions; it appears only when concurrency
+reaches a new high and then stops, which matches allocator arenas keeping
+their high-water mark and first-time code paging. No per-session leak was
+found. The idle step before the `absent` series was not reproduced and
+remains unattributed.
 
 VPS receiver after the series: MainPID 463493, `NRestarts=0`, lifecycle
 `READY`, `inbound_authority.active=0`, healthy, not locked, not degraded,
