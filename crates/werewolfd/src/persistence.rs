@@ -89,6 +89,13 @@ pub(super) fn load_startup_state(
             services
         }
     };
+    initial_state.published = match den.read(
+        OsStr::new(crate::discovery::operator::PUBLISHED_FILE),
+        1024 * 1024,
+    )? {
+        None => Vec::new(),
+        Some(data) => crate::discovery::operator::parse_published(&data)?,
+    };
     initial_state.contacts.advertised =
         match den.read(OsStr::new(crate::discovery::operator::ADVERTISE_FILE), 4096)? {
             None => Vec::new(),
@@ -262,6 +269,30 @@ mod tests {
         let fixture = Fixture::new();
         fixture.write("services.json", b"{not-json");
         assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+    }
+
+    #[test]
+    fn published_services_load_strictly() {
+        let fixture = Fixture::new();
+        assert!(fixture.startup().published.is_empty());
+        fixture.write(
+            "published.json",
+            br#"[{"name":"web","kind":"http","target":"127.0.0.1:8080"}]"#,
+        );
+        let state = fixture.startup();
+        assert_eq!(state.published.len(), 1);
+        assert_eq!(state.published[0].target, "127.0.0.1:8080");
+        // Malformed JSON, a hostname target, a duplicate name and an unknown
+        // field each fail startup closed, like services.json.
+        for bad in [
+            &b"{not-json"[..],
+            br#"[{"name":"web","kind":"http","target":"web.internal:80"}]"#,
+            br#"[{"name":"web","kind":"http","target":"127.0.0.1:80"},{"name":"web","kind":"tcp","target":"127.0.0.1:81"}]"#,
+            br#"[{"name":"web","kind":"http","target":"127.0.0.1:80","peer":"x"}]"#,
+        ] {
+            fixture.write("published.json", bad);
+            assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+        }
     }
 
     #[test]

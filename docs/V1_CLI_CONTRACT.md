@@ -125,4 +125,45 @@ of its own current Pack members.
 Errors are `DISCOVER_INVALID`, `DISCOVER_ADDRESS_INVALID`,
 `DISCOVER_SAVE_FAILED`, `DISCOVER_BUSY`, `SILVER_ACTIVE` and `NO_PELT`;
 werewolfctl exits 70. The disposable gate `tests/integration/discovery_gate.py`
-exercises this contract with three wolves.
+exercises this contract with four wolves.
+
+## Stage25 extension: service discovery
+
+Stage25 ([design](STAGE25_SERVICE_DISCOVERY_DESIGN.md), wire rules in the
+[services RPC spec](STAGE25_SERVICES_RPC_WIRE_SPEC.md)) adds:
+
+- service publish NAME TARGET tcp|http|https|ssh; service unpublish NAME;
+  service published
+- discover services [--peer NAME] [--transport quic|tcp]
+- service add NAME --from PEER [--transport quic|tcp]
+
+`publish` offers a local target under a name. It grants nothing: a Pack
+member sees the entry only while this node's Target Policy grants it that
+exact target, the same decision OPEN applies, so revoking a grant hides the
+entry at once. NAME follows the Stage23 rules and may not contain control
+characters; TARGET must be a canonical literal `IP:port` (no hostnames,
+non-zero port, specified address); at most 32 services. Publications persist as
+`published.json` (persist first, then publish; outside the Stage15B
+manifest; malformed fails startup closed, like `services.json`).
+`published` lists each entry with the Pack members it is currently visible
+to.
+
+`discover services` asks every Pack member (or only `--peer`) and reports
+per member `ok` with its entries, `rejected`, `timeout`, `bad_address` or
+`not_queried`, within seven seconds. An empty list does not distinguish
+"nothing published" from "nothing granted to you". It stores nothing.
+
+`service add NAME --from PEER` asks Pack member PEER at that moment for the
+services it shows this node and, if NAME is among them, adds it to the
+Service Registry with PEER and the received target and kind, through the
+ordinary `service add` path (persist first, refused while storage is
+degraded). The query runs before mutation admission, so it never blocks
+other mutations. It never copies from a cache, and the resulting entry grants
+nothing more than a manual `service add`.
+
+Under Silver, `discover services` and `--from` are refused. Errors are
+`SERVICE_INVALID`, `SERVICE_EXISTS`, `SERVICE_NOT_FOUND`,
+`SERVICE_SAVE_FAILED`, `DISCOVER_INVALID`, `DISCOVER_FAILED` (PEER
+unreachable or rejected the query), `SILVER_ACTIVE` and `NO_PELT`;
+werewolfctl exits 70. The disposable gate
+`tests/integration/service_discovery_gate.py` exercises this contract.

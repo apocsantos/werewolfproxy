@@ -142,6 +142,23 @@ receivers start deny-by-default.
 | Pack-only relay | Once B removes C from its Pack, B returns no records for C |
 | Silver | `discover find` and `discover refresh` exit 70 |
 
+```bash
+python3 -B tests/integration/service_discovery_gate.py [--keep-temp]
+```
+
+`service_discovery_gate.py` (Stage25) runs three wolves: A publishes, B and C
+are both in A's Pack and both trust A. All receivers start deny-by-default.
+
+| Assertion | Required evidence |
+|---|---|
+| Publishing grants nothing | A publishes `echo` and `web`; a hostname target and a duplicate exit 70; `service published` shows no visibility; B and C see nothing |
+| Visibility follows grants | After A grants B the echo target, B sees only `echo` over QUIC and encrypted TCP; C sees nothing |
+| Deliberate import | Discovery leaves B's registry empty; `service add echo --from wolf-a` copies the entry; `web` (not granted) and C's import exit 70 |
+| Normal Fang path | `service connect echo` on B carries 1 MiB echo exactly |
+| Revocation | After A removes the grant, B sees nothing and a new import exits 70 |
+| Persistence | Publications identical after restart; `unpublish` removes |
+| Silver | On B, `discover services` and `service add --from` exit 70 |
+
 ## Stage 1 execution results — 2026-09-07
 
 Executed against checkout `63691aade2aa165b16864a80272f2a55eadcee00` with its

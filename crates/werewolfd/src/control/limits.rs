@@ -176,9 +176,13 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
         "pack.add" => &["name", "fingerprint", "address", "public_key_b64"],
         "pack.set_address" => &["name", "address"],
         "service.add" => &["name", "peer", "target", "kind"],
+        "service.publish" => &["name", "target", "kind"],
+        "service.add_from" => &["name", "peer", "transport"],
+        "discover.services" => &["peer", "transport"],
         "pack.remove"
         | "pack.revoke"
         | "service.remove"
+        | "service.unpublish"
         | "service.show"
         | "fang.profile.remove"
         | "fang.open_profile"
@@ -287,6 +291,8 @@ pub(super) fn mutates(cmd: &str) -> bool {
             | "target.remove"
             | "service.add"
             | "service.remove"
+            | "service.publish"
+            | "service.unpublish"
             | "discover.advertise"
             | "state.manifest.migrate"
             | "fang.open"
@@ -366,6 +372,35 @@ mod tests {
         // mutation coordinator.
         assert!(mutates("discover.advertise"));
         assert!(!mutates("discover.find") && !mutates("discover.refresh"));
+    }
+
+    #[test]
+    fn stage25_arguments_are_allowlisted_strings() {
+        for good in [
+            br#"{"id":"1","cmd":"service.publish","args":{"name":"web","target":"127.0.0.1:8080","kind":"http"}}"#
+                .as_slice(),
+            br#"{"id":"1","cmd":"service.unpublish","args":{"name":"web"}}"#,
+            br#"{"id":"1","cmd":"service.published","args":{}}"#,
+            br#"{"id":"1","cmd":"discover.services","args":{"peer":"","transport":"tcp"}}"#,
+            br#"{"id":"1","cmd":"service.add_from","args":{"name":"web","peer":"wolf-b","transport":"quic"}}"#,
+        ] {
+            assert!(parse(good).is_ok(), "{good:?}");
+        }
+        for bad in [
+            // A publication names no peer, and --from never carries a target.
+            br#"{"id":"1","cmd":"service.publish","args":{"name":"web","target":"127.0.0.1:8080","kind":"http","peer":"x"}}"#
+                .as_slice(),
+            br#"{"id":"1","cmd":"service.add_from","args":{"name":"web","peer":"wolf-b","target":"127.0.0.1:22"}}"#,
+            br#"{"id":"1","cmd":"service.published","args":{"name":"web"}}"#,
+            br#"{"id":"1","cmd":"discover.services","args":{"peer":["wolf-b"]}}"#,
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+        assert!(mutates("service.publish") && mutates("service.unpublish"));
+        // Lookups stay outside the mutation coordinator; `service.add_from`
+        // is resolved first and then saved as an ordinary `service.add`.
+        assert!(!mutates("discover.services") && !mutates("service.add_from"));
+        assert!(!mutates("service.published"));
     }
 
     #[tokio::test]
