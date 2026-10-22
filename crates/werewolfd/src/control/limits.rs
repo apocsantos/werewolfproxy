@@ -179,6 +179,8 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
         "service.publish" => &["name", "target", "kind"],
         "service.add_from" => &["name", "peer", "transport"],
         "discover.services" => &["peer", "transport"],
+        "route.set" => &["peer", "via", "hop"],
+        "route.remove" => &["peer"],
         "pack.remove"
         | "pack.revoke"
         | "service.remove"
@@ -204,7 +206,7 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
         }
         let value = value.as_str().ok_or_else(rejected)?;
         let limit = match key.as_str() {
-            "name" | "peer" => 128,
+            "name" | "peer" | "via" => 128,
             "local" | "remote" | "address" | "public_key_b64" | "target" => 512,
             "document" => 12 * 1024,
             // Up to four 256-byte addresses and their separators.
@@ -293,6 +295,8 @@ pub(super) fn mutates(cmd: &str) -> bool {
             | "service.remove"
             | "service.publish"
             | "service.unpublish"
+            | "route.set"
+            | "route.remove"
             | "discover.advertise"
             | "state.manifest.migrate"
             | "fang.open"
@@ -401,6 +405,36 @@ mod tests {
         // is resolved first and then saved as an ordinary `service.add`.
         assert!(!mutates("discover.services") && !mutates("service.add_from"));
         assert!(!mutates("service.published"));
+    }
+
+    #[test]
+    fn stage26_route_arguments_are_allowlisted_strings() {
+        for good in [
+            br#"{"id":"1","cmd":"route.set","args":{"peer":"wolf-d","via":"wolf-b","hop":"tcp"}}"#
+                .as_slice(),
+            br#"{"id":"1","cmd":"route.set","args":{"peer":"wolf-d","via":"wolf-b"}}"#,
+            br#"{"id":"1","cmd":"route.remove","args":{"peer":"wolf-d"}}"#,
+            br#"{"id":"1","cmd":"route.list","args":{}}"#,
+        ] {
+            assert!(parse(good).is_ok(), "{good:?}");
+        }
+        let long_via = format!(
+            r#"{{"id":"1","cmd":"route.set","args":{{"peer":"wolf-d","via":"{}"}}}}"#,
+            "v".repeat(129)
+        );
+        for bad in [
+            // A route names peers only: never an address or a target.
+            br#"{"id":"1","cmd":"route.set","args":{"peer":"wolf-d","via":"wolf-b","address":"tcp://192.0.2.1:8443"}}"#
+                .as_slice(),
+            br#"{"id":"1","cmd":"route.set","args":{"peer":"wolf-d","via":"wolf-b","target":"127.0.0.1:22"}}"#,
+            br#"{"id":"1","cmd":"route.remove","args":{"peer":"wolf-d","via":"wolf-b"}}"#,
+            br#"{"id":"1","cmd":"route.list","args":{"peer":"wolf-d"}}"#,
+            br#"{"id":"1","cmd":"route.set","args":{"peer":"wolf-d","via":["wolf-b"]}}"#,
+            long_via.as_bytes(),
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+        assert!(mutates("route.set") && mutates("route.remove") && !mutates("route.list"));
     }
 
     #[tokio::test]

@@ -171,3 +171,31 @@ Under Silver, `discover services` and `--from` are refused. Errors are
 unreachable or rejected the query), `SILVER_ACTIVE` and `NO_PELT`;
 werewolfctl exits 70. The disposable gate
 `tests/integration/service_discovery_gate.py` exercises this contract.
+
+## Stage26 extension: routes
+
+Stage26 ([design](STAGE26_MULTIHOP_ROUTING_DESIGN.md)) lets a Fang reach a
+Pack member through another Pack member (the relay). Step 2 adds the route
+table; routed Fangs follow in step 3.
+
+- route set PEER --via RELAY [--hop quic|tcp]
+- route list
+- route remove PEER
+
+A route says that Pack member PEER is reached through Pack member RELAY,
+with `--hop` (default `quic`) the transport from this node to RELAY; the
+session inside it, to PEER, is always encrypted TCP pinned to PEER's Pack
+key. A route grants nothing: RELAY forwards only if its own Target Policy
+grants this node PEER's listener address, and PEER's Target Policy decides
+access as on a direct Fang.
+
+PEER and RELAY must both be Pack members when the route is set; `set`
+replaces PEER's existing route. Exactly one relay: a relay cannot itself be
+routed and a routed peer cannot relay. At most 256 routes. Routes persist in
+the Den as `routes.json` (persist first, then publish), outside the Stage15B
+protected manifest, and mutations serialize with other mutations and are
+refused while storage is degraded. Errors are `ROUTE_INVALID` (unknown
+member, self or chained relay, bad hop), `ROUTE_NOT_FOUND` and
+`ROUTE_SAVE_FAILED`; werewolfctl exits 70. A failed save leaves the
+previous routes live.
+

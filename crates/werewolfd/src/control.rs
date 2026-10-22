@@ -268,6 +268,11 @@ async fn handle_request(
             ControlResponse::ok(req.id, json!(st.services))
         }
 
+        "route.list" => {
+            let st = state.lock().await;
+            ControlResponse::ok(req.id, json!(st.routes))
+        }
+
         "service.published" => {
             // For each published service, the Pack members its target is
             // currently granted to: the peers a `services` answer shows it to.
