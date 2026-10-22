@@ -1,10 +1,11 @@
 # Stage25 service discovery — design proposal
 
-**Status: design accepted 2026-10-20 (all recommendations; see
-[Decisions](#decisions-accepted-2026-10-20)).** The wire extension is
+**Status: implemented and checked over the real WAN (steps 1–4 done).**
+The design was accepted 2026-10-20 (all recommendations; see
+[Decisions](#decisions-accepted-2026-10-20)); the wire extension was
 specified and reviewed in step 2 with the same review as the
 [Stage24 wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md) before any wire code
-lands.
+landed. See the [real-WAN check](#real-wan-check-2026-10-22).
 
 This is the next step in [ARCHITECTURE.md §65](ARCHITECTURE.md) after
 distributed peer discovery: §19 ("who provides service X?") and §20
@@ -149,7 +150,7 @@ like `discover refresh`, and a Silver-locked responder rejects the RPC.
 | 1 | `werewolf-core`: `PublishedService` validation, canonical entry encoding and strict decoding, unit tests (done, PR #30) |
 | 2 | Wire: `services` op, receiver filter (2b), requester checks; transcript vectors and negative tests; wire contract updated ([spec](STAGE25_SERVICES_RPC_WIRE_SPEC.md), done) |
 | 3 | Operator: `service publish/unpublish/published`, `published.json`, `discover services`, optional `service add --from`; CLI contract; lab gate (provider grants one target to one of two requesters; only that requester sees it; connect works; revoking hides it) (done, [CLI contract](V1_CLI_CONTRACT.md#stage25-extension-service-discovery)) |
-| 4 | Real-WAN check DarkSide ↔ VPS |
+| 4 | Real-WAN check DarkSide ↔ VPS (done, [below](#real-wan-check-2026-10-22)) |
 
 ## Decisions (accepted 2026-10-20)
 
@@ -175,3 +176,46 @@ targets must be a canonical literal `IP:port` (exactly as Rust formats a
 `SocketAddr`, port non-zero, IP specified), so each target has one byte
 form and checking it never resolves DNS. Kind codes are `tcp` 0, `http` 1,
 `https` 2, `ssh` 3.
+
+## Real-WAN check (2026-10-22)
+
+Both nodes ran `3b5cbc8` (`werewolfd`
+`2ca756c2dc9fb2fc5c82e0d99a7e38347201acd9ae0bcfb764e11cd40b65a9b3`): the
+Debian VPS receiver (`werewolfd.service`, bound to `0.0.0.0:8443` and
+`0.0.0.0:9560`, upgraded with the INSTALL.md steps) and the DarkSide
+Stage22R node, Pack members of each other (the VPS knows DarkSide as
+`node-a2`, DarkSide knows the VPS as `node-b`). The VPS Target Policy
+already granted `node-a2` exactly `127.0.0.1:7000`, an echo server; no
+Target Policy, firewall or Fang setting was changed for the check.
+
+| Step | Node | Result |
+|---|---|---|
+| `service publish echo 127.0.0.1:7000 tcp`, `service publish hidden 127.0.0.1:7100 tcp`, `service published` | VPS | Both persisted; `echo` visible to `node-a2`, `hidden` visible to no one (nothing grants `127.0.0.1:7100`) |
+| `discover services --peer node-b --transport quic` | DarkSide | `ok`, exactly one entry: `echo` `127.0.0.1:7000` `tcp`; `hidden` filtered by the responder |
+| `service add hidden --from node-b` | DarkSide | Refused: `node-b offers no service hidden to this node`; registry unchanged |
+| `service add echo --from node-b` | DarkSide | Added from the fresh answer: peer `node-b`, target `127.0.0.1:7000`, kind `tcp` |
+| `service connect echo --local-port 17201 --transport quic`, then 64 MiB full-duplex through it | DarkSide | Fang active to `51.83.41.28:9560`; 67108864 bytes sent and echoed, SHA-256 equal on both sides (`77be8bdfc2a67e40f018ef1e118d9fb74df7bc65210eb86f1ec300d3f8c4edd1`), 57.7 s (about 1.1 MiB/s each way) |
+| `service unpublish echo`, `service unpublish hidden` | VPS | Published list empty |
+| `discover services --transport quic` | DarkSide | `ok`, empty list |
+| `pack set-address node-b tcp://51.83.41.28:8443`, `discover services --transport tcp` | DarkSide | `ok`, empty list (TCP services RPC verified over the WAN) |
+| Same address, `--transport quic` | DarkSide | `bad_address`; the scheme is never swapped |
+| Address restored to `quic://51.83.41.28:9560`; `fang close` of the service Fang, `service remove echo`, `fang activate wan-quic` | DarkSide | Back to the pre-check state; `READY`, not degraded |
+
+TCP with the VPS entries still published was not run: with the Pack
+address `quic://…:9560` a TCP request dials TCP on port 9560 (same-port
+rewrite, by design), where the VPS has no TCP listener, and the attempt was
+reported as `rejected`. The TCP check above therefore shows that the signed
+`services` RPC works over the WAN on TCP, but not the filtering on TCP;
+filtering is transport independent (one `visible_services` call for both)
+and is covered on both transports by the lab gate
+(`tests/integration/service_discovery_gate.py`).
+
+Changing `node-b`'s address closed the active `wan-quic` Fang, as
+`pack set-address` does by design; it was reactivated afterwards.
+
+Two operator-visible wording issues were noted, neither a security
+property: a connection failure (here, TCP refused) is reported as
+`rejected` by `discover services` and `discover find`, where
+`unreachable` would be clearer; and `fang active` shows
+`transport: "unknown"` for Fangs opened outside a saved profile (including
+`service connect`), which predates Stage25.
