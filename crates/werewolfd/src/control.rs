@@ -582,12 +582,7 @@ async fn handle_request(
                 .records()
                 .iter()
                 .map(|f| {
-                    let transport = st
-                        .fang_profiles
-                        .iter()
-                        .find(|p| p.local == f.local)
-                        .map(|p| p.transport.as_str())
-                        .unwrap_or("unknown");
+                    let transport = st.fang_registry.transport_of(&f.id).unwrap_or("unknown");
 
                     let uptime_seconds = st
                         .fang_registry

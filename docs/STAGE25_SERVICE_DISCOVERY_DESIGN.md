@@ -218,4 +218,6 @@ property: a connection failure (here, TCP refused) is reported as
 `rejected` by `discover services` and `discover find`, where
 `unreachable` would be clearer; and `fang active` shows
 `transport: "unknown"` for Fangs opened outside a saved profile (including
-`service connect`), which predates Stage25.
+`service connect`), which predates Stage25. Both are fixed on `main`
+after this check: a dial that makes no connection is now `unreachable`, and
+`fang active` shows the transport each Fang opened with.

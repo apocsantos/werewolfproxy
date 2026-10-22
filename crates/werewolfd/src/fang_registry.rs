@@ -145,7 +145,9 @@ impl Drop for FangTermination {
 pub(super) struct FangRegistry {
     pub(super) fangs: Vec<FangRecord>,
     pub(super) tasks: HashMap<String, JoinHandle<()>>,
-    pub(super) started: HashMap<String, Instant>,
+    /// Start time and the transport the Fang opened with, kept together so
+    /// every removal path drops both.
+    pub(super) started: HashMap<String, (Instant, String)>,
     cancellations: HashMap<String, FangCancellation>,
 }
 
@@ -234,8 +236,8 @@ impl FangRegistry {
     pub(super) fn insert_task(&mut self, id: String, handle: JoinHandle<()>) {
         self.tasks.insert(id, handle);
     }
-    pub(super) fn insert_started(&mut self, id: String, started: Instant) {
-        self.started.insert(id, started);
+    pub(super) fn insert_started(&mut self, id: String, started: Instant, transport: &str) {
+        self.started.insert(id, (started, transport.to_string()));
     }
     pub(super) fn insert_cancellation(&mut self, id: String, cancellation: FangCancellation) {
         self.cancellations.insert(id, cancellation);
@@ -265,7 +267,12 @@ impl FangRegistry {
         self.fangs.retain(|f| !dead_ids.contains(&f.id));
     }
     pub(super) fn started_at(&self, id: &str) -> Option<&Instant> {
-        self.started.get(id)
+        self.started.get(id).map(|(at, _)| at)
+    }
+    pub(super) fn transport_of(&self, id: &str) -> Option<&str> {
+        self.started
+            .get(id)
+            .map(|(_, transport)| transport.as_str())
     }
     pub(super) fn abort_all(&mut self) {
         for cancellation in self.cancellations.values() {
@@ -404,5 +411,26 @@ mod activation_tests {
         }
         assert!(!spawned_rx.await.unwrap());
         quiesce.await.unwrap();
+    }
+
+    #[test]
+    fn transport_is_recorded_per_fang_and_dropped_with_it() {
+        let mut registry = FangRegistry::default();
+        for id in ["profile", "service"] {
+            registry.push(FangRecord {
+                id: id.into(),
+                peer: "peer".into(),
+                local: "127.0.0.1:1".into(),
+                remote: "127.0.0.1:2".into(),
+                state: werewolf_core::fang::FangState::Active,
+            });
+        }
+        registry.insert_started("profile".into(), Instant::now(), "tcp");
+        registry.insert_started("service".into(), Instant::now(), "quic");
+        assert_eq!(registry.transport_of("profile"), Some("tcp"));
+        assert_eq!(registry.transport_of("service"), Some("quic"));
+        registry.terminate_ids(&["service".into()]);
+        assert_eq!(registry.transport_of("service"), None);
+        assert!(registry.started_at("profile").is_some());
     }
 }
