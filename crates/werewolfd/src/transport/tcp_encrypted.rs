@@ -56,6 +56,8 @@ mod liveness_tests;
 mod receiver_auth_tests;
 #[cfg(test)]
 mod session_end_tests;
+#[cfg(test)]
+mod stream_client_tests;
 
 #[cfg(test)]
 pub(super) async fn run_fang_listener(
@@ -312,10 +314,27 @@ async fn pipe_one_fang_connection(
     expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> io::Result<()> {
     let mut outbound = connect_authenticated_tcp(peer_addr, &expected_peer).await?;
+    let key = client_handshake(&mut outbound, remote, &identity, &expected_peer).await?;
+    secure_copy_client_side(inbound, outbound, key).await
+}
+
+/// The client side of the encrypted-TCP handshake (challenge, signed OPEN,
+/// verified ACK) over an already authenticated TLS stream. Generic over the
+/// stream so the same bytes can travel through a relay (Stage26); the
+/// transcripts are those of `hs::TcpOpen` and `hs::TcpAck`, unchanged.
+pub(crate) async fn client_handshake<S>(
+    outbound: &mut S,
+    remote: &str,
+    identity: &PeltIdentity,
+    expected_peer: &crate::policy::ExpectedPeerIdentity,
+) -> io::Result<Zeroizing<[u8; 32]>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let deadline = tokio::time::Instant::now() + hs::CLIENT_WINDOW;
-    let key = tokio::time::timeout_at(deadline, async {
+    tokio::time::timeout_at(deadline, async {
         let challenge: hs::TcpChallenge = hs::read(
-            &mut outbound,
+            outbound,
             hs::CHALLENGE_LIMIT,
             (tokio::time::Instant::now() + hs::READ_WINDOW).min(deadline),
         )
@@ -324,10 +343,10 @@ async fn pipe_one_fang_connection(
         hs::require(challenge.receiver_fingerprint == expected_peer.fingerprint)?;
         let client_secret = StaticSecret::from(hs::random::<32>()?);
         let client_public = X25519PublicKey::from(&client_secret);
-        let open = hs::TcpOpen::new(&identity, &challenge, remote, client_public.as_bytes())?;
+        let open = hs::TcpOpen::new(identity, &challenge, remote, client_public.as_bytes())?;
         let retained = open.transcript()?;
-        hs::write(&mut outbound, &open, hs::MESSAGE_LIMIT, deadline).await?;
-        let ack: hs::TcpAck = hs::read(&mut outbound, hs::MESSAGE_LIMIT, deadline).await?;
+        hs::write(outbound, &open, hs::MESSAGE_LIMIT, deadline).await?;
+        let ack: hs::TcpAck = hs::read(outbound, hs::MESSAGE_LIMIT, deadline).await?;
         hs::require(ack.receiver_fingerprint == expected_peer.fingerprint)?;
         hs::verify(
             &ack.receiver_pubkey,
@@ -337,8 +356,7 @@ async fn pipe_one_fang_connection(
         derive_shared_key(&client_secret, &ack.server_x25519)
     })
     .await
-    .map_err(|_| hs::rejected())??;
-    secure_copy_client_side(inbound, outbound, key).await
+    .map_err(|_| hs::rejected())?
 }
 
 pub(crate) async fn connect_authenticated_tcp(
@@ -348,20 +366,59 @@ pub(crate) async fn connect_authenticated_tcp(
     // Validate and construct exact selected-peer trust before opening a TCP
     // socket. Historical fingerprint-only Pack entries therefore fail closed
     // without sending transport or application bytes.
-    let config = crate::tls_identity::client_config_for_selected_peer_key(
-        expected_peer.public_key_b64.as_deref(),
-    )
-    .map_err(|_| hs::rejected())?;
-    let connector = TlsConnector::from(Arc::new(config));
+    let connector = selected_peer_connector(expected_peer)?;
     let stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(peer_addr))
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "tcp connect timeout"))??;
     configure_liveness(&stream)?;
-    let server_name = ServerName::from(stream.peer_addr()?.ip());
-    tokio::time::timeout(hs::READ_WINDOW, connector.connect(server_name, stream))
-        .await
-        .map_err(|_| hs::rejected())?
-        .map_err(|_| hs::rejected())
+    let server_ip = stream.peer_addr()?.ip();
+    tls_connect(&connector, stream, server_ip).await
+}
+
+/// TLS pinned to the selected peer over an existing byte stream instead of
+/// a socket this function opens. `server_ip` is the peer's address from its
+/// Pack record, used as the TLS server name exactly as
+/// `connect_authenticated_tcp` uses the socket's peer address. Liveness is
+/// the carrying stream's job.
+// Called by routed Fangs from Stage26 step 3; until then only by tests.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) async fn connect_authenticated_over<S>(
+    stream: S,
+    server_ip: std::net::IpAddr,
+    expected_peer: &crate::policy::ExpectedPeerIdentity,
+) -> io::Result<ClientTlsStream<S>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let connector = selected_peer_connector(expected_peer)?;
+    tls_connect(&connector, stream, server_ip).await
+}
+
+fn selected_peer_connector(
+    expected_peer: &crate::policy::ExpectedPeerIdentity,
+) -> io::Result<TlsConnector> {
+    let config = crate::tls_identity::client_config_for_selected_peer_key(
+        expected_peer.public_key_b64.as_deref(),
+    )
+    .map_err(|_| hs::rejected())?;
+    Ok(TlsConnector::from(Arc::new(config)))
+}
+
+async fn tls_connect<S>(
+    connector: &TlsConnector,
+    stream: S,
+    server_ip: std::net::IpAddr,
+) -> io::Result<ClientTlsStream<S>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    tokio::time::timeout(
+        hs::READ_WINDOW,
+        connector.connect(ServerName::from(server_ip), stream),
+    )
+    .await
+    .map_err(|_| hs::rejected())?
+    .map_err(|_| hs::rejected())
 }
 
 async fn secure_copy_client_side<S>(
