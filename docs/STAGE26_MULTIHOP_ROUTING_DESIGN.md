@@ -1,10 +1,9 @@
 # Stage26 multi-hop routing — design proposal
 
-**Status: proposal, awaiting owner decisions 1–6 below.** Nothing here is
-implemented. Option 1A needs no wire change; option 1B would add a wire
-extension that is specified and reviewed with the same review as the
-[Stage24 wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md) before any code
-lands.
+**Status: design accepted 2026-10-22 (1A, 2a, 3a, 4a, 5a, 6a; see
+[Decisions](#decisions-accepted-2026-10-22)).** Nothing is implemented yet.
+1A needs no wire change: step 1 must prove the encrypted-TCP transcripts
+and framing are byte-identical before any routing code lands.
 
 This is the next step in [ARCHITECTURE.md §65](ARCHITECTURE.md) after
 distributed service discovery: §21 (multi-hop routing), §22 (end-to-end
@@ -193,6 +192,17 @@ degraded; Silver refuses a routed Fang like any Fang.
 | 3 | Routed Fang and `service connect`; lab gate with three wolves where A cannot dial D directly: works only with both B's grant and D's grant; revoking either, or Silver on B, cuts it; D sees B's address; 64 MiB full duplex exact |
 | 4 | Real-WAN check: DarkSide → VPS (relay) → a destination reachable only from the VPS (a second daemon on the VPS's loopback, or a third host), plus D06/D07-style failure checks through the relay |
 
-## Decisions
+## Decisions (accepted 2026-10-22)
 
-Pending. Recommended: **1A, 2a, 3a, 4a, 5a, 6a.**
+1. **Mechanism: 1A.** A nests an unchanged encrypted-TCP session to D inside
+   an ordinary Fang session to B, whose Target Policy grants A D's listener
+   address. No wire change; 1B (relay op) stays a possible later
+   refinement, 1C is rejected.
+2. **Routes: 2a.** `routes.json` in the Den, persist first then publish,
+   outside the Stage15B manifest.
+3. **Reach: 3a.** Exactly one relay.
+4. **Transports: 4a.** Outer hop QUIC or encrypted TCP per route; inner
+   session always encrypted TCP; never plain TCP inside a relay.
+5. **Scope: 5a.** Fang open and `service connect` only; discovery RPCs
+   through a relay are a follow-up.
+6. **Provider selection: 6a.** A separate stage.
