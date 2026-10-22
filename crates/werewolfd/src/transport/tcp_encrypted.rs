@@ -355,7 +355,7 @@ pub(crate) async fn connect_authenticated_tcp(
     let connector = TlsConnector::from(Arc::new(config));
     let stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(peer_addr))
         .await
-        .map_err(|_| hs::rejected())??;
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "tcp connect timeout"))??;
     configure_liveness(&stream)?;
     let server_name = ServerName::from(stream.peer_addr()?.ip());
     tokio::time::timeout(hs::READ_WINDOW, connector.connect(server_name, stream))

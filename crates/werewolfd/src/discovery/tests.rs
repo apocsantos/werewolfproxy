@@ -37,6 +37,37 @@ fn find(target: NodeId, k: u8) -> RpcRequest {
 }
 
 #[test]
+fn failed_dials_are_unreachable_and_failed_handshakes_rejected() {
+    use io::ErrorKind::*;
+    for kind in [
+        ConnectionRefused,
+        HostUnreachable,
+        NetworkUnreachable,
+        AddrNotAvailable,
+        TimedOut,
+    ] {
+        assert_eq!(
+            operator::failure_status(kind.into()),
+            "unreachable",
+            "{kind:?}"
+        );
+    }
+    for kind in [
+        PermissionDenied,
+        InvalidData,
+        UnexpectedEof,
+        ConnectionReset,
+    ] {
+        assert_eq!(
+            operator::failure_status(kind.into()),
+            "rejected",
+            "{kind:?}"
+        );
+    }
+    assert_eq!(operator::failure_status(hs::rejected()), "rejected");
+}
+
+#[test]
 fn limiter_allows_a_burst_then_refills_per_peer() {
     let limiter = RpcLimiter::default();
     let t0 = StdInstant::now();
@@ -664,6 +695,23 @@ async fn discover_services_and_add_from_ask_pack_members_now() {
         assert_eq!(tcp["result"]["queried"][0], queried[0]);
         let quic = operate(&a, "discover.services", serde_json::json!({"peer": "wolf-b"})).await;
         assert_eq!(quic["result"]["queried"][0]["status"], "bad_address");
+        // Nothing listening: the dial fails before any handshake, which is
+        // reported as unreachable, not rejected.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        a.state.lock().await.peers[0].address = format!("tcp://{closed}");
+        let refused = operate(
+            &a,
+            "discover.services",
+            serde_json::json!({"peer": "wolf-b", "transport": "tcp"}),
+        )
+        .await;
+        assert_eq!(
+            refused["result"]["queried"][0],
+            serde_json::json!({"peer": "wolf-b", "status": "unreachable"})
+        );
         a.state.lock().await.peers[0] = member("wolf-b", &b);
 
         // --from turns the entry B shows A into an ordinary service.add.

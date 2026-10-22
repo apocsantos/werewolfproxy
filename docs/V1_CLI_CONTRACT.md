@@ -113,12 +113,16 @@ time, then asks the nodes they return, dialling each at its advertised address
 with TLS pinned to its record key, until the target's record arrives (at most
 8 hops and 24 queries). A hop answers only if the requester is in its Pack.
 Both finish within seven seconds and report a status per node asked (`ok`
-with a record count, `rejected`, `timeout`, `not_queried`, `bad_address`;
-`find` adds the `hop`, and names nodes outside the Pack `node:<id prefix>`),
+with a record count, `unreachable`, `rejected`, `timeout`, `not_queried`,
+`bad_address`; `find` adds the `hop`, and names nodes outside the Pack
+`node:<id prefix>`),
 and are refused under Silver
 (`SILVER_ACTIVE`) and while another refresh or find runs (`DISCOVER_BUSY`).
-Verified records go to the cache `contacts.json` (at most 256, highest `seq`
-per node), written before it is published; a malformed cache is ignored
+`unreachable` means no connection was made (refused, no route, or no
+answer to the dial); `rejected` means the node was reached and the
+handshake, authentication or result check failed. Verified records go to
+the cache `contacts.json` (at most 256, highest `seq` per node), written
+before it is published; a malformed cache is ignored
 rather than blocking startup. A node answers FindNode only with cached records
 of its own current Pack members.
 
@@ -149,8 +153,8 @@ manifest; malformed fails startup closed, like `services.json`).
 to.
 
 `discover services` asks every Pack member (or only `--peer`) and reports
-per member `ok` with its entries, `rejected`, `timeout`, `bad_address` or
-`not_queried`, within seven seconds. An empty list does not distinguish
+per member `ok` with its entries, `unreachable`, `rejected`, `timeout`,
+`bad_address` or `not_queried`, within seven seconds. An empty list does not distinguish
 "nothing published" from "nothing granted to you". It stores nothing.
 
 `service add NAME --from PEER` asks Pack member PEER at that moment for the

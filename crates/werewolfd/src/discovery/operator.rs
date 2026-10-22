@@ -652,11 +652,11 @@ async fn query(
                 .ok_or("bad_address")?;
             query_quic(address, identity, &seed.expected, request)
                 .await
-                .map_err(|_| "rejected")
+                .map_err(failure_status)
         }
         Ok(FangTransport::Tcp(address)) => query_tcp(&address, identity, &seed.expected, request)
             .await
-            .map_err(|_| "rejected"),
+            .map_err(failure_status),
         Err(_) => Err("bad_address"),
     }
 }
@@ -677,12 +677,25 @@ async fn query_services(
                 .ok_or("bad_address")?;
             query_services_quic(address, identity, &seed.expected)
                 .await
-                .map_err(|_| "rejected")
+                .map_err(failure_status)
         }
         Ok(FangTransport::Tcp(address)) => query_services_tcp(&address, identity, &seed.expected)
             .await
-            .map_err(|_| "rejected"),
+            .map_err(failure_status),
         Err(_) => Err("bad_address"),
+    }
+}
+
+/// `unreachable` when no connection was made (refused, no route, or no
+/// answer to the dial); `rejected` when the peer was reached and the
+/// handshake, authentication or result check failed.
+pub(super) fn failure_status(error: io::Error) -> &'static str {
+    use io::ErrorKind::*;
+    match error.kind() {
+        ConnectionRefused | HostUnreachable | NetworkUnreachable | AddrNotAvailable | TimedOut => {
+            "unreachable"
+        }
+        _ => "rejected",
     }
 }
 
