@@ -44,6 +44,8 @@ pub(super) fn handles(command: &str) -> bool {
             | "service.remove"
             | "service.publish"
             | "service.unpublish"
+            | "route.set"
+            | "route.remove"
             | "discover.advertise"
             | "state.manifest.migrate"
     )
@@ -494,6 +496,76 @@ pub(super) async fn handle(
         return ControlResponse::ok(
             req.id,
             json!({"status": status, "name": name, "published": live.published.len()}),
+        );
+    }
+
+    if matches!(req.cmd.as_str(), "route.set" | "route.remove") {
+        // A route changes how bytes reach a Pack member, never who it is or
+        // what it allows (Stage26 decision 1A); it grants nothing.
+        let (mut candidate, peers) = {
+            let st = state.lock().await;
+            (st.routes.clone(), st.peers.clone())
+        };
+        let peer = arg(&req, "peer");
+        let status = if req.cmd == "route.set" {
+            let via = arg(&req, "via");
+            let hop = match arg(&req, "hop").as_str() {
+                "" => Some(werewolf_core::route::RouteHop::Quic),
+                hop => werewolf_core::route::RouteHop::parse(hop),
+            };
+            let Some(hop) = hop else {
+                return error(&req.id, "ROUTE_INVALID");
+            };
+            // Both ends must be Pack members now; use time checks again.
+            if ![&peer, &via]
+                .iter()
+                .all(|name| peers.iter().any(|member| &&member.name == name))
+            {
+                return error(&req.id, "ROUTE_INVALID");
+            }
+            let route = werewolf_core::route::Route {
+                peer: peer.clone(),
+                via,
+                hop,
+            };
+            match candidate.iter_mut().find(|existing| existing.peer == peer) {
+                Some(existing) => {
+                    *existing = route;
+                    "updated"
+                }
+                None => {
+                    candidate.push(route);
+                    "set"
+                }
+            }
+        } else {
+            let before = candidate.len();
+            candidate.retain(|route| route.peer != peer);
+            if candidate.len() == before {
+                return error(&req.id, "ROUTE_NOT_FOUND");
+            }
+            "removed"
+        };
+        if werewolf_core::route::validate_routes(&candidate).is_err() {
+            return error(&req.id, "ROUTE_INVALID");
+        }
+        if durable(
+            &home,
+            crate::persistence::ROUTES_FILE,
+            &candidate,
+            false,
+            &state,
+        )
+        .await
+        .is_err()
+        {
+            return error(&req.id, "ROUTE_SAVE_FAILED");
+        }
+        let mut live = state.lock().await;
+        live.routes = candidate;
+        return ControlResponse::ok(
+            req.id,
+            json!({"status": status, "peer": peer, "routes": live.routes.len()}),
         );
     }
 
@@ -1499,6 +1571,160 @@ mod tests {
         .await;
         assert_eq!(response.error.unwrap().code, "SERVICE_SAVE_FAILED");
         assert!(state.lock().await.published.is_empty());
+        assert!(!state.lock().await.storage_degraded);
+    }
+
+    // Stage26 `route.set` / `route.remove`.
+
+    fn set_route(peer: &str, via: &str, hop: Option<&str>) -> ControlRequest {
+        let mut args = json!({"peer": peer, "via": via});
+        if let Some(hop) = hop {
+            args["hop"] = hop.into();
+        }
+        ControlRequest {
+            id: "route".into(),
+            cmd: "route.set".into(),
+            args,
+        }
+    }
+
+    fn remove_route(peer: &str) -> ControlRequest {
+        ControlRequest {
+            id: "route".into(),
+            cmd: "route.remove".into(),
+            args: json!({"peer": peer}),
+        }
+    }
+
+    fn routes_on_disk(fixture: &Fixture) -> Vec<werewolf_core::route::Route> {
+        crate::persistence::parse_routes(&std::fs::read(fixture.0.join("routes.json")).unwrap())
+            .unwrap()
+    }
+
+    async fn with_members(state: &Arc<Mutex<DaemonState>>, names: &[&str]) {
+        let mut st = state.lock().await;
+        for name in names {
+            st.peers.push(PeerRecord {
+                name: (*name).into(),
+                fingerprint: format!("wwp1:{name}"),
+                address: "tcp://127.0.0.1:1".into(),
+                trust: TrustLevel::Packmate,
+                public_key_b64: None,
+            });
+        }
+    }
+
+    #[tokio::test]
+    async fn route_set_persists_then_publishes_updates_and_removes() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        with_members(&state, &["wolf-b", "wolf-c", "wolf-d"]).await;
+
+        let response = handle(
+            set_route("wolf-d", "wolf-b", None),
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert!(response.ok, "{response:?}");
+        assert_eq!(response.result.unwrap()["status"], "set");
+        let live = state.lock().await.routes.clone();
+        assert_eq!(
+            live,
+            [werewolf_core::route::Route {
+                peer: "wolf-d".into(),
+                via: "wolf-b".into(),
+                hop: werewolf_core::route::RouteHop::Quic,
+            }]
+        );
+        assert_eq!(routes_on_disk(&fixture), live);
+
+        // Setting again replaces the one route for that peer.
+        let response = handle(
+            set_route("wolf-d", "wolf-c", Some("tcp")),
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert_eq!(response.result.unwrap()["status"], "updated");
+        let live = state.lock().await.routes.clone();
+        assert_eq!(live.len(), 1);
+        assert_eq!(
+            (live[0].via.as_str(), live[0].hop.as_str()),
+            ("wolf-c", "tcp")
+        );
+        assert_eq!(routes_on_disk(&fixture), live);
+        // A route grants nothing and is outside the protected manifest.
+        assert!(matches!(
+            state.lock().await.target_policy,
+            crate::target_policy::TargetPolicy::Deny
+        ));
+        assert_eq!(state.lock().await.protected_state_generation, None);
+
+        let response = handle(remove_route("wolf-d"), state.clone(), fixture.0.clone()).await;
+        assert!(response.ok, "{response:?}");
+        assert!(state.lock().await.routes.is_empty());
+        assert!(routes_on_disk(&fixture).is_empty());
+    }
+
+    #[tokio::test]
+    async fn invalid_routes_change_nothing() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        with_members(&state, &["wolf-b", "wolf-c", "wolf-d"]).await;
+        assert!(
+            handle(
+                set_route("wolf-d", "wolf-b", None),
+                state.clone(),
+                fixture.0.clone()
+            )
+            .await
+            .ok
+        );
+        let committed = std::fs::read(fixture.0.join("routes.json")).unwrap();
+
+        for (request, code) in [
+            (set_route("wolf-x", "wolf-b", None), "ROUTE_INVALID"), // not in the Pack
+            (set_route("wolf-c", "wolf-x", None), "ROUTE_INVALID"),
+            (set_route("wolf-c", "wolf-c", None), "ROUTE_INVALID"),
+            (
+                set_route("wolf-c", "wolf-b", Some("tcp-plain")),
+                "ROUTE_INVALID",
+            ),
+            (set_route("wolf-c", "wolf-b", Some("udp")), "ROUTE_INVALID"),
+            (set_route("", "wolf-b", None), "ROUTE_INVALID"),
+            // wolf-b relays for wolf-d, so it cannot be routed itself, and a
+            // routed peer cannot relay (exactly one relay).
+            (set_route("wolf-b", "wolf-c", None), "ROUTE_INVALID"),
+            (set_route("wolf-c", "wolf-d", None), "ROUTE_INVALID"),
+            (remove_route("wolf-c"), "ROUTE_NOT_FOUND"),
+        ] {
+            let response = handle(request, state.clone(), fixture.0.clone()).await;
+            assert!(!response.ok);
+            assert_eq!(response.error.unwrap().code, code);
+        }
+        assert_eq!(state.lock().await.routes.len(), 1);
+        assert_eq!(
+            std::fs::read(fixture.0.join("routes.json")).unwrap(),
+            committed
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_route_save_preserves_live_memory() {
+        let fixture = Fixture::new();
+        std::fs::create_dir(fixture.0.join("routes.json")).unwrap();
+        let state = fixture.state();
+        with_members(&state, &["wolf-b", "wolf-d"]).await;
+
+        let response = handle(
+            set_route("wolf-d", "wolf-b", None),
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert_eq!(response.error.unwrap().code, "ROUTE_SAVE_FAILED");
+        assert!(state.lock().await.routes.is_empty());
         assert!(!state.lock().await.storage_degraded);
     }
 }

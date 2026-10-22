@@ -100,6 +100,8 @@ pub(super) struct DaemonState {
     /// Stage25 services this node publishes (`published.json`); `services`
     /// RPC answers show each requester only the ones its Target Policy grants.
     pub(super) published: Vec<werewolf_core::published::PublishedService>,
+    /// Stage26 routes (`routes.json`): Pack members reached through a relay.
+    pub(super) routes: Vec<werewolf_core::route::Route>,
     /// Stage24 discovery records this node answers with (in memory only).
     pub(super) contacts: crate::discovery::Contacts,
     pub(super) rpc_limiter: std::sync::Arc<crate::discovery::RpcLimiter>,

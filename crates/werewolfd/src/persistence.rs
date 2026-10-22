@@ -96,6 +96,10 @@ pub(super) fn load_startup_state(
         None => Vec::new(),
         Some(data) => crate::discovery::operator::parse_published(&data)?,
     };
+    initial_state.routes = match den.read(OsStr::new(ROUTES_FILE), 1024 * 1024)? {
+        None => Vec::new(),
+        Some(data) => parse_routes(&data)?,
+    };
     initial_state.contacts.advertised =
         match den.read(OsStr::new(crate::discovery::operator::ADVERTISE_FILE), 4096)? {
             None => Vec::new(),
@@ -141,6 +145,16 @@ fn apply_protected_state(
     initial_state.fang_profiles = state.fang_profiles;
     initial_state.active_profiles = state.active_profiles;
     initial_state.protected_state_generation = generation;
+}
+
+/// Stage26 routes, outside the protected manifest (decision 2a).
+pub(crate) const ROUTES_FILE: &str = "routes.json";
+
+pub(crate) fn parse_routes(data: &[u8]) -> io::Result<Vec<werewolf_core::route::Route>> {
+    let routes: Vec<werewolf_core::route::Route> =
+        serde_json::from_slice(data).map_err(|_| invalid())?;
+    werewolf_core::route::validate_routes(&routes).map_err(|_| invalid())?;
+    Ok(routes)
 }
 
 fn invalid() -> io::Error {
@@ -291,6 +305,32 @@ mod tests {
             br#"[{"name":"web","kind":"http","target":"127.0.0.1:80","peer":"x"}]"#,
         ] {
             fixture.write("published.json", bad);
+            assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+        }
+    }
+
+    #[test]
+    fn routes_load_strictly() {
+        let fixture = Fixture::new();
+        assert!(fixture.startup().routes.is_empty());
+        fixture.write(
+            "routes.json",
+            br#"[{"peer":"wolf-d","via":"wolf-b","hop":"tcp"}]"#,
+        );
+        let state = fixture.startup();
+        assert_eq!(state.routes.len(), 1);
+        assert_eq!(state.routes[0].via, "wolf-b");
+        // Malformed JSON, a self relay, a chained relay, a duplicate peer, an
+        // unknown hop and an unknown field each fail startup closed.
+        for bad in [
+            &b"{not-json"[..],
+            br#"[{"peer":"wolf-d","via":"wolf-d","hop":"quic"}]"#,
+            br#"[{"peer":"wolf-d","via":"wolf-b","hop":"quic"},{"peer":"wolf-b","via":"wolf-c","hop":"quic"}]"#,
+            br#"[{"peer":"wolf-d","via":"wolf-b","hop":"quic"},{"peer":"wolf-d","via":"wolf-c","hop":"quic"}]"#,
+            br#"[{"peer":"wolf-d","via":"wolf-b","hop":"tcp-plain"}]"#,
+            br#"[{"peer":"wolf-d","via":"wolf-b","hop":"quic","target":"x"}]"#,
+        ] {
+            fixture.write("routes.json", bad);
             assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
         }
     }

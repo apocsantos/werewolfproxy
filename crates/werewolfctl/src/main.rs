@@ -87,6 +87,26 @@ enum Commands {
         #[command(subcommand)]
         command: DiscoverCommands,
     },
+    /// Reach a Pack member through another Pack member. A route grants nothing.
+    Route {
+        #[command(subcommand)]
+        command: RouteCommands,
+    },
+}
+#[derive(Subcommand)]
+enum RouteCommands {
+    /// Reach PEER through relay VIA; replaces PEER's existing route.
+    Set {
+        peer: String,
+        #[arg(long)]
+        via: String,
+        #[arg(long, default_value = "quic", value_parser = ["quic", "tcp"])]
+        hop: String,
+    },
+    List,
+    Remove {
+        peer: String,
+    },
 }
 #[derive(Subcommand)]
 enum DenCommands {
@@ -442,6 +462,15 @@ fn request_for(command: Commands) -> Result<(String, Value), CliError> {
         Commands::Target {
             command: TargetCommands::List,
         } => ("target.list", json!({})),
+        Commands::Route {
+            command: RouteCommands::Set { peer, via, hop },
+        } => ("route.set", json!({"peer":peer,"via":via,"hop":hop})),
+        Commands::Route {
+            command: RouteCommands::List,
+        } => ("route.list", json!({})),
+        Commands::Route {
+            command: RouteCommands::Remove { peer },
+        } => ("route.remove", json!({"peer":peer})),
         Commands::Target {
             command: TargetCommands::Remove { peer, target },
         } => ("target.remove", json!({"peer":peer,"target":target})),
@@ -812,6 +841,52 @@ mod tests {
             &["service", "add", "web", "wolf-a", "127.0.0.1:8080"],
             &["service", "add", "web", "--transport", "tcp"],
             &["service", "publish", "web", "127.0.0.1:8080", "ftp"],
+        ] {
+            assert!(
+                Cli::try_parse_from(std::iter::once("werewolfctl").chain(bad.iter().copied()))
+                    .is_err(),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn route_commands_map_to_daemon_requests() {
+        assert_eq!(
+            request(&["route", "set", "wolf-d", "--via", "wolf-b"]),
+            (
+                "route.set".into(),
+                json!({"peer":"wolf-d","via":"wolf-b","hop":"quic"})
+            )
+        );
+        assert_eq!(
+            request(&["route", "set", "wolf-d", "--via", "wolf-b", "--hop", "tcp"]),
+            (
+                "route.set".into(),
+                json!({"peer":"wolf-d","via":"wolf-b","hop":"tcp"})
+            )
+        );
+        assert_eq!(
+            request(&["route", "list"]),
+            ("route.list".into(), json!({}))
+        );
+        assert_eq!(
+            request(&["route", "remove", "wolf-d"]),
+            ("route.remove".into(), json!({"peer":"wolf-d"}))
+        );
+        for bad in [
+            &["route", "set", "wolf-d"][..],
+            &[
+                "route",
+                "set",
+                "wolf-d",
+                "--via",
+                "wolf-b",
+                "--hop",
+                "tcp-plain",
+            ],
+            &["route", "set", "wolf-d", "wolf-b"],
+            &["route", "remove"],
         ] {
             assert!(
                 Cli::try_parse_from(std::iter::once("werewolfctl").chain(bad.iter().copied()))

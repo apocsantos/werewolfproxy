@@ -33,3 +33,4 @@ mod state_file;
 pub mod service;
 
 pub mod published;
+pub mod route;

@@ -187,8 +187,8 @@ degraded; Silver refuses a routed Fang like any Fang.
 | Step | Scope |
 |---|---|
 | 0 | This proposal; owner decisions 1–6 |
-| 1 | Refactor: the encrypted-TCP client runs over any authenticated byte stream; byte-identical transcript and framing tests prove no wire change (1A); or the relay wire spec and review (1B) |
-| 2 | Routes: `routes.json`, `route set/list/remove`, CLI contract, unit tests |
+| 1 | Refactor: the encrypted-TCP client runs over any authenticated byte stream (done, PR #38: the client handshake moved verbatim into `client_handshake`, same `hs::` calls and order; tests drive it through an in-memory pipe against the unmodified receiver; no wire change) |
+| 2 | Routes: `routes.json`, `route set/list/remove`, CLI contract, unit tests (done, [CLI contract](V1_CLI_CONTRACT.md#stage26-extension-routes)) |
 | 3 | Routed Fang and `service connect`; lab gate with three wolves where A cannot dial D directly: works only with both B's grant and D's grant; revoking either, or Silver on B, cuts it; D sees B's address; 64 MiB full duplex exact |
 | 4 | Real-WAN check: DarkSide → VPS (relay) → a destination reachable only from the VPS (a second daemon on the VPS's loopback, or a third host), plus D06/D07-style failure checks through the relay |
 
@@ -206,3 +206,10 @@ degraded; Silver refuses a routed Fang like any Fang.
 5. **Scope: 5a.** Fang open and `service connect` only; discovery RPCs
    through a relay are a follow-up.
 6. **Provider selection: 6a.** A separate stage.
+
+Step 2 notes: `route set` requires both PEER and RELAY to be Pack members at
+that moment (use time checks again in step 3) and replaces PEER's existing
+route; a route whose relay is itself routed, or whose peer relays for
+another route, is refused, so the list always describes exactly one relay
+per destination. At most 256 routes. Routes are not part of the protected
+state generation.
