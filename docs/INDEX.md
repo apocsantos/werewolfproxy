@@ -14,7 +14,7 @@
 - [Session-end signalling proposal](SESSION_END_SIGNALLING_PROPOSAL.md) (approved; gaps 1–3 fixed)
 - [Stage24 FindNode design](STAGE24_FINDNODE_DESIGN.md) (Phase 1 implemented), [RPC wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md) (approved) and [discover CLI](V1_CLI_CONTRACT.md#stage24-extension-discovery)
 - [Stage25 service discovery design](STAGE25_SERVICE_DISCOVERY_DESIGN.md) (implemented, WAN checked) and [`services` RPC wire spec](STAGE25_SERVICES_RPC_WIRE_SPEC.md) (implemented)
-- [Stage26 multi-hop routing design](STAGE26_MULTIHOP_ROUTING_DESIGN.md) (design accepted)
+- [Stage26 multi-hop routing design](STAGE26_MULTIHOP_ROUTING_DESIGN.md) (implemented, WAN checked)
 
 ## Frozen v1 contracts
 
