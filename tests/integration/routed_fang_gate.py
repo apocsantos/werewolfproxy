@@ -186,6 +186,20 @@ class RoutedFangGate(ServiceGate):
         conn.close()
         require(holding == {'b': 1, 'c': 1}, f'expected one session on B and C: {holding}')
         self.record('the relay and the destination each authorize one session', holding)
+
+        # Discovery through the relay (decision 5b): C publishes the echo
+        # service; A asks C through B and imports it with --from.
+        self.ctl('c', 'service', 'publish', 'echo-c', echo_target, 'tcp')
+        offered = self.ctl('a', 'discover', 'services', '--peer', 'wolf-c')['result']['queried']
+        require(offered == [{'peer': 'wolf-c', 'status': 'ok', 'services': [
+            {'name': 'echo-c', 'kind': 'tcp', 'target': echo_target}]}],
+            f'discovery through the relay: {offered}')
+        pinged = self.ctl('a', 'discover', 'refresh')['result']['queried']
+        require(sorted((p['peer'], p['status']) for p in pinged)
+                == [('wolf-b', 'ok'), ('wolf-c', 'ok')], f'refresh: {pinged}')
+        self.ctl('a', 'service', 'add', 'echo-c', '--from', 'wolf-c')
+        self.record('discovery reaches the routed peer through the relay',
+                    {'services': offered[0]['services'], 'refresh': pinged})
         self.close_all()
 
         # TCP hop to the relay.

@@ -301,3 +301,13 @@ DarkSide and the relay), more than one relay, discovery RPCs through a
 relay (decision 5a), and the relay's view of timing and volume, which is as
 documented in the security notes.
 
+Decision 5b (follow-up, implemented after the WAN check): discovery RPCs
+reach a routed Pack member through its relay. `transport/relay.rs`
+`over_relay` opens the outer session exactly as a routed Fang does and runs
+the unchanged encrypted-TCP RPC (`ping`, `find_node`, `services`) inside it,
+pinned to the member's key. Nodes learned from records are still dialled
+directly, a route that no longer resolves is reported as `bad_route`, and
+no wire format changed. Covered by a discovery unit test (the relay's grant
+is required; QUIC and TCP hops; refresh, services and `--from`; the
+destination's grant still decides) and a routed Fang gate check.
+

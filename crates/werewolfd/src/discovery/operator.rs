@@ -8,7 +8,8 @@
 //! Stage25 adds `published.json` (the services this node publishes),
 //! `discover.services` and the lookup behind `service add --from`.
 use super::{
-    pack_keys, query_quic, query_services_quic, query_services_tcp, query_tcp, unix_now, Contacts,
+    pack_keys, query_quic, query_services_quic, query_services_tcp, query_services_tcp_over,
+    query_tcp, query_tcp_over, unix_now, Contacts,
 };
 use crate::handshake::{self as hs, RpcRequest};
 use crate::policy::{select_peer_transport, ExpectedPeerIdentity};
@@ -31,6 +32,7 @@ use werewolf_core::{
     pelt::{fingerprint_from_public_key_b64, PeltIdentity},
     protocol::{ControlRequest, ControlResponse},
     published::{validate_published, PublishedService},
+    route::Route,
     state::WolfMode,
 };
 
@@ -188,7 +190,7 @@ async fn network(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> Control
     } else {
         None
     };
-    let (identity, peers, guard) = {
+    let (identity, peers, routes, guard) = {
         let st = state.lock().await;
         if matches!(st.status.mode, WolfMode::Silver) {
             return ControlResponse::err(
@@ -203,10 +205,13 @@ async fn network(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> Control
         let Ok(guard) = st.discovery.clone().try_lock_owned() else {
             return ControlResponse::err(req.id, "DISCOVER_BUSY", "another discovery is running");
         };
-        (identity, st.peers.clone(), guard)
+        (identity, st.peers.clone(), st.routes.clone(), guard)
     };
 
-    let seeds: Vec<Seed> = peers.iter().filter_map(Seed::from_peer).collect();
+    let seeds: Vec<Seed> = peers
+        .iter()
+        .filter_map(|peer| Seed::from_peer(peer, &routes, &peers))
+        .collect();
     let (outcomes, learned) = match &target {
         Some(target) => lookup(seeds, &peers, &identity, transport, target).await,
         None => run_queries(seeds, &identity, transport, &RpcRequest::Ping).await,
@@ -253,7 +258,7 @@ fn transport_arg(req: &ControlRequest) -> Result<&'static str, ControlResponse> 
 async fn prepare(
     id: &str,
     state: &Arc<Mutex<DaemonState>>,
-) -> Result<(PeltIdentity, Vec<PeerRecord>), ControlResponse> {
+) -> Result<(PeltIdentity, Vec<PeerRecord>, Vec<Route>), ControlResponse> {
     let st = state.lock().await;
     if matches!(st.status.mode, WolfMode::Silver) {
         return Err(ControlResponse::err(
@@ -269,7 +274,7 @@ async fn prepare(
             "No local Pelt identity exists",
         ));
     };
-    Ok((identity, st.peers.clone()))
+    Ok((identity, st.peers.clone(), st.routes.clone()))
 }
 
 /// `discover.services`: asks every Pack member (or one, with `peer`) for the
@@ -280,7 +285,7 @@ async fn services(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> Contro
         Ok(transport) => transport,
         Err(response) => return response,
     };
-    let (identity, peers) = match prepare(&req.id, &state).await {
+    let (identity, peers, routes) = match prepare(&req.id, &state).await {
         Ok(prepared) => prepared,
         Err(response) => return response,
     };
@@ -291,7 +296,7 @@ async fn services(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> Contro
     let seeds: Vec<Seed> = peers
         .iter()
         .filter(|peer| only.is_empty() || peer.name == only)
-        .filter_map(Seed::from_peer)
+        .filter_map(|peer| Seed::from_peer(peer, &routes, &peers))
         .collect();
 
     let deadline = Instant::now() + LOOKUP_BUDGET;
@@ -359,11 +364,11 @@ pub(crate) async fn resolve_add_from(
             "name and peer are required",
         ));
     }
-    let (identity, peers) = prepare(&req.id, state).await?;
+    let (identity, peers, routes) = prepare(&req.id, state).await?;
     let Some(seed) = peers
         .iter()
         .find(|peer| peer.name == peer_name)
-        .and_then(Seed::from_peer)
+        .and_then(|peer| Seed::from_peer(peer, &routes, &peers))
     else {
         return Err(ControlResponse::err(
             req.id,
@@ -450,11 +455,31 @@ struct Seed {
     key: [u8; 32],
     address: String,
     expected: ExpectedPeerIdentity,
+    path: Path,
+}
+
+/// How a seed is dialled. A Pack member with a Stage26 route is reached
+/// through its relay (decision 5b) with the same RPC, pinned to its own
+/// key; nodes learned from records are always dialled directly.
+#[derive(Clone)]
+enum Path {
+    Direct,
+    Relay(Box<crate::transport::relay::Routed>),
+    /// The route no longer resolves (relay gone, no literal TCP address);
+    /// the member is reported, never dialled directly instead.
+    BadRoute,
 }
 
 impl Seed {
-    fn from_peer(peer: &PeerRecord) -> Option<Self> {
+    fn from_peer(peer: &PeerRecord, routes: &[Route], peers: &[PeerRecord]) -> Option<Self> {
         let public_key = peer.public_key_b64.clone()?;
+        let path = match routes.iter().find(|route| route.peer == peer.name) {
+            None => Path::Direct,
+            Some(route) => match crate::transport::relay::resolve(route, peer, peers, "tcp") {
+                Ok(routed) => Path::Relay(Box::new(routed)),
+                Err(_) => Path::BadRoute,
+            },
+        };
         Some(Self {
             name: peer.name.clone(),
             key: hs::binary::<32>(&public_key).ok()?,
@@ -463,6 +488,7 @@ impl Seed {
                 fingerprint: peer.fingerprint.clone(),
                 public_key_b64: Some(public_key),
             },
+            path,
         })
     }
 
@@ -484,6 +510,7 @@ impl Seed {
                 fingerprint: fingerprint_from_public_key_b64(&public_key_b64).ok()?,
                 public_key_b64: Some(public_key_b64),
             },
+            path: Path::Direct,
         })
     }
 }
@@ -643,6 +670,18 @@ async fn query(
     transport: &str,
     request: &RpcRequest,
 ) -> Result<Vec<ContactRecord>, &'static str> {
+    match &seed.path {
+        Path::Direct => {}
+        Path::BadRoute => return Err("bad_route"),
+        Path::Relay(routed) => {
+            let ip = routed.destination.ip();
+            return crate::transport::relay::over_relay(routed, identity, |stream| {
+                query_tcp_over(stream, ip, identity, &seed.expected, request)
+            })
+            .await
+            .map_err(failure_status);
+        }
+    }
     match select_peer_transport(transport, &seed.address) {
         Ok(FangTransport::Quic(address)) => {
             let address = tokio::net::lookup_host(address.as_str())
@@ -668,6 +707,18 @@ async fn query_services(
     identity: &PeltIdentity,
     transport: &str,
 ) -> Result<Vec<PublishedService>, &'static str> {
+    match &seed.path {
+        Path::Direct => {}
+        Path::BadRoute => return Err("bad_route"),
+        Path::Relay(routed) => {
+            let ip = routed.destination.ip();
+            return crate::transport::relay::over_relay(routed, identity, |stream| {
+                query_services_tcp_over(stream, ip, identity, &seed.expected)
+            })
+            .await
+            .map_err(failure_status);
+        }
+    }
     match select_peer_transport(transport, &seed.address) {
         Ok(FangTransport::Quic(address)) => {
             let address = tokio::net::lookup_host(address.as_str())

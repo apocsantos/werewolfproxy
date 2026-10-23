@@ -753,3 +753,100 @@ async fn discover_services_and_add_from_ask_pack_members_now() {
     .await
     .unwrap();
 }
+
+/// Stage26 decision 5b: a Pack member with a route is queried through its
+/// relay with the unchanged RPC, pinned to its own key. The relay needs only
+/// its existing Target Policy grant for the member's TCP listener.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn discovery_reaches_a_routed_member_through_its_relay() {
+    use werewolf_core::route::{Route, RouteHop};
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let a = node(&[], Contacts::default()).await;
+        let b = node(&[&a.receiver], Contacts::default()).await;
+        let c = node(&[&a.receiver], Contacts::default()).await;
+        let c_listener = c.tcp.to_string();
+        {
+            let mut st = c.state.lock().await;
+            st.published = published();
+            st.target_policy = grants(&[(&a.receiver, &["127.0.0.1:8080"])]);
+        }
+        let route = |hop| Route {
+            peer: "wolf-c".into(),
+            via: "wolf-b".into(),
+            hop,
+        };
+        {
+            let mut st = a.state.lock().await;
+            st.peers = vec![
+                member("wolf-b", &b),
+                PeerRecord {
+                    name: "wolf-c".into(),
+                    address: format!("tcp://{c_listener}"),
+                    ..peer(&c.receiver)
+                },
+            ];
+            st.routes = vec![route(RouteHop::Quic)];
+        }
+        let ask = || {
+            operate(
+                &a,
+                "discover.services",
+                serde_json::json!({"peer": "wolf-c"}),
+            )
+        };
+        let web = serde_json::json!([{"name": "web", "kind": "http", "target": "127.0.0.1:8080"}]);
+
+        // The relay has not granted A C's listener: the relay refuses.
+        assert_eq!(ask().await["result"]["queried"][0]["status"], "rejected");
+
+        // With the relay's grant, C answers through it over a QUIC hop.
+        b.state.lock().await.target_policy = grants(&[(&a.receiver, &[c_listener.as_str()])]);
+        let found = ask().await;
+        assert_eq!(found["result"]["queried"][0]["status"], "ok", "{found}");
+        assert_eq!(found["result"]["queried"][0]["services"], web);
+
+        // Over a TCP hop to the relay's TCP listener.
+        {
+            let mut st = a.state.lock().await;
+            st.peers[0].address = format!("tcp://{}", b.tcp);
+            st.routes = vec![route(RouteHop::Tcp)];
+        }
+        let found = ask().await;
+        assert_eq!(found["result"]["queried"][0]["services"], web, "{found}");
+
+        // Ping through the relay alongside a direct ping to the relay.
+        {
+            let mut st = a.state.lock().await;
+            st.peers[0].address = format!("quic://{}", b.quic);
+            st.routes = vec![route(RouteHop::Quic)];
+        }
+        let refreshed = operate(&a, "discover.refresh", serde_json::json!({})).await;
+        let queried = refreshed["result"]["queried"].as_array().unwrap();
+        assert!(queried.iter().all(|s| s["status"] == "ok"), "{refreshed}");
+        assert_eq!(queried.len(), 2);
+
+        // service add --from works through the relay too.
+        let request = werewolf_core::protocol::ControlRequest {
+            id: "from".into(),
+            cmd: "service.add_from".into(),
+            args: serde_json::json!({"name": "web", "peer": "wolf-c"}),
+        };
+        let add = operator::resolve_add_from(request, &a.state).await.unwrap();
+        assert_eq!(add.args["target"], "127.0.0.1:8080");
+
+        // C's own grant still decides what it shows A.
+        c.state.lock().await.target_policy = TargetPolicy::Grants(HashMap::new());
+        let found = ask().await;
+        assert_eq!(
+            found["result"]["queried"][0]["services"],
+            serde_json::json!([])
+        );
+
+        // A route whose relay left the Pack is reported, never dialled
+        // directly instead.
+        a.state.lock().await.peers.remove(0);
+        assert_eq!(ask().await["result"]["queried"][0]["status"], "bad_route");
+    })
+    .await
+    .unwrap();
+}

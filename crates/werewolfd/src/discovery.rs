@@ -481,6 +481,56 @@ pub(crate) async fn query_services_tcp(
     .await
 }
 
+/// `query_tcp` to a routed peer (Stage26 decision 5b): the same RPC over
+/// `stream`, a byte stream to the peer's listener through its relay, with
+/// TLS pinned to the peer's key and `server_ip` (its Pack address) as the
+/// server name.
+pub(crate) async fn query_tcp_over<S>(
+    stream: S,
+    server_ip: std::net::IpAddr,
+    identity: &PeltIdentity,
+    expected: &ExpectedPeerIdentity,
+    request: &RpcRequest,
+) -> io::Result<Vec<ContactRecord>>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let stream =
+        crate::transport::tcp_encrypted::connect_authenticated_over(stream, server_ip, expected)
+            .await?;
+    rpc_on(
+        stream,
+        identity,
+        expected,
+        request,
+        |result, rpc, retained| result.verify(rpc, retained, unix_now()),
+    )
+    .await
+}
+
+/// `query_services_tcp` to a routed peer, as `query_tcp_over`.
+pub(crate) async fn query_services_tcp_over<S>(
+    stream: S,
+    server_ip: std::net::IpAddr,
+    identity: &PeltIdentity,
+    expected: &ExpectedPeerIdentity,
+) -> io::Result<Vec<PublishedService>>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let stream =
+        crate::transport::tcp_encrypted::connect_authenticated_over(stream, server_ip, expected)
+            .await?;
+    rpc_on(
+        stream,
+        identity,
+        expected,
+        &RpcRequest::Services,
+        |result, rpc, retained| result.verify_services(rpc, retained),
+    )
+    .await
+}
+
 async fn rpc_tcp<T>(
     peer_addr: &str,
     identity: &PeltIdentity,
@@ -488,8 +538,22 @@ async fn rpc_tcp<T>(
     request: &RpcRequest,
     check: impl FnOnce(&hs::TcpRpcResult, &hs::TcpRpc, &[u8]) -> io::Result<T>,
 ) -> io::Result<T> {
-    let mut stream =
+    let stream =
         crate::transport::tcp_encrypted::connect_authenticated_tcp(peer_addr, expected).await?;
+    rpc_on(stream, identity, expected, request, check).await
+}
+
+/// The encrypted-TCP RPC exchange over an authenticated TLS stream.
+async fn rpc_on<S, T>(
+    mut stream: tokio_rustls::client::TlsStream<S>,
+    identity: &PeltIdentity,
+    expected: &ExpectedPeerIdentity,
+    request: &RpcRequest,
+    check: impl FnOnce(&hs::TcpRpcResult, &hs::TcpRpc, &[u8]) -> io::Result<T>,
+) -> io::Result<T>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let deadline = Instant::now() + hs::CLIENT_WINDOW;
     timeout_at(deadline, async {
         let challenge: hs::TcpChallenge =
