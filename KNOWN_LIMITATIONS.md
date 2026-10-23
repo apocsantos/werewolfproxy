@@ -60,4 +60,14 @@ follows.
   payload. Repeated blackholes and hard path loss between the requester and
   the relay were exercised over the real WAN on both hops (Stage26 record);
   path loss between the relay and the destination was not.
+- **Governance (Stage28)** covers genesis, key rotation and network
+  revocation only. Applying a genesis to a node is irreversible: nothing
+  removes governance from a node, a node joins exactly one governance
+  network, and a network-revoked key can never be re-added there. Statements
+  are delivered by an operator (no gossip), so a node that is not given a
+  revocation keeps trusting the member. A fork fences governance with no
+  tooling to resolve it. Governance requires a manifest-enabled Den; OS root
+  on a host still controls that host's node. Admission, activation (the
+  "root becomes unobtainium" lockdown), death and the Tombstone are not
+  implemented.
 
