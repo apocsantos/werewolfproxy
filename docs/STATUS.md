@@ -63,6 +63,7 @@ None of this is in the 1.0.0-rc.1 archive.
 | [Stage24](STAGE24_FINDNODE_DESIGN.md) | Pack-only peer discovery: `ping` and `find_node` RPCs, signed contact records, multi-hop lookup | Implemented; lab gate `discovery_gate.py`; WAN checked |
 | [Stage25](STAGE25_SERVICE_DISCOVERY_DESIGN.md) | Service discovery: `service publish`, `discover services`, `service add --from`; visibility follows Target Policy | Implemented; lab gate `service_discovery_gate.py`; WAN checked |
 | [Stage26](STAGE26_MULTIHOP_ROUTING_DESIGN.md) | Multi-hop routing through one relay, end-to-end identity and authorization; `route set/list/remove` | Implemented; lab gate `routed_fang_gate.py`; WAN checked (three defects found and fixed) |
+| [Stage27](STAGE27_PROVIDER_SELECTION_DESIGN.md) | Provider selection: ordered providers per service, per-connection failover before establishment only | Implemented; lab gate `provider_gate.py`; WAN checked |
 
 ## Known gaps
 
