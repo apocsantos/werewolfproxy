@@ -310,6 +310,31 @@ mod tests {
     }
 
     #[test]
+    fn service_fallbacks_load_strictly() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "services.json",
+            br#"[{"name":"web","peer":"wolf-a","target":"127.0.0.1:8080","kind":"http","fallbacks":[{"peer":"wolf-b","target":"127.0.0.1:8081"}]}]"#,
+        );
+        let state = fixture.startup();
+        let providers: Vec<_> = state.services[0].providers().collect();
+        assert_eq!(
+            providers,
+            [("wolf-a", "127.0.0.1:8080"), ("wolf-b", "127.0.0.1:8081")]
+        );
+        // A repeated provider, too many providers or an unknown provider
+        // field each fail startup closed.
+        for bad in [
+            &br#"[{"name":"web","peer":"wolf-a","target":"127.0.0.1:8080","kind":"http","fallbacks":[{"peer":"wolf-a","target":"127.0.0.1:8081"}]}]"#[..],
+            br#"[{"name":"web","peer":"a","target":"127.0.0.1:1","kind":"tcp","fallbacks":[{"peer":"b","target":"127.0.0.1:1"},{"peer":"c","target":"127.0.0.1:1"},{"peer":"d","target":"127.0.0.1:1"},{"peer":"e","target":"127.0.0.1:1"}]}]"#,
+            br#"[{"name":"web","peer":"wolf-a","target":"127.0.0.1:8080","kind":"http","fallbacks":[{"peer":"wolf-b","target":"127.0.0.1:8081","via":"x"}]}]"#,
+        ] {
+            fixture.write("services.json", bad);
+            assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+        }
+    }
+
+    #[test]
     fn routes_load_strictly() {
         let fixture = Fixture::new();
         assert!(fixture.startup().routes.is_empty());

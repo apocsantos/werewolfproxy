@@ -1791,6 +1791,7 @@ mod characterization_tests {
             peer: "wolf-a".into(),
             target: "127.0.0.1:8080".into(),
             kind: ServiceKind::Http,
+            fallbacks: Vec::new(),
         };
 
         let state = Arc::new(Mutex::new(DaemonState {
@@ -1888,6 +1889,7 @@ mod characterization_tests {
             peer: "wolf-a".into(),
             target: "127.0.0.1:8080".into(),
             kind: werewolf_core::service::ServiceKind::Http,
+            fallbacks: Vec::new(),
         }
     }
 
