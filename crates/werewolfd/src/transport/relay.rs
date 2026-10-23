@@ -202,6 +202,12 @@ async fn routed_session(
                 destination,
             )
             .await?;
+            // When the destination finished first, the inner session ends
+            // without finishing the outer stream; finish it now (an error
+            // means it already was), or the wait below would last the whole
+            // window. The destination still sees the upload end without
+            // close_notify, so its target gets a reset, never a clean end.
+            let _ = send.stream.finish();
             // As a direct QUIC Fang: the session is complete only once the
             // relay has acknowledged the whole upload.
             match tokio::time::timeout(UPLOAD_ACK_WINDOW, send.stream.stopped()).await {
@@ -215,9 +221,12 @@ async fn routed_session(
             let mut outer = connect_authenticated_tcp(&routed.relay_address, &routed.relay).await?;
             let key = client_handshake(&mut outer, &target, identity, &routed.relay).await?;
             // The outer session's framed copy loop feeds one end of a pipe;
-            // the inner session runs over the other.
+            // the inner session runs over the other. `far` outlives the pump:
+            // when the relay ends the outer session first (the destination
+            // finished), the inner session must still drain what already
+            // arrived, so its writes into the pipe wait instead of failing.
             let (near, mut far) = tokio::io::duplex(64 * 1024);
-            let pump = async move { secure_copy_client_side(&mut far, outer, key).await };
+            let pump = secure_copy_client_side(&mut far, outer, key);
             let inner = inner_session(inbound, near, routed, remote, identity, destination);
             tokio::pin!(pump, inner);
             tokio::select! {
