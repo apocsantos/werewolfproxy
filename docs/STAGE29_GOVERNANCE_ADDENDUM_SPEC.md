@@ -44,6 +44,11 @@ the whole statement (`BodyRule`).
 
 ## Local admission (addition A, as revised)
 
+```text
+Activation = network-chain fact
+Admission  = local eligibility derived from that chain
+```
+
 Whether a statement is valid is the same on every node, and every node
 applies a valid activation: activation is a chain state, never a node's
 choice. Whether the node itself may act as a member is local:

@@ -67,7 +67,9 @@ flip back.
 
 ### Activation (decision 3)
 
-Activation is one-way and applies from its sequence on. Before it, a node
+Activation is a network-chain fact; admission is local eligibility
+derived from that chain. Activation is one-way and applies from its
+sequence on. Before it, a node
 behaves exactly as in Stage28. Activation is a network-chain state: every
 node applies a cryptographically valid activation and advances its head
 (addition A, as revised). A node whose current Pelt is not on the roster, or
