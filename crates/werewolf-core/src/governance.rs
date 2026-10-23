@@ -461,5 +461,7 @@ impl<'a> Reader<'a> {
     }
 }
 
+pub mod tool;
+
 #[cfg(test)]
 mod tests;

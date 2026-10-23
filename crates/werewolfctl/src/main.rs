@@ -1,3 +1,4 @@
+mod governance;
 #[cfg(not(target_os = "linux"))]
 compile_error!("secure local control currently requires Linux");
 
@@ -86,6 +87,11 @@ enum Commands {
     Discover {
         #[command(subcommand)]
         command: DiscoverCommands,
+    },
+    /// Offline governance files: keys, drafts, signatures, statements.
+    Governance {
+        #[command(subcommand)]
+        command: governance::GovernanceCommands,
     },
     /// Reach a Pack member through another Pack member. A route grants nothing.
     Route {
@@ -415,6 +421,9 @@ async fn run(cli: Cli) -> Result<(), CliError> {
     if matches!(cli.command, Commands::Doctor) {
         return doctor(&cli).await;
     }
+    if let Commands::Governance { command } = cli.command {
+        return governance::run(cli.json, command);
+    }
     let (command, args) = request_for(cli.command)?;
     let socket = socket_path(&cli.socket)?;
     let response = send_request(&socket, &command, args)
@@ -677,6 +686,7 @@ fn request_for(command: Commands) -> Result<(String, Value), CliError> {
         },
         Commands::Version
         | Commands::Doctor
+        | Commands::Governance { .. }
         | Commands::Den {
             command: DenCommands::Init,
         }
@@ -953,6 +963,77 @@ mod tests {
                 "service", "provider", "add", "web", "--from", "wolf-b", "wolf-c",
             ],
             &["service", "provider", "remove", "web"],
+        ] {
+            assert!(
+                Cli::try_parse_from(std::iter::once("werewolfctl").chain(bad.iter().copied()))
+                    .is_err(),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn governance_file_commands_parse_and_stay_local() {
+        let key = "A".repeat(43) + "=";
+        let mut genesis = vec!["governance", "draft", "genesis", "--out", "g.draft"];
+        for _ in 0..10 {
+            genesis.extend(["--key", key.as_str()]);
+        }
+        for args in [
+            genesis,
+            vec!["governance", "keygen", "k.key"],
+            vec![
+                "governance",
+                "draft",
+                "rotate",
+                "--after",
+                "g.wwgov",
+                "--set",
+                "9=x",
+                "--out",
+                "r",
+            ],
+            vec![
+                "governance",
+                "draft",
+                "revoke",
+                "--after",
+                "g.wwgov",
+                "--member",
+                "x",
+                "--out",
+                "r",
+            ],
+            vec![
+                "governance",
+                "sign",
+                "d",
+                "k.key",
+                "--index",
+                "3",
+                "--out",
+                "p",
+            ],
+            vec!["governance", "combine", "d", "p1", "p2", "--out", "s"],
+            vec!["governance", "inspect", "s", "--chain", "g", "r"],
+        ] {
+            let cli =
+                Cli::try_parse_from(std::iter::once("werewolfctl").chain(args.iter().copied()))
+                    .unwrap_or_else(|e| panic!("{args:?}: {e}"));
+            assert!(matches!(cli.command, Commands::Governance { .. }));
+        }
+        for bad in [
+            &["governance", "sign", "d", "k.key", "--out", "p"][..],
+            &["governance", "combine", "d", "--out", "s"],
+            &[
+                "governance",
+                "draft",
+                "revoke",
+                "--after",
+                "g",
+                "--out",
+                "r",
+            ],
         ] {
             assert!(
                 Cli::try_parse_from(std::iter::once("werewolfctl").chain(bad.iter().copied()))
