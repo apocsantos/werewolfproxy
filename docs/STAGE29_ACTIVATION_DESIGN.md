@@ -68,10 +68,12 @@ flip back.
 ### Activation (decision 3)
 
 Activation is one-way and applies from its sequence on. Before it, a node
-behaves exactly as in Stage28. A node applies activation only if its own
-current Pelt is on the roster and not network-revoked (addition A); a node
-that is not refuses it and stays before activation, which is correct: it
-was never admitted to the network. After it, the lockdown of decision 4
+behaves exactly as in Stage28. Activation is a network-chain state: every
+node applies a cryptographically valid activation and advances its head
+(addition A, as revised). A node whose current Pelt is not on the roster, or
+is network-revoked, is then **locally unadmitted**: fenced from operating as
+a network member until a later admission adds its current Pelt, after which
+it becomes a member of the already-activated network. After it, the lockdown of decision 4
 applies. Applying activation on a node whose Pack contains keys that are
 not on the roster:
 
@@ -155,8 +157,12 @@ needs upgraded nodes before those statements are delivered.
 
 Owner additions, part of the Stage29 specification:
 
-- **A.** Activation requires the applying node's current Pelt to be
-  admitted and not network-revoked.
+- **A (revised).** Activation is a network-chain state and is always
+  applied when cryptographically valid. An applying node whose current Pelt
+  is not admitted or is network-revoked advances its governance head but
+  remains locally unadmitted/fenced and cannot operate as an admitted
+  network member. If a later admission adds its current Pelt, it becomes
+  eligible for membership under the already-activated network.
 - **B.** Admission remains valid after activation; a revoked public key can
   never be admitted again.
 - **C.** The roster holds at most 1024 keys; one admission statement names

@@ -42,21 +42,42 @@ the whole statement (`BodyRule`).
 - **Network revocation (kind 2)**, as in Stage28, and in addition removes
   each revoked key from the roster.
 
-## Node-local rule (addition A)
+## Local admission (addition A, as revised)
 
-Whether a statement is valid is the same on every node. Applying an
-activation additionally requires that the **applying node's own current
-Pelt public key** is on the roster and not revoked. A node that fails this
-refuses the activation (`GOVERNANCE_NOT_ADMITTED`), keeps its head
-unchanged, and stays before activation. The check is the daemon's, not the
-chain's: the offline tool's `inspect --chain` does not apply it.
+Whether a statement is valid is the same on every node, and every node
+applies a valid activation: activation is a chain state, never a node's
+choice. Whether the node itself may act as a member is local:
+
+```text
+unadmitted = head.activated_at is set
+             and ( own Pelt key ∉ roster  or  own Pelt key ∈ revoked )
+```
+
+It is derived from the head and the node's current Pelt, never stored, so it
+changes exactly when they do: an admission of the node's key ends it, a
+revocation of that key or a new Pelt (`pelt init`) begins it.
+
+While unadmitted the node is fenced from operating as a network member:
+
+- Fang, profile and `service connect` opens fail with
+  `GOVERNANCE_UNADMITTED`, and Fangs already open are closed when the node
+  becomes unadmitted;
+- inbound OPENs are refused, as for a sender outside the Pack;
+- it neither answers nor sends discovery and `services` RPCs;
+- `governance apply` and `governance status` keep working, so the node can
+  receive the admission that ends the fence, and local administration that
+  only narrows trust (`pack remove`, `pack revoke`, `target remove`, Silver)
+  keeps working.
+
+`governance status` reports `admitted: true|false`. The offline tool's
+`inspect --chain` does not evaluate local admission.
 
 ## Effects on the node
 
 - **Admission:** updates the roster. It never adds a Pack member (1a).
-- **Activation:** in one protected generation, with the head, it removes
-  every Pack member whose key is not on the roster or is revoked, exactly
-  like a revocation:
+- **Activation:** always applied when valid. In one protected generation,
+  with the head, it removes every Pack member whose key is not on the
+  roster or is revoked, exactly like a revocation:
   - runtime authority is denied first;
   - its Fangs and every Fang through it are closed;
   - the denial is kept if the save fails.
@@ -100,7 +121,10 @@ before admission or activation statements are delivered.
 - **Positive and node-local tests:**
   - a revocation removes the key from the roster;
   - an admission after activation is accepted;
-  - the node-local refusal (A).
+  - local admission (A): an unadmitted node still advances its head on
+    activation, its Fang opens and inbound OPENs are refused and its open
+    Fangs closed, a later admission of its key lifts the fence, and a
+    revocation of its key or a new Pelt brings it back.
 - **Daemon tests:**
   - the activation sweep with Fang closure;
   - `pack add` refusals;
