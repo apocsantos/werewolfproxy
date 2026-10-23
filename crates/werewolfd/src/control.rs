@@ -276,6 +276,30 @@ async fn handle_request(
             ControlResponse::ok(req.id, json!(st.routes))
         }
 
+        "governance.status" => {
+            let st = state.lock().await;
+            match &st.governance {
+                None => ControlResponse::ok(req.id, json!({"genesis": false})),
+                Some(head) => {
+                    use base64::{engine::general_purpose::STANDARD, Engine};
+                    use werewolf_core::governance::tool::hex;
+                    ControlResponse::ok(
+                        req.id,
+                        json!({
+                            "genesis": true,
+                            "network_id": hex(&head.network_id),
+                            "sequence": head.sequence,
+                            "hash": hex(&head.hash),
+                            "threshold": head.threshold,
+                            "keys": head.keys().iter().map(|k| STANDARD.encode(k)).collect::<Vec<_>>(),
+                            "revoked": head.revoked.iter().map(|k| STANDARD.encode(k)).collect::<Vec<_>>(),
+                            "forked": head.forked,
+                        }),
+                    )
+                }
+            }
+        }
+
         "service.published" => {
             // For each published service, the Pack members its target is
             // currently granted to: the peers a `services` answer shows it to.

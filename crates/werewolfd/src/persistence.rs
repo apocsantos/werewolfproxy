@@ -20,7 +20,7 @@ pub(super) fn load_startup_state(
     }
     match protected_state::load(den)? {
         Load::Manifest { generation, state } => {
-            apply_protected_state(initial_state, state, Some(generation.number));
+            apply_protected_state(initial_state, *state, Some(generation.number));
         }
         Load::Legacy => {
             let silver_locked = match den.read(OsStr::new("silver.json"), 1024)? {
@@ -37,7 +37,10 @@ pub(super) fn load_startup_state(
                     }
                 }
             };
+            // A legacy (pre-manifest) Den has no governance: Stage28
+            // requires the manifest.
             let state = ProtectedState {
+                governance: None,
                 silver_locked,
                 target_policy: match den.read(OsStr::new("target_policy.json"), 1024 * 1024)? {
                     None => target_policy::TargetPolicy::Deny,
@@ -144,6 +147,7 @@ fn apply_protected_state(
     initial_state.peers = state.peers;
     initial_state.fang_profiles = state.fang_profiles;
     initial_state.active_profiles = state.active_profiles;
+    initial_state.governance = state.governance;
     initial_state.protected_state_generation = generation;
 }
 

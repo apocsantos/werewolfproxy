@@ -172,3 +172,17 @@ fence governance only, S4 BLAKE3 with domain strings.
 - Persistence: head survives restart; manifest rollback detected; a
   revoked key cannot be re-added; revocation closes routed and provider
   Fangs that use the member.
+
+## Implementation
+
+| Step | Scope | State |
+|---|---|---|
+| 1 | `werewolf-core::governance`: encoding, verification, chain application, vectors and negative tests | Done (PR #55) |
+| 2 | Offline tool: `governance keygen/draft/sign/combine/inspect` | Done (PR #57) |
+| 3 | Daemon: `governance apply/status`, the `governance` manifest document (schema 2), revocation effects, `PACK_REVOKED_BY_NETWORK`; lab gate `tests/integration/governance_gate.py` | Done |
+
+The daemon accepts a statement of at most 12 KiB of base64 (9 KiB of
+statement) on the control socket; every valid Stage28 statement is under
+3 KiB (the largest, a 64-key revocation signed by all ten keys, is 2,777
+bytes).
+

@@ -269,8 +269,7 @@ changes apply to Fangs opened afterwards. The disposable gate
 
 Stage28 ([survey](STAGE28_GOVERNANCE_SURVEY.md),
 [statement spec](STAGE28_GOVERNANCE_STATEMENT_SPEC.md)) adds network
-governance statements signed by at least 7 of 10 governance keys. Step 2
-adds the offline file commands; the daemon commands follow in step 3.
+governance statements signed by at least 7 of 10 governance keys.
 
 - governance keygen OUT
 - governance draft genesis --key PUB_B64 (×10, index order) [--network-id HEX] --out FILE
@@ -292,4 +291,33 @@ hash; with `--chain` (genesis first) or `--expect-genesis` it verifies the
 chain exactly as a node will, pinning the genesis to the given hash or, if
 none is given, to its own hash, which the operator must compare out of
 band. Output files are never overwritten. Errors exit 70, usage errors 64.
+
+On the node:
+
+- governance apply FILE [--expect-hash HEX]
+- governance status
+
+`apply` reads the statement file locally and sends it to the daemon, which
+verifies it against its governance head exactly as the spec defines and,
+if it is the next statement, commits the new head in the protected manifest
+before acting on it (persist first, then publish). A genesis is applied
+only with `--expect-hash` equal to its hash, exchanged out of band (S1);
+governance needs a manifest-enabled Den (`GOVERNANCE_NEEDS_MANIFEST`, run
+`state manifest-migrate` first), and the first genesis moves the manifest
+to schema 2, which older binaries refuse (S2). A network revocation acts
+like `pack revoke` on every Pack member holding a revoked key: runtime
+authority is denied first, every Fang to it or through it (relay or
+provider) is closed, and the denial stays if the save fails
+(`GOVERNANCE_SAVE_FAILED_RUNTIME_DENIED`); afterwards `pack add` of a
+revoked key fails with `PACK_REVOKED_BY_NETWORK`. A key rotation changes
+which keys sign later statements. Re-applying an applied statement reports
+`already_applied`. A statement out of order, for another network, badly
+signed or breaking a body rule fails with `GOVERNANCE_REJECTED`; a validly
+signed statement that conflicts with an applied one is recorded durably
+and fails with `GOVERNANCE_FORK`, after which every statement fails with
+`GOVERNANCE_FORKED` (S3). Applied statements are also copied to
+`governance_NNNNNNNN.wwgov` in the Den for audit. `status` shows the
+network ID, sequence, head hash, threshold, current keys, revoked keys and
+the fork flag. Errors exit 70. The disposable gate
+`tests/integration/governance_gate.py` exercises this contract.
 

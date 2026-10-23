@@ -4,6 +4,7 @@ mod admission;
 mod control;
 mod discovery;
 mod fang_registry;
+mod governance;
 mod handshake;
 mod lifecycle;
 mod policy;

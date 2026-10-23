@@ -46,6 +46,7 @@ pub(super) fn handles(command: &str) -> bool {
             | "service.unpublish"
             | "service.provider.add"
             | "service.provider.remove"
+            | "governance.apply"
             | "route.set"
             | "route.remove"
             | "discover.advertise"
@@ -165,6 +166,7 @@ fn protected_from_live(live: &DaemonState) -> ProtectedState {
         target_policy: live.target_policy.clone(),
         fang_profiles: live.fang_profiles.clone(),
         active_profiles: live.active_profiles.clone(),
+        governance: live.governance.clone(),
     }
 }
 
@@ -677,6 +679,10 @@ pub(super) async fn handle(
         );
     }
 
+    if req.cmd == "governance.apply" {
+        return apply_governance(req, home, state).await;
+    }
+
     if req.cmd.starts_with("pack.") {
         let (mut candidate, protected_generation) = {
             let live = state.lock().await;
@@ -703,6 +709,19 @@ pub(super) async fn handle(
                         != Some(arg(&req, "fingerprint").as_str())
                 {
                     return error(&req.id, "PACK_PUBLIC_KEY_INVALID");
+                }
+                // Stage28: local administration never re-trusts a member the
+                // network revoked.
+                let revoked = state.lock().await.governance.as_ref().is_some_and(|head| {
+                    werewolf_core::governance::tool::public_key(&public_key_b64)
+                        .is_ok_and(|key| head.revoked.binary_search(&key).is_ok())
+                });
+                if revoked {
+                    return ControlResponse::err(
+                        &req.id,
+                        "PACK_REVOKED_BY_NETWORK",
+                        "this key was revoked by a governance statement",
+                    );
                 }
                 candidate.push(PeerRecord {
                     name: name.clone(),
@@ -1021,6 +1040,184 @@ async fn apply_pack_address_change(
     let closed = termination.closed();
     termination.quiesce().await;
     Ok(closed)
+}
+
+/// Stage28 `governance.apply`: verify a statement against the head and, if
+/// it is the next one, commit the new head (and, for a revocation, the Pack
+/// without the revoked members) in one protected generation. A revocation
+/// follows `pack revoke`: runtime authority is denied and every Fang that
+/// depends on the member is closed before the commit, and the denial stays
+/// in force if the commit fails.
+async fn apply_governance(
+    req: ControlRequest,
+    _home: PathBuf,
+    state: Arc<Mutex<DaemonState>>,
+) -> ControlResponse {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use werewolf_core::governance::{self, tool, GovError, Outcome, Statement};
+    let reject = |code: &str, message: String| ControlResponse::err(&req.id, code, message);
+    let Ok(bytes) = STANDARD.decode(arg(&req, "statement")) else {
+        return reject("GOVERNANCE_INVALID", "statement is not base64".into());
+    };
+    let statement = match Statement::decode(&bytes) {
+        Ok(statement) => statement,
+        Err(error) => return reject("GOVERNANCE_INVALID", error.to_string()),
+    };
+    let expect = match arg(&req, "expect_hash").as_str() {
+        "" => None,
+        hex => match tool::unhex::<32>(hex) {
+            Ok(hash) => Some(hash),
+            Err(_) => {
+                return reject(
+                    "GOVERNANCE_INVALID",
+                    "expect_hash is not 64 hex digits".into(),
+                )
+            }
+        },
+    };
+    let (head, generation, peers) = {
+        let live = state.lock().await;
+        (
+            live.governance.clone(),
+            live.protected_state_generation,
+            live.peers.clone(),
+        )
+    };
+    let Some(generation) = generation else {
+        return reject(
+            "GOVERNANCE_NEEDS_MANIFEST",
+            "governance requires the protected manifest; run state manifest-migrate".into(),
+        );
+    };
+    let next = match governance::apply(head.as_ref(), &statement, expect.as_ref()) {
+        Ok(Outcome::AlreadyApplied) => {
+            return ControlResponse::ok(
+                req.id,
+                json!({"status": "already_applied", "sequence": statement.core.sequence}),
+            )
+        }
+        Ok(Outcome::Applied(next)) => next,
+        Ok(Outcome::Fork(fenced)) => {
+            // Record the fork durably, then refuse: governance is fenced
+            // until an operator intervenes (spec S3).
+            let mut protected = protected_from_live(&*state.lock().await);
+            protected.governance = Some(fenced.clone());
+            if commit_protected(generation, protected, &state)
+                .await
+                .is_ok()
+            {
+                state.lock().await.governance = Some(fenced);
+            }
+            return reject(
+                "GOVERNANCE_FORK",
+                format!(
+                    "a validly signed statement conflicts with applied sequence {}; governance is fenced",
+                    statement.core.sequence
+                ),
+            );
+        }
+        Err(GovError::Forked) => {
+            return reject("GOVERNANCE_FORKED", GovError::Forked.to_string());
+        }
+        Err(error) => return reject("GOVERNANCE_REJECTED", error.to_string()),
+    };
+
+    // Pack members whose keys this statement newly revokes.
+    let already: &[governance::Key] = head.as_ref().map(|h| h.revoked.as_slice()).unwrap_or(&[]);
+    let revoked: Vec<PeerRecord> = peers
+        .iter()
+        .filter(|peer| {
+            peer.public_key_b64.as_deref().is_some_and(|b64| {
+                tool::public_key(b64).is_ok_and(|key| {
+                    next.revoked.binary_search(&key).is_ok() && already.binary_search(&key).is_err()
+                })
+            })
+        })
+        .cloned()
+        .collect();
+    let candidate: Vec<PeerRecord> = peers
+        .iter()
+        .filter(|peer| !revoked.iter().any(|r| r.name == peer.name))
+        .cloned()
+        .collect();
+
+    let (authority, closed) = {
+        let mut live = state.lock().await;
+        let authority = live.inbound_authority.clone();
+        let mut closed = 0;
+        for peer in &revoked {
+            if authority.deny_peer(&peer.fingerprint).is_err() {
+                return reject(
+                    "AUTHORITY_UNAVAILABLE",
+                    "runtime authority unavailable".into(),
+                );
+            }
+            closed += live.fang_registry.terminate_peer(&peer.name);
+        }
+        live.status.active_fangs = live.fang_registry.len();
+        (authority, closed)
+    };
+    let mut protected = protected_from_live(&*state.lock().await);
+    protected.peers = candidate.clone();
+    protected.governance = Some(next.clone());
+    if commit_protected(generation, protected, &state)
+        .await
+        .is_err()
+    {
+        // Runtime denial is never restored on a failed save.
+        return reject(
+            if revoked.is_empty() {
+                "GOVERNANCE_SAVE_FAILED"
+            } else {
+                "GOVERNANCE_SAVE_FAILED_RUNTIME_DENIED"
+            },
+            "the governance head was not saved".into(),
+        );
+    }
+    {
+        let mut live = state.lock().await;
+        live.peers = candidate;
+        live.governance = Some(next.clone());
+        for peer in &revoked {
+            if authority.removed(&peer.fingerprint).is_err() {
+                live.storage_degraded = true;
+                return reject(
+                    "AUTHORITY_PUBLICATION_FAILED",
+                    "saved, but runtime authority could not be published".into(),
+                );
+            }
+        }
+    }
+    for peer in &revoked {
+        if authority.cleanup(Some(&peer.fingerprint)).await.is_err() {
+            return reject(
+                "AUTHORITY_CLEANUP_TIMEOUT",
+                "saved; authority cleanup timed out".into(),
+            );
+        }
+    }
+    // Audit copy of the statement, outside the manifest; best effort.
+    let archived = state.lock().await.den.clone().is_some_and(|den| {
+        matches!(
+            den.replace(
+                std::ffi::OsStr::new(&format!("governance_{:08}.wwgov", next.sequence)),
+                &statement.encode(),
+                false,
+            ),
+            CommitOutcome::DurablyCommitted
+        )
+    });
+    ControlResponse::ok(
+        req.id,
+        json!({
+            "status": "applied",
+            "sequence": next.sequence,
+            "hash": tool::hex(&next.hash),
+            "revoked_members": revoked.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+            "closed_fangs": closed,
+            "archived": archived,
+        }),
+    )
 }
 
 fn publish_invalidated_runtime(

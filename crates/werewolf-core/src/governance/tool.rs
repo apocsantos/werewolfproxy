@@ -66,6 +66,10 @@ pub fn unhex<const N: usize>(text: &str) -> io::Result<[u8; N]> {
     Ok(out)
 }
 
+pub fn encode_b64(bytes: &[u8]) -> String {
+    STANDARD.encode(bytes)
+}
+
 pub fn public_key(b64: &str) -> io::Result<Key> {
     STANDARD
         .decode(b64)
