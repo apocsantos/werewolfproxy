@@ -162,6 +162,7 @@ pub(crate) async fn run_routed_forwarder(
                 &remote,
                 &identity,
                 &destination,
+                None,
             )
             .await;
             // Any failure leaves the local socket armed, so the application
@@ -173,13 +174,17 @@ pub(crate) async fn run_routed_forwarder(
     }
 }
 
-async fn routed_session(
+/// One routed session for `inbound`. `established`, if given, fires once
+/// the destination's ACK has verified and before any application byte is
+/// read (Stage27: a provider may be abandoned only before that point).
+pub(crate) async fn routed_session(
     inbound: &mut TcpStream,
     routed: &Routed,
     endpoint: Option<&quinn::Endpoint>,
     remote: &str,
     identity: &PeltIdentity,
     destination: &ExpectedPeerIdentity,
+    established: Option<tokio::sync::oneshot::Sender<()>>,
 ) -> io::Result<()> {
     let target = routed.destination.to_string();
     match (routed.hop, endpoint) {
@@ -200,6 +205,7 @@ async fn routed_session(
                 remote,
                 identity,
                 destination,
+                established,
             )
             .await?;
             // When the destination finished first, the inner session ends
@@ -227,7 +233,15 @@ async fn routed_session(
             // arrived, so its writes into the pipe wait instead of failing.
             let (near, mut far) = tokio::io::duplex(64 * 1024);
             let pump = secure_copy_client_side(&mut far, outer, key);
-            let inner = inner_session(inbound, near, routed, remote, identity, destination);
+            let inner = inner_session(
+                inbound,
+                near,
+                routed,
+                remote,
+                identity,
+                destination,
+                established,
+            );
             tokio::pin!(pump, inner);
             tokio::select! {
                 result = &mut inner => {
@@ -303,12 +317,16 @@ async fn inner_session<C>(
     remote: &str,
     identity: &PeltIdentity,
     destination: &ExpectedPeerIdentity,
+    established: Option<tokio::sync::oneshot::Sender<()>>,
 ) -> io::Result<()>
 where
     C: AsyncRead + AsyncWrite + Unpin,
 {
     let mut tls = connect_authenticated_over(carrier, routed.destination.ip(), destination).await?;
     let key = client_handshake(&mut tls, remote, identity, destination).await?;
+    if let Some(established) = established {
+        let _ = established.send(());
+    }
     secure_copy_client_side(inbound, tls, key).await
 }
 

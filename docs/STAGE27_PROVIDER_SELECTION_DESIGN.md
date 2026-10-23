@@ -127,7 +127,7 @@ Stage23 classes (`SERVICE_*`); an entry may not list a peer twice.
 | 0 | This proposal; owner decisions 1–5 |
 | 1 | `werewolf-core`: `fallbacks` in the service definition, validation (unique peers, at most 4), strict JSON, unit tests (done, PR #49) |
 | 2 | CLI and control: `service provider add/remove`, `--from` for a provider, `service show`; CLI contract (done, [CLI contract](V1_CLI_CONTRACT.md#stage27-extension-service-providers)) |
-| 3 | Fang: per-connection ordered attempts for direct, QUIC, TCP and routed providers; Pack changes close Fangs naming any provider; lab gate with three providers (first down, first refusing, second's grant revoked, all failing) |
+| 3 | Fang: per-connection ordered attempts for direct QUIC, direct TCP and routed providers; Pack changes close Fangs naming any provider; lab gate (done, `tests/integration/provider_gate.py`; see step 3 notes) |
 | 4 | Real-WAN check |
 
 ## Decisions (accepted 2026-10-23)
@@ -142,3 +142,19 @@ Stage23 classes (`SERVICE_*`); an entry may not list a peer twice.
    connection.
 5. **Storage: 5a.** Optional `fallbacks` list in `services.json`, omitted
    when empty.
+
+Step 3 notes: `transport/failover.rs` resolves every provider when the Fang
+opens and, for each local connection, runs the ordinary session to each in
+turn (`connect_authenticated_tcp` plus `client_handshake`, QUIC
+`connect_v3_on`, or the Stage26 `routed_session`). Each path signals
+"established" after the provider's ACK verifies and before the first read
+from the local socket; only an attempt that ended without that signal moves
+on to the next provider. Direct providers use the requested transport and
+never swap a Pack address scheme, so with `--transport quic` every direct
+provider needs a `quic://` address. The Fang registry records every provider
+and relay a Fang depends on, so a Pack change to any of them closes it. The
+gate uses targets that announce which provider served each connection and
+counts their connections: a refusing first provider saw none, an unreachable
+one cost its 5 s handshake deadline, all failing reset the connection after
+about 5 s, and a failure after establishment was not retried.
+

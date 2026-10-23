@@ -354,6 +354,13 @@ async fn handle_request(
             let local = req.args["local"].as_str().unwrap_or("").trim().to_string();
             let transport = requested_transport(req.args["transport"].as_str());
 
+            // Stage27: with fallbacks, one listener tries the providers in
+            // order per connection.
+            if !service.fallbacks.is_empty() {
+                return crate::open_provider_fang(req.id, state.clone(), service, local, transport)
+                    .await;
+            }
+
             open_fang_from_parts(
                 req.id,
                 state.clone(),
@@ -1244,7 +1251,8 @@ mod characterization_tests {
                     remote: "127.0.0.1:42000".into(),
                     state: werewolf_core::fang::FangState::Active,
                 });
-                registry.insert_started(id.into(), std::time::Instant::now(), "tcp", via);
+                let also: Vec<String> = via.into_iter().map(String::from).collect();
+                registry.insert_started(id.into(), std::time::Instant::now(), "tcp", &also);
             }
             let state = Arc::new(Mutex::new(DaemonState {
                 peers: vec![
