@@ -409,6 +409,7 @@ pub(super) async fn handle(
                 peer: arg(&req, "peer"),
                 target: arg(&req, "target"),
                 kind,
+                fallbacks: Vec::new(),
             });
 
             "added"
@@ -1033,6 +1034,7 @@ mod tests {
             peer: "wolf-not-yet-in-pack".into(),
             target: "127.0.0.1:8080".into(),
             kind: ServiceKind::Http,
+            fallbacks: Vec::new(),
         }
     }
 
