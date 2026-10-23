@@ -1,9 +1,10 @@
 # Stage28 governance and lifecycle — design survey
 
-**Status: survey for architectural review, awaiting owner decisions 1–7.**
-Nothing here is implemented. This area changes the trust model, so per the
-project rules nothing in it is built without explicit review of this
-document first.
+**Status: decisions accepted 2026-10-23 (1a, 2a, 3a, 4a, 5a, 6a, 7a; see
+[Decisions](#decisions-accepted-2026-10-23)).** Nothing is implemented. The
+statement format is specified for review in
+[STAGE28_GOVERNANCE_STATEMENT_SPEC.md](STAGE28_GOVERNANCE_STATEMENT_SPEC.md)
+before any code.
 
 [ARCHITECTURE.md](ARCHITECTURE.md) fixes the goals and leaves the
 mechanisms open: physical-key governance at 7 of 10 (§25–26, §61), no
@@ -158,6 +159,17 @@ destructive feature to the least proven format.
 - Seven compromised governance keys defeat the scheme by definition; the
   design makes that the only way.
 
-## Decisions
+## Decisions (accepted 2026-10-23)
 
-Pending. Recommended: **1a, 2a, 3a, 4a, 5a, 6a, 7a.**
+1. **1a:** k-of-n Ed25519 multisignature, 7 of 10.
+2. **2a:** the daemon never holds governance private keys; signing is offline.
+3. **3a:** Stage28 covers genesis, key rotation and network revocation.
+4. **4a:** statements are delivered by the operator first.
+5. **5a:** hash chain from genesis, head in the protected manifest, forks
+   fenced.
+6. **6a:** governance gates network-level changes only for now.
+7. **7a:** Death and the Tombstone are a later stage.
+
+The member roster mentioned with genesis in the table above moves to
+Stage29 with admission; Stage28's genesis carries only the governance keys
+and threshold.
