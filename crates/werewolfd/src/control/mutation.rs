@@ -1063,6 +1063,18 @@ async fn apply_governance(
         Ok(statement) => statement,
         Err(error) => return reject("GOVERNANCE_INVALID", error.to_string()),
     };
+    // Stage29 admission and activation need their node effects (the
+    // activation sweep, local admission); until those exist this node
+    // refuses them rather than recording an activation it cannot enforce.
+    if matches!(
+        statement.core.body,
+        governance::Body::Admission(_) | governance::Body::Activation
+    ) {
+        return reject(
+            "GOVERNANCE_UNSUPPORTED",
+            "admission and activation are not supported by this daemon yet".into(),
+        );
+    }
     let expect = match arg(&req, "expect_hash").as_str() {
         "" => None,
         hex => match tool::unhex::<32>(hex) {

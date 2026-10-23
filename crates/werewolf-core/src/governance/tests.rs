@@ -139,7 +139,7 @@ fn encoding_is_strict() {
     bad[0] = 2;
     assert_eq!(Statement::decode(&bad), Err(GovError::UnknownVersion));
     let mut bad = bytes.clone();
-    bad[73] = 3;
+    bad[73] = 5; // kinds 0-4 are defined (Stage28 and Stage29)
     assert_eq!(Statement::decode(&bad), Err(GovError::UnknownKind));
     let mut bad = bytes.clone();
     bad.push(0);
@@ -499,4 +499,187 @@ fn forks_are_judged_by_the_keys_in_force_then() {
         apply(Some(&later), &conflict, None),
         Ok(Outcome::Fork(_))
     ));
+}
+
+// Stage29: admission, activation, roster and local admission.
+
+const SIGNERS: [u8; 7] = [0, 1, 2, 3, 4, 5, 6];
+
+fn sorted(mut keys: Vec<Key>) -> Vec<Key> {
+    keys.sort();
+    keys
+}
+
+fn step(head: &Head, body: Body) -> Head {
+    applied(apply(Some(head), &signed(next(head, body), &SIGNERS), None))
+}
+
+fn refused(head: &Head, body: Body) -> GovError {
+    apply(Some(head), &signed(next(head, body), &SIGNERS), None).unwrap_err()
+}
+
+#[test]
+fn stage29_vectors_are_stable() {
+    let h = head();
+    let admission = next(&h, Body::Admission(sorted(vec![member(0), member(1)])));
+    assert_eq!(
+        hex(&admission.hash()),
+        "6604b37ee667c38833c0167ce1b6843ffbbd3c09cca5d595f1f019ffbe0ecdf6"
+    );
+    let admitted = step(&h, Body::Admission(sorted(vec![member(0), member(1)])));
+    let activation = next(&admitted, Body::Activation);
+    // kind 4, body length 0, nothing else.
+    assert!(hex(&activation.encode()).ends_with("040000"));
+    assert_eq!(
+        hex(&activation.hash()),
+        "a4cef971dd208735b35031682d5c3cb1427ca9dd00826ea416ff310c32610d2f"
+    );
+    for body in [Body::Admission(sorted(vec![member(2)])), Body::Activation] {
+        let statement = signed(next(&admitted, body), &SIGNERS);
+        assert_eq!(Statement::decode(&statement.encode()), Ok(statement));
+    }
+}
+
+#[test]
+fn admission_rules() {
+    let h = head();
+    let many: Vec<Key> = sorted(
+        (0..65u8)
+            .map(|i| SigningKey::from_bytes(&[i; 32]).verifying_key().to_bytes())
+            .collect(),
+    );
+    for keys in [
+        vec![],
+        many.clone(),
+        {
+            let pair = sorted(vec![member(0), member(1)]);
+            vec![pair[1], pair[0]]
+        },
+        vec![member(0), member(0)],
+        vec![small_order_point()],
+    ] {
+        assert_eq!(
+            refused(&h, Body::Admission(keys.clone())),
+            GovError::BodyRule,
+            "{}",
+            keys.len()
+        );
+    }
+    assert_eq!(
+        step(&h, Body::Admission(many[..64].to_vec())).roster.len(),
+        64
+    );
+    // Already on the roster.
+    let admitted = step(&h, Body::Admission(vec![member(0)]));
+    assert_eq!(admitted.roster, vec![member(0)]);
+    assert_eq!(
+        refused(&admitted, Body::Admission(vec![member(0)])),
+        GovError::BodyRule
+    );
+    // An activation with a body is not an activation.
+    let mut with_body = signed(next(&admitted, Body::Activation), &SIGNERS).encode();
+    let body_len = 74;
+    with_body[body_len..body_len + 2].copy_from_slice(&1u16.to_be_bytes());
+    with_body.insert(76, 0);
+    assert!(Statement::decode(&with_body).is_err());
+    // Only once.
+    let active = step(&admitted, Body::Activation);
+    assert_eq!(active.activated_at, Some(active.sequence));
+    assert_eq!(refused(&active, Body::Activation), GovError::BodyRule);
+}
+
+#[test]
+fn the_roster_is_bounded_at_1024() {
+    let mut h = head();
+    let key = |i: u32| {
+        let mut seed = [0x33u8; 32];
+        seed[..4].copy_from_slice(&i.to_be_bytes());
+        SigningKey::from_bytes(&seed).verifying_key().to_bytes()
+    };
+    for batch in 0..16u32 {
+        h = step(
+            &h,
+            Body::Admission(sorted((0..64).map(|i| key(batch * 64 + i)).collect())),
+        );
+    }
+    assert_eq!(h.roster.len(), 1024);
+    assert_eq!(
+        refused(&h, Body::Admission(vec![key(5000)])),
+        GovError::BodyRule
+    );
+    // Revoking one frees a place, but the revoked key can never return.
+    let gone = h.roster[0];
+    h = step(&h, Body::Revocation(vec![gone]));
+    assert_eq!(h.roster.len(), 1023);
+    assert_eq!(refused(&h, Body::Admission(vec![gone])), GovError::BodyRule);
+    assert_eq!(
+        step(&h, Body::Admission(vec![key(5000)])).roster.len(),
+        1024
+    );
+}
+
+#[test]
+fn revocation_removes_from_the_roster_and_admission_works_after_activation() {
+    let h = step(&head(), Body::Admission(sorted(vec![member(0), member(1)])));
+    let h = step(&h, Body::Activation);
+    let h = step(&h, Body::Revocation(vec![member(0)]));
+    assert_eq!(h.roster, vec![member(1)]);
+    assert_eq!(h.revoked, vec![member(0)]);
+    let h = step(&h, Body::Admission(vec![member(2)]));
+    assert_eq!(h.roster, sorted(vec![member(1), member(2)]));
+}
+
+/// Owner scenario 1: a node admitted after activation.
+#[test]
+fn scenario_a_node_admitted_after_activation() {
+    let x = member(9);
+    let other = member(1);
+    // Fresh node X applies the same chain as everyone, in order.
+    let genesis_head = head();
+    assert!(
+        genesis_head.admits(&x),
+        "before activation every node is eligible"
+    );
+    let with_other = step(&genesis_head, Body::Admission(vec![other]));
+    // Activation is a network-chain fact: X applies it and advances.
+    let activated = step(&with_other, Body::Activation);
+    assert_eq!(activated.sequence, 2);
+    assert_eq!(activated.activated_at, Some(2));
+    assert!(!activated.admits(&x), "X is fenced: not on the roster");
+    assert!(activated.admits(&other));
+    // A later admission of X makes it a member, nothing skipped or
+    // reordered: X's head equals the one every node computes.
+    let admitted = step(&activated, Body::Admission(vec![x]));
+    assert_eq!(admitted.sequence, 3);
+    assert_eq!(admitted.applied.len(), 4);
+    assert!(admitted.admits(&x));
+    // Skipping straight to the admission is refused.
+    let skipped = signed(next(&activated, Body::Admission(vec![x])), &SIGNERS);
+    assert_eq!(
+        apply(Some(&with_other), &skipped, None),
+        Err(GovError::OutOfOrder)
+    );
+    // A revocation of X, or a new Pelt not on the roster, fences X again.
+    let revoked = step(&admitted, Body::Revocation(vec![x]));
+    assert!(!revoked.admits(&x));
+    assert!(!admitted.admits(&member(8)));
+}
+
+/// Owner scenario 2: revocation is permanent.
+#[test]
+fn scenario_revocation_is_permanent() {
+    let x = member(4);
+    let h = step(&head(), Body::Admission(vec![x]));
+    let h = step(&h, Body::Revocation(vec![x]));
+    assert_eq!(refused(&h, Body::Admission(vec![x])), GovError::BodyRule);
+    // Still refused after any number of later statements, before and after
+    // activation, alone or alongside other keys.
+    let h = step(&h, Body::Admission(vec![member(5)]));
+    let h = step(&h, Body::Activation);
+    assert_eq!(refused(&h, Body::Admission(vec![x])), GovError::BodyRule);
+    assert_eq!(
+        refused(&h, Body::Admission(sorted(vec![x, member(6)]))),
+        GovError::BodyRule
+    );
+    assert!(!h.admits(&x));
 }

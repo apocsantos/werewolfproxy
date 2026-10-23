@@ -188,6 +188,11 @@ pub fn draft_after(previous: &Statement, body: Body) -> Statement {
             keys.dedup();
             Body::Revocation(keys)
         }
+        Body::Admission(mut keys) => {
+            keys.sort();
+            keys.dedup();
+            Body::Admission(keys)
+        }
         Body::Rotation(mut entries) => {
             entries.sort_by_key(|(index, _)| *index);
             Body::Rotation(entries)
@@ -284,6 +289,11 @@ pub fn describe(statement: &Statement) -> Value {
             "kind": "revocation",
             "members": keys.iter().map(b64).collect::<Vec<_>>(),
         }),
+        Body::Admission(keys) => json!({
+            "kind": "admission",
+            "members": keys.iter().map(b64).collect::<Vec<_>>(),
+        }),
+        Body::Activation => json!({"kind": "activation"}),
     };
     json!({
         "network_id": hex(&core.network_id),

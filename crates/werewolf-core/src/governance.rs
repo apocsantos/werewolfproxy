@@ -13,6 +13,9 @@ pub const MAX_STATEMENT_LEN: usize = 16 * 1024;
 pub const KEY_COUNT: usize = 10;
 pub const THRESHOLD: usize = 7;
 pub const MAX_REVOKED_PER_STATEMENT: usize = 64;
+/// Stage29 addition C.
+pub const MAX_ROSTER: usize = 1024;
+pub const MAX_ADMITTED_PER_STATEMENT: usize = 64;
 
 const SIGN_DOMAIN: &[u8] = b"werewolfproxy/governance/v1/sign\0";
 const HASH_DOMAIN: &[u8] = b"werewolfproxy/governance/v1/hash\0";
@@ -20,6 +23,8 @@ const HASH_DOMAIN: &[u8] = b"werewolfproxy/governance/v1/hash\0";
 const KIND_GENESIS: u8 = 0;
 const KIND_ROTATION: u8 = 1;
 const KIND_REVOCATION: u8 = 2;
+const KIND_ADMISSION: u8 = 3;
+const KIND_ACTIVATION: u8 = 4;
 
 pub type Key = [u8; 32];
 pub type Hash = [u8; 32];
@@ -34,6 +39,11 @@ pub enum Body {
     Rotation(Vec<(u8, Key)>),
     /// Member public keys, strictly increasing byte order.
     Revocation(Vec<Key>),
+    /// Stage29: member public keys admitted to the roster, strictly
+    /// increasing byte order.
+    Admission(Vec<Key>),
+    /// Stage29: the network is active from this statement on.
+    Activation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +97,8 @@ impl Body {
             Body::Genesis { .. } => KIND_GENESIS,
             Body::Rotation(_) => KIND_ROTATION,
             Body::Revocation(_) => KIND_REVOCATION,
+            Body::Admission(_) => KIND_ADMISSION,
+            Body::Activation => KIND_ACTIVATION,
         }
     }
 
@@ -105,10 +117,11 @@ impl Body {
                     out.extend_from_slice(key);
                 }
             }
-            Body::Revocation(keys) => {
+            Body::Revocation(keys) | Body::Admission(keys) => {
                 out.extend_from_slice(&(keys.len() as u16).to_be_bytes());
                 keys.iter().for_each(|key| out.extend_from_slice(key));
             }
+            Body::Activation => {}
         }
         out
     }
@@ -129,11 +142,16 @@ impl Body {
                     .collect::<Result<_, GovError>>()?;
                 Body::Rotation(entries)
             }
-            KIND_REVOCATION => {
+            KIND_REVOCATION | KIND_ADMISSION => {
                 let count = r.u16()? as usize;
                 let keys = (0..count).map(|_| r.array()).collect::<Result<_, _>>()?;
-                Body::Revocation(keys)
+                if kind == KIND_REVOCATION {
+                    Body::Revocation(keys)
+                } else {
+                    Body::Admission(keys)
+                }
             }
+            KIND_ACTIVATION => Body::Activation,
             _ => return Err(GovError::UnknownKind),
         };
         r.end()?;
@@ -233,9 +251,21 @@ pub struct Head {
     /// The hash of every applied statement, indexed by sequence.
     pub applied: Vec<Hash>,
     pub forked: bool,
+    /// Stage29: admitted member keys, sorted, never revoked ones.
+    pub roster: Vec<Key>,
+    /// Stage29: the sequence of the activation statement, once applied.
+    pub activated_at: Option<u64>,
 }
 
 impl Head {
+    /// Stage29 local admission (addendum "Local admission"): activation is a
+    /// network-chain fact; whether `own` may act as a member is derived from
+    /// it. Before activation every node is eligible, as in Stage28.
+    pub fn admits(&self, own: &Key) -> bool {
+        self.activated_at.is_none()
+            || (self.roster.binary_search(own).is_ok() && self.revoked.binary_search(own).is_err())
+    }
+
     pub fn keys(&self) -> &[Key] {
         &self.key_epochs.last().expect("genesis sets keys").1
     }
@@ -290,6 +320,8 @@ pub fn apply(
             revoked: Vec::new(),
             applied: vec![core.hash()],
             forked: false,
+            roster: Vec::new(),
+            activated_at: None,
         }));
     };
     if head.forked {
@@ -337,7 +369,28 @@ pub fn apply(
                 if let Err(at) = next.revoked.binary_search(key) {
                     next.revoked.insert(at, *key);
                 }
+                // A revoked key leaves the roster (Stage29).
+                if let Ok(at) = next.roster.binary_search(key) {
+                    next.roster.remove(at);
+                }
             }
+        }
+        Body::Admission(keys) => {
+            check_admission(head, keys)?;
+            for key in keys {
+                let at = next
+                    .roster
+                    .binary_search(key)
+                    .expect_err("checked not admitted");
+                next.roster.insert(at, *key);
+            }
+        }
+        Body::Activation => {
+            // A network-chain fact, applied on every node (addition A).
+            if head.activated_at.is_some() {
+                return Err(GovError::BodyRule);
+            }
+            next.activated_at = Some(core.sequence);
         }
     }
     next.sequence = core.sequence;
@@ -386,6 +439,27 @@ fn rotated(current: &[Key], entries: &[(u8, Key)]) -> Result<Vec<Key>, GovError>
         }
     }
     Ok(keys)
+}
+
+/// Stage29 admission: 1–64 sorted strong keys, none revoked (permanently:
+/// addition B), none already admitted, and the roster stays within 1024.
+fn check_admission(head: &Head, keys: &[Key]) -> Result<(), GovError> {
+    if keys.is_empty() || keys.len() > MAX_ADMITTED_PER_STATEMENT {
+        return Err(GovError::BodyRule);
+    }
+    if keys.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err(GovError::BodyRule);
+    }
+    for key in keys {
+        strong_key(key)?;
+        if head.revoked.binary_search(key).is_ok() || head.roster.binary_search(key).is_ok() {
+            return Err(GovError::BodyRule);
+        }
+    }
+    if head.roster.len() + keys.len() > MAX_ROSTER {
+        return Err(GovError::BodyRule);
+    }
+    Ok(())
 }
 
 fn check_revocation(keys: &[Key]) -> Result<(), GovError> {

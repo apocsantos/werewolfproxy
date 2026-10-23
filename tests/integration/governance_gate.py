@@ -154,6 +154,15 @@ class GovernanceGate(ServiceGate):
         require(self.ctl('a', 'governance', 'status')['result']['forked'],
                 'fork flag lost on restart')
         self.record('a validly signed conflict fences governance durably', {'forked': True})
+
+        # Stage29 kinds are valid statements, but this daemon refuses them
+        # until their node effects exist (Stage29 step 2).
+        admit = self.statement('admit', ['admit', '--after', rotate, '--member', keys['a']],
+                               [0, 1, 2, 3, 4, 5, 6])
+        self.ctl('b', 'governance', 'apply', admit, expect=REJECTED)
+        require(self.ctl('b', 'governance', 'status')['result']['sequence'] == 1,
+                'an unsupported statement changed the head')
+        self.record('admission is refused until its node effects exist', {'exit': REJECTED})
         require(all(p.poll() is None for p in [target, *self.wolves]), 'gate process exited')
 
 

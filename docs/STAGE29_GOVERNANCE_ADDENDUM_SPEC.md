@@ -170,3 +170,11 @@ Pelt, admitted as a new key.
   - the startup check;
   - the head document round trip;
   - a Stage28 head document's bytes unchanged.
+
+## Implementation
+
+| Step | Scope | State |
+|---|---|---|
+| 1 | Core: kinds 3 and 4, roster, `activated_at`, `Head::admits`, rules, vectors (admission `6604b37e…cdf6`, activation `a4cef971…0d2f`), both owner scenarios; head document fields; offline `draft admit` and `draft activate` | Done. The daemon refuses kinds 3 and 4 (`GOVERNANCE_UNSUPPORTED`) until step 2 adds their node effects |
+| 2 | Daemon: activation sweep, local admission fence, `PACK_NOT_ON_ROSTER`, startup check; lab gate | Pending |
+
