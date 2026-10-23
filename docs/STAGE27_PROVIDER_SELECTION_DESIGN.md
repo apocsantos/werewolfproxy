@@ -1,7 +1,8 @@
 # Stage27 provider selection — design proposal
 
-**Status: proposal, awaiting owner decisions 1–5 below.** Nothing here is
-implemented, and no option changes a handshake, transcript or wire format.
+**Status: design accepted 2026-10-23 (1a, 2a, 3a, 4a, 5a; see
+[Decisions](#decisions-accepted-2026-10-23)).** Nothing is implemented yet;
+no part changes a handshake, transcript or wire format.
 
 This is §20 stage 5 of [ARCHITECTURE.md](ARCHITECTURE.md) ("routing to a
 selected provider") and the provider choice sketched in §47: after Stage25
@@ -129,6 +130,15 @@ Stage23 classes (`SERVICE_*`); an entry may not list a peer twice.
 | 3 | Fang: per-connection ordered attempts for direct, QUIC, TCP and routed providers; Pack changes close Fangs naming any provider; lab gate with three providers (first down, first refusing, second's grant revoked, all failing) |
 | 4 | Real-WAN check |
 
-## Decisions
+## Decisions (accepted 2026-10-23)
 
-Pending. Recommended: **1a, 2a, 3a, 4a, 5a.**
+1. **Providers: 1a.** Only providers the operator lists in the entry.
+2. **Choice: 2a.** Per local connection, in order, failing over only before
+   the provider's ACK verifies; never after, so no application byte is
+   replayed.
+3. **Order: 3a.** Operator order.
+4. **Bounds: 4a.** At most 4 providers, sequential attempts, the whole
+   selection within the 15 s client window; all failing resets the local
+   connection.
+5. **Storage: 5a.** Optional `fallbacks` list in `services.json`, omitted
+   when empty.
