@@ -53,15 +53,32 @@ real WAN between an initiator and a remote Debian VPS receiver:
 The HC02 and LC-01 fixes are on `main` after the RC1 tag, so they are not in
 the 1.0.0-rc.1 archive.
 
+## Development on `main` after RC1 (Stage23–26)
+
+None of this is in the 1.0.0-rc.1 archive.
+
+| Stage | Scope | State |
+|---|---|---|
+| Stage23 | Named services: `service add/list/show/remove/connect`, `services.json` | Implemented; lab gate `service_gate.py` |
+| [Stage24](STAGE24_FINDNODE_DESIGN.md) | Pack-only peer discovery: `ping` and `find_node` RPCs, signed contact records, multi-hop lookup | Implemented; lab gate `discovery_gate.py`; WAN checked |
+| [Stage25](STAGE25_SERVICE_DISCOVERY_DESIGN.md) | Service discovery: `service publish`, `discover services`, `service add --from`; visibility follows Target Policy | Implemented; lab gate `service_discovery_gate.py`; WAN checked |
+| [Stage26](STAGE26_MULTIHOP_ROUTING_DESIGN.md) | Multi-hop routing through one relay, end-to-end identity and authorization; `route set/list/remove` | Implemented; lab gate `routed_fang_gate.py`; WAN checked (three defects found and fixed) |
+
 ## Known gaps
 
 See [known limitations](../KNOWN_LIMITATIONS.md). Main items:
 
 - Only Linux x86_64 is certified.
-- No anonymity, cover traffic or timing obfuscation.
+- No anonymity, cover traffic or timing obfuscation; a Stage26 relay sees
+  who talks to which listener, when and how much.
 - No automatic peer pairing; public keys are exchanged out of band.
-- Stage20 did not run netem loss/jitter, ENOSPC, read-only filesystem,
-  clock-change or systemd-restart chaos campaigns.
+- Not run anywhere: netem-style random loss, jitter and reordering, and
+  host clock changes. Restart, crash, path-loss, resource-pressure and
+  storage-fault behaviour was exercised on later builds by Stage22R
+  (D01–D09), not on the rc.1 archive.
+- Routing has one operator-set relay per destination, with no route
+  discovery or automatic selection; path loss through a relay is not yet
+  exercised.
 - The shared transport trait, health scoring and automatic return to the
   preferred transport are not implemented.
 
