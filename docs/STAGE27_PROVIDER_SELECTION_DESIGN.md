@@ -1,8 +1,9 @@
 # Stage27 provider selection — design proposal
 
-**Status: design accepted 2026-10-23 (1a, 2a, 3a, 4a, 5a; see
-[Decisions](#decisions-accepted-2026-10-23)).** Nothing is implemented yet;
-no part changes a handshake, transcript or wire format.
+**Status: implemented and checked over the real WAN (steps 1–4 done).**
+The design was accepted 2026-10-23 (1a, 2a, 3a, 4a, 5a; see
+[Decisions](#decisions-accepted-2026-10-23)); no part changes a handshake,
+transcript or wire format. See the [real-WAN check](#real-wan-check-2026-10-23).
 
 This is §20 stage 5 of [ARCHITECTURE.md](ARCHITECTURE.md) ("routing to a
 selected provider") and the provider choice sketched in §47: after Stage25
@@ -128,7 +129,7 @@ Stage23 classes (`SERVICE_*`); an entry may not list a peer twice.
 | 1 | `werewolf-core`: `fallbacks` in the service definition, validation (unique peers, at most 4), strict JSON, unit tests (done, PR #49) |
 | 2 | CLI and control: `service provider add/remove`, `--from` for a provider, `service show`; CLI contract (done, [CLI contract](V1_CLI_CONTRACT.md#stage27-extension-service-providers)) |
 | 3 | Fang: per-connection ordered attempts for direct QUIC, direct TCP and routed providers; Pack changes close Fangs naming any provider; lab gate (done, `tests/integration/provider_gate.py`; see step 3 notes) |
-| 4 | Real-WAN check |
+| 4 | Real-WAN check (done, [below](#real-wan-check-2026-10-23)) |
 
 ## Decisions (accepted 2026-10-23)
 
@@ -157,4 +158,39 @@ gate uses targets that announce which provider served each connection and
 counts their connections: a refusing first provider saw none, an unreachable
 one cost its 5 s handshake deadline, all failing reset the connection after
 about 5 s, and a failure after establishment was not retried.
+
+## Real-WAN check (2026-10-23)
+
+DarkSide ran `5ea8c5b` (`werewolfd` `84dbe610…`); the VPS daemon
+(`werewolfd.service`, `bcf7bbd`, unchanged) and a second VPS daemon C (user
+mode, loopback only, `bcf7bbd`) were the providers. DarkSide's service
+`echo2` listed, in order:
+
+| # | Provider | Target | Path from DarkSide |
+|---|---|---|---|
+| 1 | `node-b`, the VPS daemon | `127.0.0.1:7000`, a plain echo server | direct QUIC |
+| 2 | `node-c`, the loopback daemon | `127.0.0.1:7002`, an echo server that first sends `via-c` | Stage26 route through `node-b` |
+
+`service connect echo2` opened one listener (`providers: node-b, node-c`).
+A probe (`/tmp/stage27-wan/probe.py`, `de62da58…`) opened a new session every
+2 s and recorded which provider answered, while the operator changed grants
+on the VPS (times UTC):
+
+| Window | VPS change | Probes |
+|---|---|---|
+| 17:20:53–17:21:21 | none | 15 × B |
+| 17:21:23–17:21:41 | B's grant for `:7000` removed | 10 × C, each within 0.51 s |
+| 17:21:43–17:22:01 | restored | 10 × B |
+| 17:22:03–17:22:17 | B's and C's grants removed | 8 × reset, each within 0.51 s |
+| 17:22:19–17:22:59 | both restored | 21 × B |
+
+Every change took effect on the next probe in both directions; no session
+returned a mixed or wrong answer, and with both providers refusing the local
+connection was reset, never left hanging. Both target lists ended as they
+started.
+
+Not shown over the WAN: failover when the first provider is unreachable
+(here C is reached through B, so B down takes C down too; the lab gate
+covers an unreachable first provider), and a failure after establishment
+(covered by the lab gate).
 
