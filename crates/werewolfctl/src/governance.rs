@@ -1,0 +1,213 @@
+//! `werewolfctl governance` file commands (Stage28 survey decision 2a).
+//! They run locally and never contact a daemon: key holders use them on
+//! offline machines.
+
+use crate::{print_local, CliError, ExitClass};
+use clap::Subcommand;
+use serde_json::json;
+use std::path::PathBuf;
+use werewolf_core::governance::{tool, Body, Key};
+
+#[derive(Subcommand)]
+pub(crate) enum GovernanceCommands {
+    /// Create one key holder's governance key file (mode 0600).
+    Keygen { out: PathBuf },
+    /// Create an unsigned statement for the key holders to sign.
+    Draft {
+        #[command(subcommand)]
+        kind: DraftKind,
+    },
+    /// Sign a draft as governance key INDEX; writes a signature part.
+    Sign {
+        draft: PathBuf,
+        key: PathBuf,
+        #[arg(long)]
+        index: u8,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Combine signature parts into the signed statement.
+    Combine {
+        draft: PathBuf,
+        #[arg(required = true)]
+        parts: Vec<PathBuf>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Show a statement and its hash; with --chain, verify it as a node would.
+    Inspect {
+        file: PathBuf,
+        /// Earlier statements, genesis first.
+        #[arg(long, num_args = 1..)]
+        chain: Vec<PathBuf>,
+        /// Expected genesis hash (hex); defaults to the genesis's own hash.
+        #[arg(long)]
+        expect_genesis: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum DraftKind {
+    /// A new network: the ten governance public keys, in index order.
+    Genesis {
+        #[arg(long = "key", required = true)]
+        keys: Vec<String>,
+        /// Network ID (64 hex digits); random if omitted.
+        #[arg(long)]
+        network_id: Option<String>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Replace governance keys: --set INDEX=PUBLIC_KEY_B64.
+    Rotate {
+        #[arg(long)]
+        after: PathBuf,
+        #[arg(long = "set", required = true)]
+        set: Vec<String>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Revoke members network-wide by their Pelt public keys.
+    Revoke {
+        #[arg(long)]
+        after: PathBuf,
+        #[arg(long = "member", required = true)]
+        members: Vec<String>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+}
+
+fn fail(error: impl std::fmt::Display) -> CliError {
+    CliError::new(ExitClass::Rejected, error.to_string())
+}
+
+fn usage(message: &str) -> CliError {
+    CliError::new(ExitClass::Usage, message)
+}
+
+fn keys(texts: &[String]) -> Result<Vec<Key>, CliError> {
+    texts
+        .iter()
+        .map(|t| tool::public_key(t).map_err(fail))
+        .collect()
+}
+
+pub(crate) fn run(json_output: bool, command: GovernanceCommands) -> Result<(), CliError> {
+    match command {
+        GovernanceCommands::Keygen { out } => {
+            let public = tool::keygen(&out).map_err(fail)?;
+            print_local(
+                json_output,
+                "governance.keygen",
+                json!({"key_file": out, "public_key_b64": public}),
+            )
+        }
+        GovernanceCommands::Draft { kind } => {
+            let (draft, out) = match kind {
+                DraftKind::Genesis {
+                    keys: texts,
+                    network_id,
+                    out,
+                } => {
+                    if texts.len() != werewolf_core::governance::KEY_COUNT {
+                        return Err(usage("genesis needs exactly 10 --key values"));
+                    }
+                    let network_id = network_id
+                        .map(|id| tool::unhex::<32>(&id).map_err(fail))
+                        .transpose()?;
+                    (tool::draft_genesis(&keys(&texts)?, network_id), out)
+                }
+                DraftKind::Rotate { after, set, out } => {
+                    let previous = tool::read_statement(&after).map_err(fail)?;
+                    let entries = set
+                        .iter()
+                        .map(|entry| {
+                            let (index, key) = entry
+                                .split_once('=')
+                                .ok_or_else(|| usage("--set takes INDEX=PUBLIC_KEY_B64"))?;
+                            let index = index
+                                .parse::<u8>()
+                                .map_err(|_| usage("--set index must be 0 to 9"))?;
+                            Ok((index, tool::public_key(key).map_err(fail)?))
+                        })
+                        .collect::<Result<Vec<_>, CliError>>()?;
+                    (tool::draft_after(&previous, Body::Rotation(entries)), out)
+                }
+                DraftKind::Revoke {
+                    after,
+                    members,
+                    out,
+                } => {
+                    let previous = tool::read_statement(&after).map_err(fail)?;
+                    (
+                        tool::draft_after(&previous, Body::Revocation(keys(&members)?)),
+                        out,
+                    )
+                }
+            };
+            tool::write_statement(&out, &draft).map_err(fail)?;
+            print_local(
+                json_output,
+                "governance.draft",
+                json!({"draft": out, "statement": tool::describe(&draft)}),
+            )
+        }
+        GovernanceCommands::Sign {
+            draft,
+            key,
+            index,
+            out,
+        } => {
+            let draft_statement = tool::read_statement(&draft).map_err(fail)?;
+            let part = tool::sign_part(&draft_statement, &key, index).map_err(fail)?;
+            tool::write_part(&out, &part).map_err(fail)?;
+            print_local(
+                json_output,
+                "governance.sign",
+                json!({"part": out, "index": index, "hash": part.hash}),
+            )
+        }
+        GovernanceCommands::Combine { draft, parts, out } => {
+            let draft = tool::read_statement(&draft).map_err(fail)?;
+            let parts = parts
+                .iter()
+                .map(|p| tool::read_part(p).map_err(fail))
+                .collect::<Result<Vec<_>, _>>()?;
+            let statement = tool::combine(&draft, &parts).map_err(fail)?;
+            tool::write_statement(&out, &statement).map_err(fail)?;
+            print_local(
+                json_output,
+                "governance.combine",
+                json!({"statement": out, "summary": tool::describe(&statement)}),
+            )
+        }
+        GovernanceCommands::Inspect {
+            file,
+            chain,
+            expect_genesis,
+        } => {
+            let statement = tool::read_statement(&file).map_err(fail)?;
+            let mut result = json!({"statement": tool::describe(&statement)});
+            if !chain.is_empty() || expect_genesis.is_some() {
+                let mut statements = chain
+                    .iter()
+                    .map(|p| tool::read_statement(p).map_err(fail))
+                    .collect::<Result<Vec<_>, _>>()?;
+                statements.push(statement);
+                let genesis_hash = match expect_genesis {
+                    Some(hex) => tool::unhex::<32>(&hex).map_err(fail)?,
+                    None => statements[0].core.hash(),
+                };
+                let head = tool::replay(&statements, &genesis_hash).map_err(fail)?;
+                result["verified"] = json!({
+                    "genesis_hash": tool::hex(&genesis_hash),
+                    "head_sequence": head.sequence,
+                    "head_hash": tool::hex(&head.hash),
+                    "revoked": head.revoked.len(),
+                });
+            }
+            print_local(json_output, "governance.inspect", result)
+        }
+    }
+}

@@ -265,3 +265,31 @@ listed provider, or a provider's relay, closes the Fang; provider list
 changes apply to Fangs opened afterwards. The disposable gate
 `tests/integration/provider_gate.py` exercises this contract.
 
+## Stage28 extension: governance files
+
+Stage28 ([survey](STAGE28_GOVERNANCE_SURVEY.md),
+[statement spec](STAGE28_GOVERNANCE_STATEMENT_SPEC.md)) adds network
+governance statements signed by at least 7 of 10 governance keys. Step 2
+adds the offline file commands; the daemon commands follow in step 3.
+
+- governance keygen OUT
+- governance draft genesis --key PUB_B64 (×10, index order) [--network-id HEX] --out FILE
+- governance draft rotate --after PREVIOUS --set INDEX=PUB_B64 ... --out FILE
+- governance draft revoke --after PREVIOUS --member PUB_B64 ... --out FILE
+- governance sign DRAFT KEYFILE --index N --out PART
+- governance combine DRAFT PART... --out FILE
+- governance inspect FILE [--chain FILE...] [--expect-genesis HEX]
+
+These run locally and never contact a daemon or the network, so a key
+holder can use them on an offline machine. `keygen` creates a key file with
+mode 0600 and never replaces an existing file; `sign` refuses a key file
+readable by anyone but its owner or whose public key does not match its
+secret. `draft rotate` and `draft revoke` follow the statement given with
+`--after` (the current chain head) and sort their entries. A part records
+the hash of the draft it signs, so `combine` refuses parts for another
+statement or two parts for one index. `inspect` prints a statement and its
+hash; with `--chain` (genesis first) or `--expect-genesis` it verifies the
+chain exactly as a node will, pinning the genesis to the given hash or, if
+none is given, to its own hash, which the operator must compare out of
+band. Output files are never overwritten. Errors exit 70, usage errors 64.
+
