@@ -175,8 +175,7 @@ werewolfctl exits 70. The disposable gate
 ## Stage26 extension: routes
 
 Stage26 ([design](STAGE26_MULTIHOP_ROUTING_DESIGN.md)) lets a Fang reach a
-Pack member through another Pack member (the relay). Step 2 adds the route
-table; routed Fangs follow in step 3.
+Pack member through another Pack member (the relay).
 
 - route set PEER --via RELAY [--hop quic|tcp]
 - route list
@@ -198,4 +197,19 @@ refused while storage is degraded. Errors are `ROUTE_INVALID` (unknown
 member, self or chained relay, bad hop), `ROUTE_NOT_FOUND` and
 `ROUTE_SAVE_FAILED`; werewolfctl exits 70. A failed save leaves the
 previous routes live.
+
+A Fang (`fang open`, a profile, or `service connect`) to a routed PEER opens,
+for each local connection, an ordinary session to RELAY over the route's hop
+whose target is PEER's encrypted-TCP listener, and inside it the unchanged
+encrypted-TCP session to PEER. The route is resolved when the Fang opens:
+RELAY must still be a Pack member with an address for the hop, and PEER's
+Pack address must be a literal `IP:port` (a `quic://` address is dialled as
+TCP on the same port, as for direct Fangs); otherwise the open fails with
+`FANG_ROUTE_INVALID` or `FANG_BAD_TCP_ADDRESS`. `--transport tcp-plain` to a
+routed PEER fails with `FANG_ROUTE_INVALID`; `quic` and `tcp` select nothing
+for a routed PEER, because the route's hop does. The open reports `via` and
+`peer_addr` (PEER's listener), and `fang active` shows the transport as
+`tcp via RELAY (HOP)`. Any failure at either hop resets the local
+connection. The disposable gate `tests/integration/routed_fang_gate.py`
+exercises this contract.
 

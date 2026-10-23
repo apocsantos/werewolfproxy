@@ -1,4 +1,5 @@
 pub(super) mod quic;
+pub(super) mod relay;
 pub(super) mod tcp_encrypted;
 pub(super) mod tcp_plain;
 

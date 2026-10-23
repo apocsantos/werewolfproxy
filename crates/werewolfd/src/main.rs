@@ -507,7 +507,20 @@ async fn open_fang_with_profile(
         public_key_b64: peer_record.public_key_b64.clone(),
     };
 
+    // Stage26: a routed peer is reached through its relay, with the inner
+    // session always encrypted TCP pinned to the peer's own key.
+    let routed = match st.routes.iter().find(|route| route.peer == peer) {
+        None => None,
+        Some(route) => {
+            match transport::relay::resolve(route, &peer_record, &st.peers, &transport) {
+                Ok(routed) => Some(routed),
+                Err((code, message)) => return ControlResponse::err(req_id, code, message),
+            }
+        }
+    };
+
     let peer_addr = match select_peer_transport(&transport, &peer_record.address) {
+        _ if routed.is_some() => String::new(),
         Ok(transport::FangTransport::Quic(a)) => {
             let fang_id = generate_fang_id(&peer, &local, &remote, st.fang_registry.len());
 
@@ -626,20 +639,38 @@ async fn open_fang_with_profile(
     let task_cancellation = cancellation.clone();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let task_expected_peer = expected_peer_identity;
+    let task_routed = routed.clone();
 
     let handle = tokio::spawn(async move {
-        let result = transport::run_selected_forwarder(
-            &task_fang_id,
-            &task_local,
-            &task_peer_addr,
-            &task_remote,
-            task_identity,
-            is_plain_tcp(&task_transport),
-            task_cancellation,
-            ready_tx,
-            task_expected_peer,
-        )
-        .await;
+        let result = match task_routed {
+            Some(routed) => {
+                transport::relay::run_routed_forwarder(
+                    &task_fang_id,
+                    &task_local,
+                    routed,
+                    &task_remote,
+                    task_identity,
+                    task_expected_peer,
+                    task_cancellation,
+                    ready_tx,
+                )
+                .await
+            }
+            None => {
+                transport::run_selected_forwarder(
+                    &task_fang_id,
+                    &task_local,
+                    &task_peer_addr,
+                    &task_remote,
+                    task_identity,
+                    is_plain_tcp(&task_transport),
+                    task_cancellation,
+                    ready_tx,
+                    task_expected_peer,
+                )
+                .await
+            }
+        };
 
         if let Err(e) = result {
             eprintln!("fang {} failed: {}", task_fang_id, e);
@@ -675,8 +706,12 @@ async fn open_fang_with_profile(
     st.fang_registry.insert_task(fang_id.clone(), handle);
     st.fang_registry
         .insert_cancellation(fang_id.clone(), cancellation);
+    let shown_transport = routed
+        .as_ref()
+        .map(|routed| routed.describe())
+        .unwrap_or_else(|| transport.clone());
     st.fang_registry
-        .insert_started(fang_id.clone(), std::time::Instant::now(), &transport);
+        .insert_started(fang_id.clone(), std::time::Instant::now(), &shown_transport);
 
     if release.send(true).is_err() {
         st.storage_degraded = true;
@@ -691,8 +726,12 @@ async fn open_fang_with_profile(
             "local": local,
             "remote": remote,
             "state": "active",
-            "transport": transport,
-            "peer_addr": peer_addr
+            "transport": shown_transport,
+            "peer_addr": match &routed {
+                Some(routed) => routed.destination.to_string(),
+                None => peer_addr,
+            },
+            "via": routed.as_ref().map(|routed| routed.via.clone())
         }),
     )
 }

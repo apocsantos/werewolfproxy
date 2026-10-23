@@ -100,7 +100,7 @@ pub async fn open_quic_fang(
     Ok(handle)
 }
 
-struct CloseClientConnection(quinn::Connection);
+pub(crate) struct CloseClientConnection(pub(crate) quinn::Connection);
 
 impl Drop for CloseClientConnection {
     fn drop(&mut self) {
@@ -141,7 +141,7 @@ pub(crate) fn client_endpoint(expected_peer: &ExpectedPeerIdentity) -> std::io::
     Ok(endpoint)
 }
 
-async fn connect_v3_on(
+pub(crate) async fn connect_v3_on(
     endpoint: &Endpoint,
     address: SocketAddr,
     remote: &str,
@@ -189,15 +189,15 @@ async fn connect_v3_on(
 /// How long a finished upload may wait for the receiver to acknowledge all of
 /// it before the session counts as failed. The connection's idle timeout still
 /// ends it sooner on a dead path.
-const UPLOAD_ACK_WINDOW: Duration = Duration::from_secs(60);
+pub(crate) const UPLOAD_ACK_WINDOW: Duration = Duration::from_secs(60);
 
 /// Owns the QUIC send stream and resets it when dropped unless the session
 /// ended cleanly. Quinn's own `Drop` would finish the stream, a clean FIN, so
 /// an error or a cancelled task could otherwise look like a complete upload
 /// (docs/SESSION_END_SIGNALLING_PROPOSAL.md, gap 2).
-struct AbortiveSend {
-    stream: SendStream,
-    clean: bool,
+pub(crate) struct AbortiveSend {
+    pub(crate) stream: SendStream,
+    pub(crate) clean: bool,
 }
 
 impl Drop for AbortiveSend {

@@ -189,7 +189,7 @@ degraded; Silver refuses a routed Fang like any Fang.
 | 0 | This proposal; owner decisions 1–6 |
 | 1 | Refactor: the encrypted-TCP client runs over any authenticated byte stream (done, PR #38: the client handshake moved verbatim into `client_handshake`, same `hs::` calls and order; tests drive it through an in-memory pipe against the unmodified receiver; no wire change) |
 | 2 | Routes: `routes.json`, `route set/list/remove`, CLI contract, unit tests (done, [CLI contract](V1_CLI_CONTRACT.md#stage26-extension-routes)) |
-| 3 | Routed Fang and `service connect`; lab gate with three wolves where A cannot dial D directly: works only with both B's grant and D's grant; revoking either, or Silver on B, cuts it; D sees B's address; 64 MiB full duplex exact |
+| 3 | Routed Fang and `service connect`; lab gate with three wolves (done, `tests/integration/routed_fang_gate.py`; see step 3 notes) |
 | 4 | Real-WAN check: DarkSide → VPS (relay) → a destination reachable only from the VPS (a second daemon on the VPS's loopback, or a third host), plus D06/D07-style failure checks through the relay |
 
 ## Decisions (accepted 2026-10-22)
@@ -213,3 +213,19 @@ route; a route whose relay is itself routed, or whose peer relays for
 another route, is refused, so the list always describes exactly one relay
 per destination. At most 256 routes. Routes are not part of the protected
 state generation.
+
+Step 3 notes: the routed forwarder (`transport/relay.rs`) opens, per local
+connection, the outer session with the existing client code (QUIC
+`connect_v3_on`, or `connect_authenticated_tcp` plus `client_handshake`) and
+runs the step 1 client over it. Over a QUIC hop the inner session runs on the
+joined QUIC stream pair and, as for a direct QUIC Fang, a clean end waits for
+the relay to acknowledge the whole upload; over a TCP hop the existing framed
+copy loop feeds one end of an in-memory pipe that carries the inner session.
+Any failure at either hop resets the local connection. The lab gate cannot
+make C unreachable from A on loopback, so instead of "A cannot dial C" it
+proves the path through the grants: either grant alone fails, and B and C
+each hold one authority session while a routed session is open. Revoking a
+grant on a live session was not added to the gate; Silver on the relay was.
+Session-end behaviour through a relay (D06/D07 equivalents) is not yet
+claimed; it belongs to step 4.
+
