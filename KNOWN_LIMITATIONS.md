@@ -57,6 +57,7 @@ follows.
   nodes learned from contact records are dialled directly. The relay learns
   the requester's identity, the destination's listener address and the
   session's timing and volume, but not the service, the target or the
-  payload. Path loss between the requester and the relay (D06-style) has
-  not been exercised through a relay.
+  payload. Repeated blackholes and hard path loss between the requester and
+  the relay were exercised over the real WAN on both hops (Stage26 record);
+  path loss between the relay and the destination was not.
 

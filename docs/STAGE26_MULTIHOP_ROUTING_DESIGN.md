@@ -296,10 +296,9 @@ None of the three made a session look complete. The first run's `kill-2`
 (exactly 8 MiB then EOF, no reset) was excluded as ambiguous under the D07
 rule; the rerun on `f808802` had no ambiguous runs.
 
-Not claimed: D06-style path loss through the relay (blackholes between
-DarkSide and the relay), more than one relay, discovery RPCs through a
-relay (decision 5a), and the relay's view of timing and volume, which is as
-documented in the security notes.
+Not claimed here: more than one relay, and the relay's view of timing and
+volume, which is as documented in the security notes. Path loss through the
+relay and discovery through it were checked afterwards (below).
 
 Decision 5b (follow-up, implemented after the WAN check): discovery RPCs
 reach a routed Pack member through its relay. `transport/relay.rs`
@@ -310,4 +309,38 @@ directly, a route that no longer resolves is reported as `bad_route`, and
 no wire format changed. Covered by a discovery unit test (the relay's grant
 is required; QUIC and TCP hops; refresh, services and `--from`; the
 destination's grant still decides) and a routed Fang gate check.
+
+## Path loss through the relay (2026-10-23)
+
+The D06 method on the DarkSide↔relay hop of a routed session. DarkSide ran
+`b01af2d` (`werewolfd` `ea2a080d…`, PID 2345363 throughout, never
+restarted); the relay and C ran `bcf7bbd` as before, with a fresh C identity
+and a plain echo server on the VPS's `127.0.0.1:7000`. `node-b`'s Pack
+address on DarkSide was pointed at a disposable fault relay on DarkSide
+(`127.0.0.1:29660` UDP → `51.83.41.28:9560` for the QUIC hop,
+`127.0.0.1:28660` TCP → `:8443` for the TCP hop), so every routed session to
+C crossed it; the relay↔C leg on the VPS loopback was not faulted. Before
+the faults, `discover services --peer node-c` answered `ok` through the
+relay over the WAN (decision 5b).
+
+Tools, reused from D06: the cycle fault relay
+(`/tmp/stage22r-d06/chaos_proxy_cycles.py`, `a4dd09d7…a9eb`), the duplex
+client (`/tmp/stage22r_duplex_client.py`, `eb71c0aa…e196`) and the D06
+driver adapted for the routed Fang and smaller transfers
+(`/tmp/stage26-d06/run.sh`, `266857af…250c`). QUIC pauses discard datagrams
+in both directions; TCP pauses stall the relay with every socket open, as in
+D06.
+
+| Hop | Part | Fault | Result |
+|---|---|---|---|
+| QUIC | A | One 256 MiB full-duplex routed session; 6 × 10 s blackholes (first after 4 MiB, then every 48 MiB forwarded); 79 KB and 382 KB of datagrams dropped | PASS: same session survived all six, 256 MiB each way exact (`509ced08…84b1`), longest receive gap 11.2 s |
+| QUIC | B | 6 cycles: the fault relay SIGKILLs itself after 16 MiB of a 64 MiB transfer | 6/6: precheck exact; transfer failed visibly after 36.9–37.2 s (QUIC idle timeout) with a reset in one direction and 6.36–6.37 MB received; recovery session exact |
+| TCP | A | One 128 MiB routed session; 4 × 10 s stalls every 48 MiB | PASS: 128 MiB each way exact (`6b376f1c…1b75`), longest gap 10.0 s |
+| TCP | B | 4 cycles, as QUIC B | 4/4: transfer failed visibly after 2.2–2.6 s with a reset, about 4 MB received; recovery session exact |
+
+No transfer hung or looked complete. Through every part DarkSide's daemon
+kept its PID and binary, 17–19 descriptors, 5–6 threads and 9.7–11.1 MB RSS,
+stayed `READY` and not degraded, and held no inbound authority session.
+Afterwards `node-b` was restored to `quic://51.83.41.28:9560`, the route to a
+QUIC hop and `wan-quic` reactivated.
 

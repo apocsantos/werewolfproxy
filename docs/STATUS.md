@@ -77,8 +77,9 @@ See [known limitations](../KNOWN_LIMITATIONS.md). Main items:
   storage-fault behaviour was exercised on later builds by Stage22R
   (D01–D09), not on the rc.1 archive.
 - Routing has one operator-set relay per destination, with no route
-  discovery or automatic selection; path loss through a relay is not yet
-  exercised.
+  discovery or automatic selection. Path loss between the requester and the
+  relay was exercised on both hops; between the relay and the destination
+  it was not.
 - The shared transport trait, health scoring and automatic return to the
   preferred transport are not implemented.
 
