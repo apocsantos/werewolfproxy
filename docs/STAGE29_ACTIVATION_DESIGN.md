@@ -1,8 +1,9 @@
 # Stage29 admission and activation — design proposal
 
-**Status: proposal for architectural review, awaiting owner decisions 1–6.**
-Nothing here is implemented. Like Stage28, it changes the trust model, so it
-is reviewed before any code.
+**Status: decisions accepted 2026-10-23 (1a, 2a, 3a, 4a, 5a, 6a) with owner
+additions A–D; see [Decisions](#decisions-accepted-2026-10-23).** Nothing is
+implemented. The format and rules go into a spec addendum for review before
+any code.
 
 Stage28 built the governance chain: 7-of-10 statements for genesis, key
 rotation and network revocation, verified by every node and stored in its
@@ -42,11 +43,14 @@ Two new statement kinds in the Stage28 chain, same encoding and verification
 
 | kind | Statement | body |
 |---|---|---|
-| 3 | Admission | `count:u16 count × member_public_key:[32]`, strictly increasing |
+| 3 | Admission | `count:u16 count × member_public_key:[32]`, strictly increasing, 1–64 keys (C) |
 | 4 | Activation | empty |
 
-The head gains a sorted **roster** of admitted member keys. Admission adds
-keys; network revocation (kind 2) also removes a key from the roster.
+The head gains a sorted **roster** of admitted member keys, at most 1024
+(addition C, the same bound as a Pack). Admission adds keys, before or after
+activation (B); network revocation (kind 2) also removes a key from the
+roster. An admission naming a revoked key, a key already on the roster, or
+taking the roster past 1024 is rejected as a whole.
 
 **1a. The roster is an upper bound (recommended).** After activation a node
 may only have roster members in its Pack; it still chooses which of them,
@@ -64,7 +68,10 @@ flip back.
 ### Activation (decision 3)
 
 Activation is one-way and applies from its sequence on. Before it, a node
-behaves exactly as in Stage28. After it, the lockdown of decision 4
+behaves exactly as in Stage28. A node applies activation only if its own
+current Pelt is on the roster and not network-revoked (addition A); a node
+that is not refuses it and stays before activation, which is correct: it
+was never admitted to the network. After it, the lockdown of decision 4
 applies. Applying activation on a node whose Pack contains keys that are
 not on the roster:
 
@@ -104,8 +111,11 @@ recovery behind a seven-person ceremony, which the architecture reserves for
 on the Stage24 channel: a Pack member asks for statements after its
 sequence and the responder returns the next ones from its chain (bounded
 count and size, signed result as for `find_node`). `werewolfctl governance
-sync` asks Pack members and applies what verifies, through exactly the same
-`apply` path as a file. Responders gain nothing: a statement is valid only
+sync` asks several Pack members, verifies every candidate independently
+through exactly the same `apply` path as a file, and applies a successor only
+when every valid candidate for that sequence is the same statement; if it
+sees two different validly signed successors, it records the fork and fences
+governance before applying either (addition D). Responders gain nothing: a statement is valid only
 with its seven signatures, so a peer can withhold statements but never
 forge one. Needs its own wire spec and review, as Stage24 and Stage25 did.
 **5b.** Stay operator-delivered only. **5c.** Pull automatically on a
@@ -130,6 +140,27 @@ needs upgraded nodes before those statements are delivered.
 | 3 | `governance` RPC op: wire spec and review, then `governance sync`; lab gate with a revocation reaching a node through a peer |
 | 4 | A real-host check on disposable daemons only (genesis is irreversible) |
 
-## Decisions
+## Decisions (accepted 2026-10-23)
 
-Pending. Recommended: **1a, 2a, 3a, 4a, 5a, 6a.**
+1. **1a:** the roster is an upper bound on each node's Pack.
+2. **2a:** revocation is permanent; return only under a new Pelt.
+3. **3a:** activation removes non-roster Pack members like a revocation.
+4. **4a:** after activation `pack add` is limited to non-revoked roster
+   keys, with a fail-closed startup check; narrowing operations, target
+   grants, Silver and Pelt re-init stay local.
+5. **5a:** pull on demand with a read-only `governance` RPC op and
+   `governance sync`, under its own wire spec.
+6. **6a:** admission and activation are kinds 3 and 4 of the Stage28
+   encoding, specified as an addendum.
+
+Owner additions, part of the Stage29 specification:
+
+- **A.** Activation requires the applying node's current Pelt to be
+  admitted and not network-revoked.
+- **B.** Admission remains valid after activation; a revoked public key can
+  never be admitted again.
+- **C.** The roster holds at most 1024 keys; one admission statement names
+  at most 64.
+- **D.** `governance sync` queries multiple Pack peers, verifies every
+  candidate independently, and fences if it observes conflicting valid
+  successors, before applying either.
