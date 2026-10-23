@@ -199,6 +199,23 @@ naming it and counts its connections.
 | Pack change | Removing D from A's Pack closes the Fang; reopening fails while D is listed |
 | No plain TCP | `--transport tcp-plain` exits 70 |
 
+```bash
+python3 -B tests/integration/governance_gate.py [--keep-temp]
+```
+
+`governance_gate.py` (Stage28) generates ten governance keys with
+`werewolfctl governance keygen` and produces every statement with the
+offline draft, sign and combine commands (seven holders each). Wolf A trusts
+B and C; B serves an echo target to A.
+
+| Assertion | Required evidence |
+|---|---|
+| Pinning and manifest | C without a manifest exits 70; genesis without or with a wrong `--expect-hash` exits 70; with it, all three apply, status shows the ten keys and threshold 7, and A's manifest is schema 2 |
+| Revocation | A statement with six signatures exits 70; revoking B removes `wolf-b` from A's Pack, closes A's Fang to B, re-adding B exits 70, and re-applying reports `already_applied` |
+| Restart | After restart A's head is sequence 1 with B revoked, and re-adding B still exits 70 |
+| Gap and rotation | On B (head 0) a sequence-2 statement exits 70; a rotation of key 9 applies and is in force |
+| Fork | On A the rotation conflicts with the applied revocation: exit 70, `forked` set, every later statement exits 70, and the flag survives restart |
+
 ## Stage 1 execution results — 2026-09-07
 
 Executed against checkout `63691aade2aa165b16864a80272f2a55eadcee00` with its

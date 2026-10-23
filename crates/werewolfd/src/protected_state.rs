@@ -16,6 +16,10 @@ use werewolf_core::{
 };
 
 const SCHEMA: u8 = 1;
+/// A manifest that also commits to the Stage28 governance document. Older
+/// binaries refuse it (they accept only `SCHEMA`), which is the safe
+/// direction; a Den without governance keeps writing schema 1.
+const SCHEMA_GOVERNANCE: u8 = 2;
 const MODE_FILE: &str = "security_state_manifest_mode.json";
 const CURRENT_FILE: &str = "security_state_current.json";
 const MANIFEST_LIMIT: usize = 4096;
@@ -67,6 +71,8 @@ struct DocumentCommitments {
     target_policy: String,
     fangs: String,
     active_fangs: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    governance: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -93,6 +99,8 @@ pub(super) struct ProtectedState {
     pub(super) target_policy: TargetPolicy,
     pub(super) fang_profiles: Vec<FangProfile>,
     pub(super) active_profiles: Vec<String>,
+    /// Stage28 governance head; `None` until a genesis is applied.
+    pub(super) governance: Option<werewolf_core::governance::Head>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,7 +113,7 @@ pub(super) enum Load {
     Legacy,
     Manifest {
         generation: Generation,
-        state: ProtectedState,
+        state: Box<ProtectedState>,
     },
 }
 
@@ -121,6 +129,7 @@ struct Documents {
     target_policy: Vec<u8>,
     fangs: Vec<u8>,
     active_fangs: Vec<u8>,
+    governance: Option<Vec<u8>>,
 }
 
 fn invalid() -> io::Error {
@@ -220,6 +229,11 @@ fn documents(state: &ProtectedState) -> io::Result<Documents> {
         target_policy: target_policy::canonical_from_runtime(&state.target_policy)?,
         fangs: canonical_profiles(&state.fang_profiles)?,
         active_fangs: canonical_active(&state.active_profiles, &state.fang_profiles)?,
+        governance: state
+            .governance
+            .as_ref()
+            .map(crate::governance::canonical)
+            .transpose()?,
     })
 }
 
@@ -234,10 +248,14 @@ fn document_commitment(document: &str, contents: &[u8]) -> [u8; 32] {
     *hasher.finalize().as_bytes()
 }
 
-fn state_commitment(generation: u64, documents: &DocumentCommitments) -> io::Result<[u8; 32]> {
+fn state_commitment(
+    schema: u8,
+    generation: u64,
+    documents: &DocumentCommitments,
+) -> io::Result<[u8; 32]> {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"werewolfproxy/state-manifest/v1/state\0schema\0");
-    hasher.update(&[SCHEMA]);
+    hasher.update(&[schema]);
     hasher.update(b"\0generation\0");
     hasher.update(&generation.to_be_bytes());
     for (name, digest) in [
@@ -249,6 +267,11 @@ fn state_commitment(generation: u64, documents: &DocumentCommitments) -> io::Res
     ] {
         hasher.update(name.as_bytes());
         hasher.update(b"\0");
+        hasher.update(&decode_digest(digest)?);
+    }
+    // Schema 2 appends governance; schema 1 bytes are unchanged.
+    if let Some(digest) = &documents.governance {
+        hasher.update(b"governance\0");
         hasher.update(&decode_digest(digest)?);
     }
     Ok(*hasher.finalize().as_bytes())
@@ -293,11 +316,20 @@ fn manifest(generation: u64, contents: &Documents) -> io::Result<Manifest> {
         )),
         fangs: encode_digest(document_commitment("fangs", &contents.fangs)),
         active_fangs: encode_digest(document_commitment("active-fangs", &contents.active_fangs)),
+        governance: contents
+            .governance
+            .as_ref()
+            .map(|bytes| encode_digest(document_commitment("governance", bytes))),
+    };
+    let schema = if documents.governance.is_some() {
+        SCHEMA_GOVERNANCE
+    } else {
+        SCHEMA
     };
     Ok(Manifest {
-        schema: SCHEMA,
+        schema,
         generation,
-        state_commitment: encode_digest(state_commitment(generation, &documents)?),
+        state_commitment: encode_digest(state_commitment(schema, generation, &documents)?),
         documents,
     })
 }
@@ -307,15 +339,21 @@ fn validate_manifest(
     generation: Generation,
     contents: &Documents,
 ) -> io::Result<()> {
-    if value.schema != SCHEMA || value.generation != generation.number {
+    if value.generation != generation.number {
         return Err(invalid());
     }
     let expected = manifest(generation.number, contents)?;
+    // The schema must match the documents present: 2 exactly when the
+    // governance document is committed.
+    if value.schema != expected.schema {
+        return Err(invalid());
+    }
     if value.documents.pack != expected.documents.pack
         || value.documents.silver != expected.documents.silver
         || value.documents.target_policy != expected.documents.target_policy
         || value.documents.fangs != expected.documents.fangs
         || value.documents.active_fangs != expected.documents.active_fangs
+        || value.documents.governance != expected.documents.governance
         || value.state_commitment != expected.state_commitment
     {
         return Err(invalid());
@@ -358,6 +396,7 @@ fn load_current(den: &PrivateDirectory) -> io::Result<Option<Generation>> {
                     "target-policy",
                     "fangs",
                     "active-fangs",
+                    "governance",
                     "manifest",
                 ] {
                     if read(den, &name(slot, document), DOCUMENT_LIMIT)?.is_some() {
@@ -401,12 +440,21 @@ pub(super) fn load(den: &PrivateDirectory) -> io::Result<Load> {
     let manifest_bytes =
         read(den, &name(generation.slot, "manifest"), MANIFEST_LIMIT)?.ok_or_else(invalid)?;
     let manifest: Manifest = exact(&manifest_bytes)?;
+    // The governance document is read only when the manifest commits to one;
+    // a stray file in the slot is ignored, as for any uncommitted write.
+    let governance = match manifest.documents.governance {
+        Some(_) => Some(
+            read(den, &name(generation.slot, "governance"), DOCUMENT_LIMIT)?.ok_or_else(invalid)?,
+        ),
+        None => None,
+    };
     let contents = Documents {
         pack,
         silver,
         target_policy,
         fangs,
         active_fangs,
+        governance,
     };
     validate_manifest(&manifest, generation, &contents)?;
     let state = ProtectedState {
@@ -415,8 +463,16 @@ pub(super) fn load(den: &PrivateDirectory) -> io::Result<Load> {
         target_policy: target_policy::parse_canonical(&contents.target_policy)?,
         fang_profiles: parse_profiles(&contents.fangs)?,
         active_profiles: parse_active(&contents.active_fangs, &parse_profiles(&contents.fangs)?)?,
+        governance: contents
+            .governance
+            .as_deref()
+            .map(crate::governance::parse)
+            .transpose()?,
     };
-    Ok(Load::Manifest { generation, state })
+    Ok(Load::Manifest {
+        generation,
+        state: Box::new(state),
+    })
 }
 
 fn legacy_silver(den: &PrivateDirectory) -> io::Result<bool> {
@@ -481,6 +537,7 @@ pub(super) fn legacy_state(den: &PrivateDirectory) -> io::Result<ProtectedState>
         target_policy,
         fang_profiles,
         active_profiles,
+        governance: None,
     })
 }
 
@@ -519,6 +576,13 @@ fn write_slot<S: Storage>(
         ("active-fangs", &contents.active_fangs),
     ] {
         map_outcome(storage.replace(OsStr::new(&name(generation.slot, logical)), bytes, false))?;
+    }
+    if let Some(bytes) = &contents.governance {
+        map_outcome(storage.replace(
+            OsStr::new(&name(generation.slot, "governance")),
+            bytes,
+            false,
+        ))?;
     }
     let manifest_bytes = canonical(&manifest).map_err(Transaction::NotCommitted)?;
     map_outcome(storage.replace(
@@ -923,6 +987,122 @@ pub(super) mod tests {
     fn private_directory_mode_remains_required() {
         let fixture = Fixture::new();
         std::fs::set_permissions(&fixture.0, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(load(&fixture.1).is_err());
+    }
+
+    // Stage28: the governance document and manifest schema 2.
+
+    fn manifest_text(fixture: &Fixture, generation: Generation) -> String {
+        String::from_utf8(
+            read(
+                &fixture.1,
+                &name(generation.slot, "manifest"),
+                MANIFEST_LIMIT,
+            )
+            .unwrap()
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_den_without_governance_keeps_schema_one() {
+        let fixture = Fixture::new();
+        let Transaction::DurablyCommitted(one) = migrate(&fixture.1) else {
+            panic!("migration failed");
+        };
+        let text = manifest_text(&fixture, one);
+        assert!(
+            text.contains(r#""schema":1"#) && !text.contains("governance"),
+            "{text}"
+        );
+        let Transaction::DurablyCommitted(two) = commit(&fixture.1, 1, &fixture.state()) else {
+            panic!("commit failed");
+        };
+        assert!(!manifest_text(&fixture, two).contains("governance"));
+    }
+
+    #[test]
+    fn governance_commits_as_schema_two_and_loads_back() {
+        let fixture = Fixture::new();
+        assert!(matches!(
+            migrate(&fixture.1),
+            Transaction::DurablyCommitted(_)
+        ));
+        let head = crate::governance::tests::sample_head();
+        let mut state = fixture.state();
+        state.governance = Some(head.clone());
+        let Transaction::DurablyCommitted(two) = commit(&fixture.1, 1, &state) else {
+            panic!("commit failed");
+        };
+        assert!(manifest_text(&fixture, two).contains(r#""schema":2"#));
+        let Load::Manifest { generation, state } = load(&fixture.1).unwrap() else {
+            panic!("not a manifest");
+        };
+        assert_eq!(generation.number, 2);
+        assert_eq!(state.governance, Some(head.clone()));
+        // The next generation carries it forward.
+        let next = crate::governance::tests::revoked_head(&head);
+        let mut later = state.clone();
+        later.governance = Some(next.clone());
+        assert!(matches!(
+            commit(&fixture.1, 2, &later),
+            Transaction::DurablyCommitted(_)
+        ));
+        let Load::Manifest { state, .. } = load(&fixture.1).unwrap() else {
+            panic!("not a manifest");
+        };
+        assert_eq!(state.governance, Some(next));
+    }
+
+    #[test]
+    fn governance_tampering_rollback_and_relabelling_fail_closed() {
+        let fixture = Fixture::new();
+        assert!(matches!(
+            migrate(&fixture.1),
+            Transaction::DurablyCommitted(_)
+        ));
+        let head = crate::governance::tests::sample_head();
+        let mut state = fixture.state();
+        state.governance = Some(head.clone());
+        let Transaction::DurablyCommitted(two) = commit(&fixture.1, 1, &state) else {
+            panic!("commit failed");
+        };
+        state.governance = Some(crate::governance::tests::revoked_head(&head));
+        let Transaction::DurablyCommitted(three) = commit(&fixture.1, 2, &state) else {
+            panic!("commit failed");
+        };
+        let document = name(three.slot, "governance");
+        let current = read(&fixture.1, &document, DOCUMENT_LIMIT)
+            .unwrap()
+            .unwrap();
+        let prior = read(&fixture.1, &name(two.slot, "governance"), DOCUMENT_LIMIT)
+            .unwrap()
+            .unwrap();
+        let manifest = manifest_text(&fixture, three);
+
+        // A valid older head (rolling back the revocation) is detected.
+        fixture.write(&document, &prior);
+        assert!(load(&fixture.1).is_err());
+        // Any edit is detected.
+        let edited = String::from_utf8(current.clone())
+            .unwrap()
+            .replace(r#""forked":false"#, r#""forked":true"#);
+        fixture.write(&document, edited.as_bytes());
+        assert!(load(&fixture.1).is_err());
+        fixture.write(&document, &current);
+        assert!(load(&fixture.1).is_ok());
+        // Relabelling the manifest as schema 1 is detected.
+        fixture.write(
+            &name(three.slot, "manifest"),
+            manifest
+                .replace(r#""schema":2"#, r#""schema":1"#)
+                .as_bytes(),
+        );
+        assert!(load(&fixture.1).is_err());
+        fixture.write(&name(three.slot, "manifest"), manifest.as_bytes());
+        // A missing governance document is detected.
+        std::fs::remove_file(fixture.0.join(&document)).unwrap();
         assert!(load(&fixture.1).is_err());
     }
 }

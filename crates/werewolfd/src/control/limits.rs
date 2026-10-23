@@ -183,6 +183,7 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
         "service.provider.remove" => &["name", "peer"],
         "discover.services" => &["peer", "transport"],
         "route.set" => &["peer", "via", "hop"],
+        "governance.apply" => &["statement", "expect_hash"],
         "route.remove" => &["peer"],
         "pack.remove"
         | "pack.revoke"
@@ -212,6 +213,9 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
             "name" | "peer" | "via" => 128,
             "local" | "remote" | "address" | "public_key_b64" | "target" => 512,
             "document" => 12 * 1024,
+            // A base64 statement: every valid Stage28 statement is under
+            // 3 KiB; this admits up to 9 KiB.
+            "statement" => 12 * 1024,
             // Up to four 256-byte addresses and their separators.
             "addresses" => 4 * 257,
             _ => 128,
@@ -300,6 +304,7 @@ pub(super) fn mutates(cmd: &str) -> bool {
             | "service.unpublish"
             | "service.provider.add"
             | "service.provider.remove"
+            | "governance.apply"
             | "route.set"
             | "route.remove"
             | "discover.advertise"
@@ -432,6 +437,27 @@ mod tests {
         }
         assert!(mutates("service.provider.add") && mutates("service.provider.remove"));
         assert!(!mutates("service.provider.add_from"));
+    }
+
+    #[test]
+    fn stage28_governance_arguments_are_allowlisted_strings() {
+        let statement = "A".repeat(12 * 1024);
+        let good = format!(
+            r#"{{"id":"1","cmd":"governance.apply","args":{{"statement":"{statement}","expect_hash":"00"}}}}"#
+        );
+        assert!(parse(good.as_bytes()).is_ok());
+        assert!(parse(br#"{"id":"1","cmd":"governance.status","args":{}}"#).is_ok());
+        let too_long = format!(
+            r#"{{"id":"1","cmd":"governance.apply","args":{{"statement":"{statement}A"}}}}"#
+        );
+        for bad in [
+            too_long.as_bytes(),
+            br#"{"id":"1","cmd":"governance.apply","args":{"statement":"x","path":"/etc/x"}}"#,
+            br#"{"id":"1","cmd":"governance.status","args":{"verbose":"1"}}"#,
+        ] {
+            assert!(parse(bad).is_err());
+        }
+        assert!(mutates("governance.apply") && !mutates("governance.status"));
     }
 
     #[test]

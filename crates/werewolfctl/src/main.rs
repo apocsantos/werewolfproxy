@@ -421,10 +421,13 @@ async fn run(cli: Cli) -> Result<(), CliError> {
     if matches!(cli.command, Commands::Doctor) {
         return doctor(&cli).await;
     }
-    if let Commands::Governance { command } = cli.command {
-        return governance::run(cli.json, command);
-    }
-    let (command, args) = request_for(cli.command)?;
+    let (command, args) = match cli.command {
+        Commands::Governance { command } => match governance::run(cli.json, command)? {
+            None => return Ok(()),
+            Some(request) => request,
+        },
+        other => request_for(other)?,
+    };
     let socket = socket_path(&cli.socket)?;
     let response = send_request(&socket, &command, args)
         .await

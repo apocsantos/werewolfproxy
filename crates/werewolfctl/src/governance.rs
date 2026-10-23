@@ -4,12 +4,21 @@
 
 use crate::{print_local, CliError, ExitClass};
 use clap::Subcommand;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::path::PathBuf;
 use werewolf_core::governance::{tool, Body, Key};
 
 #[derive(Subcommand)]
 pub(crate) enum GovernanceCommands {
+    /// Apply a signed statement on this node (sent to the daemon). A genesis
+    /// needs --expect-hash, its hash exchanged out of band.
+    Apply {
+        file: PathBuf,
+        #[arg(long)]
+        expect_hash: Option<String>,
+    },
+    /// This node's governance head (asked from the daemon).
+    Status,
     /// Create one key holder's governance key file (mode 0600).
     Keygen { out: PathBuf },
     /// Create an unsigned statement for the key holders to sign.
@@ -93,8 +102,31 @@ fn keys(texts: &[String]) -> Result<Vec<Key>, CliError> {
         .collect()
 }
 
-pub(crate) fn run(json_output: bool, command: GovernanceCommands) -> Result<(), CliError> {
+/// Runs a local file command, or returns the control request for a daemon
+/// command (`apply`, `status`).
+pub(crate) fn run(
+    json_output: bool,
+    command: GovernanceCommands,
+) -> Result<Option<(String, Value)>, CliError> {
     match command {
+        GovernanceCommands::Apply { file, expect_hash } => {
+            let statement = tool::read_statement(&file).map_err(fail)?;
+            let mut args = json!({"statement": tool::encode_b64(&statement.encode())});
+            if let Some(hash) = expect_hash {
+                args["expect_hash"] = hash.into();
+            }
+            Ok(Some(("governance.apply".into(), args)))
+        }
+        GovernanceCommands::Status => Ok(Some(("governance.status".into(), json!({})))),
+        local => run_local(json_output, local).map(|()| None),
+    }
+}
+
+fn run_local(json_output: bool, command: GovernanceCommands) -> Result<(), CliError> {
+    match command {
+        GovernanceCommands::Apply { .. } | GovernanceCommands::Status => {
+            unreachable!("daemon commands")
+        }
         GovernanceCommands::Keygen { out } => {
             let public = tool::keygen(&out).map_err(fail)?;
             print_local(
