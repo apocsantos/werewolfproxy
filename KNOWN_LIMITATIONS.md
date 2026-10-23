@@ -53,7 +53,8 @@ follows.
   third nodes and no Kademlia `STORE`.
 - **Routing (Stage26)** supports exactly one relay per destination, set by
   the operator (`route set`); there is no route discovery or automatic
-  selection, and discovery RPCs do not go through a relay. The relay learns
+  selection; discovery reaches routed Pack members through their relay, but
+  nodes learned from contact records are dialled directly. The relay learns
   the requester's identity, the destination's listener address and the
   session's timing and volume, but not the service, the target or the
   payload. Path loss between the requester and the relay (D06-style) has

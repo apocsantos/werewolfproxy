@@ -114,7 +114,7 @@ with TLS pinned to its record key, until the target's record arrives (at most
 8 hops and 24 queries). A hop answers only if the requester is in its Pack.
 Both finish within seven seconds and report a status per node asked (`ok`
 with a record count, `unreachable`, `rejected`, `timeout`, `not_queried`,
-`bad_address`; `find` adds the `hop`, and names nodes outside the Pack
+`bad_address`, `bad_route`; `find` adds the `hop`, and names nodes outside the Pack
 `node:<id prefix>`),
 and are refused under Silver
 (`SILVER_ACTIVE`) and while another refresh or find runs (`DISCOVER_BUSY`).
@@ -154,7 +154,7 @@ to.
 
 `discover services` asks every Pack member (or only `--peer`) and reports
 per member `ok` with its entries, `unreachable`, `rejected`, `timeout`,
-`bad_address` or `not_queried`, within seven seconds. An empty list does not distinguish
+`bad_address`, `bad_route` or `not_queried`, within seven seconds. An empty list does not distinguish
 "nothing published" from "nothing granted to you". It stores nothing.
 
 `service add NAME --from PEER` asks Pack member PEER at that moment for the
@@ -215,4 +215,12 @@ address closes it and deactivates profiles routed through RELAY (as for
 direct profiles), and revoking or removing RELAY closes it. Changing or
 removing a route applies to Fangs opened afterwards. The disposable gate `tests/integration/routed_fang_gate.py`
 exercises this contract.
+
+Discovery follows routes too: `discover refresh`, `discover find` (for its
+Pack seeds), `discover services` and `service add --from` reach a routed
+PEER through RELAY with the same RPC over encrypted TCP, pinned to PEER's
+key, needing the same RELAY grant as a routed Fang; `--transport` does not
+apply to a routed PEER. A route that no longer resolves is reported as
+`bad_route`; the member is never dialled directly instead. Nodes learned
+from contact records are always dialled directly.
 

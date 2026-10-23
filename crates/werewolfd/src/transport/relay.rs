@@ -246,6 +246,55 @@ async fn routed_session(
     }
 }
 
+/// The byte stream to the destination's listener through the relay, as
+/// handed to `over_relay`'s closure.
+pub(crate) type RelayStream = Box<dyn RelayIo>;
+pub(crate) trait RelayIo: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> RelayIo for T {}
+
+/// One short exchange with the destination through the relay (Stage26
+/// decision 5b: discovery RPCs). Opens the outer session exactly as a
+/// routed Fang does and runs `exchange` over the stream inside it. Unlike a
+/// Fang session there is no upload to account for: when `exchange` ends,
+/// both sessions are dropped.
+pub(crate) async fn over_relay<T, F, Fut>(
+    routed: &Routed,
+    identity: &PeltIdentity,
+    exchange: F,
+) -> io::Result<T>
+where
+    F: FnOnce(RelayStream) -> Fut,
+    Fut: std::future::Future<Output = io::Result<T>>,
+{
+    let target = routed.destination.to_string();
+    match routed.hop {
+        RouteHop::Quic => {
+            let relay: SocketAddr = routed.relay_address.parse().map_err(|_| hs::rejected())?;
+            let endpoint = crate::quic_fang::client_endpoint(&routed.relay)?;
+            let (connection, send, recv) =
+                crate::quic_fang::connect_v3_on(&endpoint, relay, &target, identity, &routed.relay)
+                    .await?;
+            let _close = CloseClientConnection(connection);
+            exchange(Box::new(tokio::io::join(recv, send))).await
+        }
+        RouteHop::Tcp => {
+            let mut outer = connect_authenticated_tcp(&routed.relay_address, &routed.relay).await?;
+            let key = client_handshake(&mut outer, &target, identity, &routed.relay).await?;
+            let (near, mut far) = tokio::io::duplex(64 * 1024);
+            let pump = secure_copy_client_side(&mut far, outer, key);
+            let exchange = exchange(Box::new(near));
+            tokio::pin!(pump, exchange);
+            tokio::select! {
+                result = &mut exchange => result,
+                result = &mut pump => {
+                    result?;
+                    exchange.await
+                }
+            }
+        }
+    }
+}
+
 /// The unchanged encrypted-TCP client to the destination, over `carrier`.
 async fn inner_session<C>(
     inbound: &mut TcpStream,

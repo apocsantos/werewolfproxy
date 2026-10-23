@@ -173,6 +173,7 @@ deny-by-default.
 | Both grants needed | With only C's grant (B does not grant A C's listener) and with only B's grant (C does not grant A the echo target), a session through the routed Fang is reset with no bytes delivered |
 | QUIC hop | `fang active` shows `tcp via wolf-b (quic)`; 64 MiB full-duplex echo exact |
 | End to end at both hops | While one session is open, B and C each report one active authority session |
+| Discovery through the relay | C publishes `echo-c`; A's `discover services --peer wolf-c` returns it, `discover refresh` answers `ok` for B (direct) and C (through B), and `service add --from wolf-c` imports it |
 | TCP hop | With `--hop tcp`, `tcp via wolf-b (tcp)`; 64 MiB full-duplex echo exact |
 | No plain TCP | `service connect --transport tcp-plain` to the routed peer exits 70 and leaves no Fang |
 | Silver on the relay | A live routed session is reset when B enters Silver; after `silver off` a new 1 MiB session is exact |
