@@ -153,6 +153,24 @@ class RoutedFangGate(ServiceGate):
         self.record('a new routed session works after Silver ends',
                     self.duplex('held', total=1 << 20))
 
+        # A relay address change on A closes the routed Fang (LC-01 applies to
+        # the relay as well as to the destination).
+        conn = self.held('held')
+        changed = self.ctl('a', 'pack', 'set-address', 'wolf-b',
+                           f'tcp://{self.address("b_tcp")}')['result']
+        try:
+            data = conn.recv(64)
+            end = 'eof' if data == b'' else f'data {data!r}'
+        except (ConnectionResetError, socket.timeout) as exc:
+            end = type(exc).__name__
+        conn.close()
+        left = self.active_fangs('a')
+        require(changed['closed_fangs'] == 1 and left == [], f'routed Fang survived: {left}')
+        require(end in ('ConnectionResetError', 'eof'), f'live session not cut: {end}')
+        self.ctl('a', 'pack', 'set-address', 'wolf-b', f'quic://{self.address("b_quic")}')
+        self.record('a relay address change closes the routed Fang',
+                    {'closed_fangs': changed['closed_fangs'], 'end': end})
+
         # Removing the route turns the next Fang back into a direct one.
         self.close_all()
         self.ctl('a', 'route', 'remove', 'wolf-c')

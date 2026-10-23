@@ -176,6 +176,7 @@ deny-by-default.
 | TCP hop | With `--hop tcp`, `tcp via wolf-b (tcp)`; 64 MiB full-duplex echo exact |
 | No plain TCP | `service connect --transport tcp-plain` to the routed peer exits 70 and leaves no Fang |
 | Silver on the relay | A live routed session is reset when B enters Silver; after `silver off` a new 1 MiB session is exact |
+| Relay address change | `pack set-address wolf-b` on A closes the routed Fang (1 closed) and resets its live session |
 | Route removal | After `route remove`, the next Fang to C is direct (no `via`) |
 
 ## Stage 1 execution results — 2026-09-07

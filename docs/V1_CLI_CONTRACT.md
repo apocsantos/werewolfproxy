@@ -210,6 +210,9 @@ routed PEER fails with `FANG_ROUTE_INVALID`; `quic` and `tcp` select nothing
 for a routed PEER, because the route's hop does. The open reports `via` and
 `peer_addr` (PEER's listener), and `fang active` shows the transport as
 `tcp via RELAY (HOP)`. Any failure at either hop resets the local
-connection. The disposable gate `tests/integration/routed_fang_gate.py`
+connection. A routed Fang depends on RELAY as on PEER: changing RELAY's
+address closes it and deactivates profiles routed through RELAY (as for
+direct profiles), and revoking or removing RELAY closes it. Changing or
+removing a route applies to Fangs opened afterwards. The disposable gate `tests/integration/routed_fang_gate.py`
 exercises this contract.
 

@@ -141,13 +141,19 @@ impl Drop for FangTermination {
     }
 }
 
+pub(super) struct Started {
+    at: Instant,
+    transport: String,
+    via: Option<String>,
+}
+
 #[derive(Default)]
 pub(super) struct FangRegistry {
     pub(super) fangs: Vec<FangRecord>,
     pub(super) tasks: HashMap<String, JoinHandle<()>>,
-    /// Start time and the transport the Fang opened with, kept together so
-    /// every removal path drops both.
-    pub(super) started: HashMap<String, (Instant, String)>,
+    /// Start time, the transport the Fang opened with and, for a routed Fang
+    /// (Stage26), its relay; kept together so every removal path drops all.
+    pub(super) started: HashMap<String, Started>,
     cancellations: HashMap<String, FangCancellation>,
 }
 
@@ -178,13 +184,24 @@ impl FangRegistry {
     {
         self.fangs.retain(predicate);
     }
-    pub(super) fn terminate_peer(&mut self, peer: &str) -> usize {
-        let ids: Vec<String> = self
-            .fangs
+    /// Fangs that depend on Pack member `peer`: those to it, and routed
+    /// Fangs that use it as their relay. A change to that member's address
+    /// or trust must close all of them.
+    pub(super) fn ids_using_peer(&self, peer: &str) -> Vec<String> {
+        self.fangs
             .iter()
-            .filter(|fang| fang.peer == peer)
+            .filter(|fang| {
+                fang.peer == peer
+                    || self
+                        .started
+                        .get(&fang.id)
+                        .is_some_and(|started| started.via.as_deref() == Some(peer))
+            })
             .map(|fang| fang.id.clone())
-            .collect();
+            .collect()
+    }
+    pub(super) fn terminate_peer(&mut self, peer: &str) -> usize {
+        let ids = self.ids_using_peer(peer);
 
         for id in &ids {
             if let Some(handle) = self.tasks.remove(id) {
@@ -195,7 +212,7 @@ impl FangRegistry {
             }
             self.started.remove(id);
         }
-        self.fangs.retain(|fang| fang.peer != peer);
+        self.fangs.retain(|fang| !ids.contains(&fang.id));
         ids.len()
     }
     pub(super) fn terminate_ids(&mut self, ids: &[String]) -> usize {
@@ -236,8 +253,21 @@ impl FangRegistry {
     pub(super) fn insert_task(&mut self, id: String, handle: JoinHandle<()>) {
         self.tasks.insert(id, handle);
     }
-    pub(super) fn insert_started(&mut self, id: String, started: Instant, transport: &str) {
-        self.started.insert(id, (started, transport.to_string()));
+    pub(super) fn insert_started(
+        &mut self,
+        id: String,
+        started: Instant,
+        transport: &str,
+        via: Option<&str>,
+    ) {
+        self.started.insert(
+            id,
+            Started {
+                at: started,
+                transport: transport.to_string(),
+                via: via.map(str::to_string),
+            },
+        );
     }
     pub(super) fn insert_cancellation(&mut self, id: String, cancellation: FangCancellation) {
         self.cancellations.insert(id, cancellation);
@@ -267,12 +297,12 @@ impl FangRegistry {
         self.fangs.retain(|f| !dead_ids.contains(&f.id));
     }
     pub(super) fn started_at(&self, id: &str) -> Option<&Instant> {
-        self.started.get(id).map(|(at, _)| at)
+        self.started.get(id).map(|started| &started.at)
     }
     pub(super) fn transport_of(&self, id: &str) -> Option<&str> {
         self.started
             .get(id)
-            .map(|(_, transport)| transport.as_str())
+            .map(|started| started.transport.as_str())
     }
     pub(super) fn abort_all(&mut self) {
         for cancellation in self.cancellations.values() {
@@ -425,12 +455,38 @@ mod activation_tests {
                 state: werewolf_core::fang::FangState::Active,
             });
         }
-        registry.insert_started("profile".into(), Instant::now(), "tcp");
-        registry.insert_started("service".into(), Instant::now(), "quic");
+        registry.insert_started("profile".into(), Instant::now(), "tcp", None);
+        registry.insert_started("service".into(), Instant::now(), "quic", None);
         assert_eq!(registry.transport_of("profile"), Some("tcp"));
         assert_eq!(registry.transport_of("service"), Some("quic"));
         registry.terminate_ids(&["service".into()]);
         assert_eq!(registry.transport_of("service"), None);
         assert!(registry.started_at("profile").is_some());
+    }
+
+    #[test]
+    fn relay_changes_reach_routed_fangs() {
+        let mut registry = FangRegistry::default();
+        for (id, peer, via) in [
+            ("direct-b", "b", None),
+            ("routed-c", "c", Some("b")),
+            ("direct-c", "c", None),
+            ("routed-d", "d", Some("e")),
+        ] {
+            registry.push(FangRecord {
+                id: id.into(),
+                peer: peer.into(),
+                local: "127.0.0.1:1".into(),
+                remote: "127.0.0.1:2".into(),
+                state: werewolf_core::fang::FangState::Active,
+            });
+            registry.insert_started(id.into(), Instant::now(), "tcp", via);
+        }
+        assert_eq!(registry.ids_using_peer("b"), ["direct-b", "routed-c"]);
+        assert_eq!(registry.ids_using_peer("c"), ["routed-c", "direct-c"]);
+        assert_eq!(registry.terminate_peer("b"), 2);
+        let left: Vec<_> = registry.records().iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(left, ["direct-c", "routed-d"]);
+        assert_eq!(registry.transport_of("routed-c"), None);
     }
 }
