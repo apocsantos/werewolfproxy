@@ -1,7 +1,7 @@
 # Stage28 governance statements — format and verification spec
 
-**Status: specification for review, awaiting owner decisions S1–S4 below.**
-No code exists. This implements decisions 1a, 2a, 3a, 4a, 5a, 6a and 7a of
+**Status: specification approved 2026-10-23 (S1–S4 as recommended; see
+[Decisions](#decisions-for-this-spec)).** No code exists yet. This implements decisions 1a, 2a, 3a, 4a, 5a, 6a and 7a of
 the [governance survey](STAGE28_GOVERNANCE_SURVEY.md) and is reviewed like
 the [Stage24 wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md) before any code
 lands. It defines what a governance statement is, exactly which bytes are
@@ -140,6 +140,9 @@ werewolfctl governance inspect FILE            # decode and show the hash
 ```
 
 ## Decisions for this spec
+
+Accepted 2026-10-23: S1 required `--expect-hash`, S2 manifest schema 2, S3
+fence governance only, S4 BLAKE3 with domain strings.
 
 - **S1. Pinning genesis (recommended: required `--expect-hash`).** The
   genesis hash is the network's root of trust, exchanged out of band like a
