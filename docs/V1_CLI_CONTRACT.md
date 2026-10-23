@@ -224,3 +224,28 @@ apply to a routed PEER. A route that no longer resolves is reported as
 `bad_route`; the member is never dialled directly instead. Nodes learned
 from contact records are always dialled directly.
 
+## Stage27 extension: service providers
+
+Stage27 ([design](STAGE27_PROVIDER_SELECTION_DESIGN.md)) lets one service
+entry name an ordered list of providers. Step 2 adds the list; trying them
+per connection follows in step 3.
+
+- service provider add NAME PEER TARGET
+- service provider add NAME --from PEER [--transport quic|tcp]
+- service provider remove NAME PEER
+
+A service's providers are its first `peer`/`target` followed by its
+fallbacks, in the order added; `service show` lists them. `provider add`
+appends one; `--from PEER` takes the target from NAME as PEER publishes it
+to this node at that moment (as `service add --from`) and is refused if
+PEER's kind label differs from the entry's. `provider remove` drops one;
+removing the first promotes the next, and the last provider goes only with
+`service remove`. At most 4 providers, none listed twice; PEER need not be
+in the Pack yet. Providers grant nothing: each still authorizes the
+requester with its own Target Policy. Entries persist in `services.json`
+with an optional `fallbacks` list, omitted when empty, so an entry with one
+provider keeps its Stage23 form. Errors are `SERVICE_INVALID`,
+`SERVICE_NOT_FOUND`, `SERVICE_SAVE_FAILED` and the `--from` discovery
+errors; werewolfctl exits 70. `--transport` without `--from` is a usage
+error (exit 64) for `service add` and `service provider add`.
+

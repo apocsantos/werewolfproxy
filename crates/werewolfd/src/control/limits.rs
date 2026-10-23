@@ -178,6 +178,9 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
         "service.add" => &["name", "peer", "target", "kind"],
         "service.publish" => &["name", "target", "kind"],
         "service.add_from" => &["name", "peer", "transport"],
+        "service.provider.add" => &["name", "peer", "target", "kind"],
+        "service.provider.add_from" => &["name", "peer", "transport"],
+        "service.provider.remove" => &["name", "peer"],
         "discover.services" => &["peer", "transport"],
         "route.set" => &["peer", "via", "hop"],
         "route.remove" => &["peer"],
@@ -295,6 +298,8 @@ pub(super) fn mutates(cmd: &str) -> bool {
             | "service.remove"
             | "service.publish"
             | "service.unpublish"
+            | "service.provider.add"
+            | "service.provider.remove"
             | "route.set"
             | "route.remove"
             | "discover.advertise"
@@ -405,6 +410,28 @@ mod tests {
         // is resolved first and then saved as an ordinary `service.add`.
         assert!(!mutates("discover.services") && !mutates("service.add_from"));
         assert!(!mutates("service.published"));
+    }
+
+    #[test]
+    fn stage27_provider_arguments_are_allowlisted_strings() {
+        for good in [
+            br#"{"id":"1","cmd":"service.provider.add","args":{"name":"web","peer":"wolf-b","target":"127.0.0.1:8081"}}"#
+                .as_slice(),
+            br#"{"id":"1","cmd":"service.provider.add_from","args":{"name":"web","peer":"wolf-b","transport":"quic"}}"#,
+            br#"{"id":"1","cmd":"service.provider.remove","args":{"name":"web","peer":"wolf-b"}}"#,
+        ] {
+            assert!(parse(good).is_ok(), "{good:?}");
+        }
+        for bad in [
+            br#"{"id":"1","cmd":"service.provider.add_from","args":{"name":"web","peer":"wolf-b","target":"127.0.0.1:22"}}"#
+                .as_slice(),
+            br#"{"id":"1","cmd":"service.provider.remove","args":{"name":"web","peer":"wolf-b","target":"x"}}"#,
+            br#"{"id":"1","cmd":"service.provider.add","args":{"name":"web","peer":"wolf-b","target":"127.0.0.1:8081","transport":"quic"}}"#,
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+        assert!(mutates("service.provider.add") && mutates("service.provider.remove"));
+        assert!(!mutates("service.provider.add_from"));
     }
 
     #[test]

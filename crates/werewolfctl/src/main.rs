@@ -94,6 +94,26 @@ enum Commands {
     },
 }
 #[derive(Subcommand)]
+enum ProviderCommands {
+    /// Append PEER as the next provider of NAME. It grants no access.
+    Add {
+        name: String,
+        #[arg(required_unless_present = "from")]
+        peer: Option<String>,
+        /// Target on PEER, for example 127.0.0.1:8080.
+        #[arg(required_unless_present = "from")]
+        target: Option<String>,
+        /// Take the target from NAME as Pack member PEER publishes it now.
+        #[arg(long, value_name = "PEER", conflicts_with_all = ["peer", "target"])]
+        from: Option<String>,
+        /// Transport for --from (default quic).
+        #[arg(long, requires = "from", value_parser = ["quic", "tcp"])]
+        transport: Option<String>,
+    },
+    /// Remove PEER from NAME's providers; the next one moves up.
+    Remove { name: String, peer: String },
+}
+#[derive(Subcommand)]
 enum RouteCommands {
     /// Reach PEER through relay VIA; replaces PEER's existing route.
     Set {
@@ -256,6 +276,11 @@ enum ServiceCommands {
     Remove {
         name: String,
     },
+    /// Further providers of a service, tried in order per connection.
+    Provider {
+        #[command(subcommand)]
+        command: ProviderCommands,
+    },
     /// Connect a local listener to a named service through the normal Fang path.
     Connect {
         /// Service name from `service list`.
@@ -398,6 +423,12 @@ async fn run(cli: Cli) -> Result<(), CliError> {
     print_response(cli.json, &command, response)
 }
 
+/// `--transport` only selects how `--from` asks the peer; without `--from`
+/// it would be silently ignored, so it is refused instead.
+fn transport_without_from() -> CliError {
+    CliError::new(ExitClass::Usage, "--transport applies only with --from")
+}
+
 fn request_for(command: Commands) -> Result<(String, Value), CliError> {
     let (cmd, args) = match command {
         Commands::Status | Commands::Health | Commands::Diagnose => ("status", json!({})),
@@ -521,6 +552,38 @@ fn request_for(command: Commands) -> Result<(String, Value), CliError> {
         } => ("fang.cleanup", json!({})),
         Commands::Service {
             command:
+                ServiceCommands::Provider {
+                    command:
+                        ProviderCommands::Add {
+                            name,
+                            peer,
+                            target,
+                            from,
+                            transport,
+                        },
+                },
+        } => match from {
+            Some(from) => {
+                let _ = (peer, target);
+                (
+                    "service.provider.add_from",
+                    json!({"name":name,"peer":from,"transport":transport.unwrap_or_else(|| "quic".into())}),
+                )
+            }
+            None if transport.is_some() => return Err(transport_without_from()),
+            None => (
+                "service.provider.add",
+                json!({"name":name,"peer":peer.unwrap_or_default(),"target":target.unwrap_or_default()}),
+            ),
+        },
+        Commands::Service {
+            command:
+                ServiceCommands::Provider {
+                    command: ProviderCommands::Remove { name, peer },
+                },
+        } => ("service.provider.remove", json!({"name":name,"peer":peer})),
+        Commands::Service {
+            command:
                 ServiceCommands::Add {
                     name,
                     peer,
@@ -545,10 +608,14 @@ fn request_for(command: Commands) -> Result<(String, Value), CliError> {
                     target,
                     kind,
                     from: None,
-                    ..
+                    transport,
                 },
         } => (
-            "service.add",
+            if transport.is_some() {
+                return Err(transport_without_from());
+            } else {
+                "service.add"
+            },
             json!({"name":name,"peer":peer.unwrap_or_default(),"target":target.unwrap_or_default(),"kind":kind.unwrap_or_default()}),
         ),
         Commands::Service {
@@ -847,6 +914,83 @@ mod tests {
                     .is_err(),
                 "{bad:?}"
             );
+        }
+    }
+
+    #[test]
+    fn provider_commands_map_to_daemon_requests() {
+        assert_eq!(
+            request(&[
+                "service",
+                "provider",
+                "add",
+                "web",
+                "wolf-b",
+                "127.0.0.1:8081"
+            ]),
+            (
+                "service.provider.add".into(),
+                json!({"name":"web","peer":"wolf-b","target":"127.0.0.1:8081"})
+            )
+        );
+        assert_eq!(
+            request(&["service", "provider", "add", "web", "--from", "wolf-b"]),
+            (
+                "service.provider.add_from".into(),
+                json!({"name":"web","peer":"wolf-b","transport":"quic"})
+            )
+        );
+        assert_eq!(
+            request(&["service", "provider", "remove", "web", "wolf-b"]),
+            (
+                "service.provider.remove".into(),
+                json!({"name":"web","peer":"wolf-b"})
+            )
+        );
+        for bad in [
+            &["service", "provider", "add", "web", "wolf-b"][..],
+            &[
+                "service", "provider", "add", "web", "--from", "wolf-b", "wolf-c",
+            ],
+            &["service", "provider", "remove", "web"],
+        ] {
+            assert!(
+                Cli::try_parse_from(std::iter::once("werewolfctl").chain(bad.iter().copied()))
+                    .is_err(),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn transport_without_from_is_refused() {
+        for args in [
+            &[
+                "service",
+                "add",
+                "web",
+                "wolf-a",
+                "127.0.0.1:1",
+                "tcp",
+                "--transport",
+                "tcp",
+            ][..],
+            &[
+                "service",
+                "provider",
+                "add",
+                "web",
+                "wolf-b",
+                "127.0.0.1:1",
+                "--transport",
+                "tcp",
+            ],
+        ] {
+            let cli =
+                Cli::try_parse_from(std::iter::once("werewolfctl").chain(args.iter().copied()))
+                    .unwrap();
+            let error = request_for(cli.command).expect_err("accepted --transport without --from");
+            assert!(matches!(error.class, ExitClass::Usage), "{args:?}");
         }
     }
 
