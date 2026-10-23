@@ -106,6 +106,40 @@ A Stage28 node rejects kinds 3 and 4 (`UnknownKind`) and therefore cannot
 apply any later statement in a chain that uses them. Nodes are upgraded
 before admission or activation statements are delivered.
 
+## Acceptance scenarios (owner)
+
+Both are required tests, in core (chain) and in the lab gate (node).
+
+**1. A node admitted after activation.**
+
+```text
+fresh node X
+→ genesis
+→ activation while X is not admitted
+→ head advances but X remains fenced
+→ later Admission(X)
+→ X becomes admitted
+→ no statement skipped or reordered
+```
+
+X applies every statement in sequence order; its head after activation
+equals every other node's. While fenced, X's opens and inbound OPENs are
+refused. The admission lifts the fence with no further statement or local
+action.
+
+**2. Revocation is permanent.**
+
+```text
+X revoked
+→ later Admission(X)
+→ rejected permanently
+```
+
+An admission naming a revoked key is invalid on every node (`BodyRule`).
+No later statement can make it valid: there is no unrevoke, and admission
+never removes a key from the revoked list. X can return only under a new
+Pelt, admitted as a new key.
+
 ## Tests required before merge
 
 - **Test vectors:** an admission and an activation from the Stage28 fixed
