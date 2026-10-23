@@ -11,6 +11,7 @@ import json
 import pathlib
 import socket
 import sys
+import threading
 import time
 
 sys.dont_write_bytecode = True
@@ -47,6 +48,65 @@ class RoutedFangGate(ServiceGate):
         require(data == b'', f'{key}: bytes delivered without both grants: {data!r}')
         return {'end': 'eof'}
 
+    def half_close_target(self):
+        """A target that answers, half-closes first, then discards input."""
+        listener = socket.create_server(('127.0.0.1', 0))
+        def answer(conn):
+            with conn:
+                try:
+                    conn.recv(65536)
+                    conn.sendall(b'done\n')
+                    conn.shutdown(socket.SHUT_WR)
+                    while conn.recv(65536):
+                        pass
+                except OSError:
+                    pass
+        def serve():
+            # Every connection, including the listener check's.
+            while True:
+                try:
+                    conn, _ = listener.accept()
+                except OSError:
+                    return
+                threading.Thread(target=answer, args=(conn,), daemon=True).start()
+        threading.Thread(target=serve, daemon=True).start()
+        return listener, f'127.0.0.1:{listener.getsockname()[1]}'
+
+    def remote_first(self, key):
+        """The target ends its direction while the client is still sending:
+        the client must see EOF after the answer, and its send direction must
+        end promptly instead of waiting out an acknowledgement window."""
+        conn = socket.create_connection(('127.0.0.1', self.ports[key]), timeout=30)
+        sent_end = {}
+        def send():
+            started = time.monotonic()
+            try:
+                for _ in range(1024):
+                    conn.sendall(b'x' * 65536)
+                sent_end['end'] = 'complete'
+            except OSError as exc:
+                sent_end['end'] = type(exc).__name__
+            sent_end['at'] = time.monotonic() - started
+        sender = threading.Thread(target=send)
+        started = time.monotonic()
+        sender.start()
+        received = b''
+        try:
+            while chunk := conn.recv(4096):
+                received += chunk
+        except socket.timeout:
+            require(False, f'{key}: no EOF after {time.monotonic() - started:.1f} s; '
+                           f'received {received!r}; send {sent_end}')
+        eof_at = time.monotonic() - started
+        sender.join(timeout=30)
+        conn.close()
+        require(received == b'done\n', f'{key}: unexpected answer {received!r}')
+        require(not sender.is_alive(), f'{key}: send direction still blocked after 30 s')
+        lag = round(sent_end['at'] - eof_at, 3)
+        require(lag < 10, f'{key}: send direction ended {lag} s after EOF')
+        return {'answer': received.decode().strip(), 'eof_s': round(eof_at, 3),
+                'send_end': sent_end['end'], 'send_end_after_eof_s': lag}
+
     def held(self, key):
         conn = socket.create_connection(('127.0.0.1', self.ports[key]), timeout=15)
         conn.sendall(b'held\n')
@@ -56,7 +116,8 @@ class RoutedFangGate(ServiceGate):
     def run(self):
         self.prepare_binaries()
         self.reserve_wolf_ports()
-        for key in ('quic_hop', 'tcp_hop', 'no_relay_grant', 'no_dest_grant', 'held', 'after'):
+        for key in ('quic_hop', 'tcp_hop', 'no_relay_grant', 'no_dest_grant', 'held', 'after',
+                    'half_quic', 'half_tcp'):
             self.reserve(key)
         target_dir = self.base / 'targets'
         target_dir.mkdir()
@@ -110,6 +171,15 @@ class RoutedFangGate(ServiceGate):
         self.record('routed Fang over a QUIC hop, 64 MiB full duplex',
                     {**result, 'transport': fangs[0]['transport']})
 
+        # The target finishes first while the client is still sending.
+        half_listener, half_target = self.half_close_target()
+        self.ctl('c', 'target', 'allow', 'wolf-a', half_target)
+        self.ctl('a', 'service', 'add', 'half', 'wolf-c', half_target, 'tcp')
+        self.connect_service('half', 'half_quic')
+        self.record('target finishing first ends a routed session promptly (QUIC hop)',
+                    self.remote_first('half_quic'))
+        half_listener.close()
+
         # While a session is open, both B and C hold one authority session.
         conn = self.held('quic_hop')
         holding = {'b': self.authority('b'), 'c': self.authority('c')}
@@ -125,6 +195,13 @@ class RoutedFangGate(ServiceGate):
                 'TCP hop not shown')
         self.record('routed Fang over an encrypted TCP hop, 64 MiB full duplex',
                     self.duplex('tcp_hop', total=64 << 20))
+        half_listener, half_target = self.half_close_target()
+        self.ctl('c', 'target', 'allow', 'wolf-a', half_target)
+        self.ctl('a', 'service', 'add', 'half-tcp', 'wolf-c', half_target, 'tcp')
+        self.connect_service('half-tcp', 'half_tcp')
+        self.record('target finishing first ends a routed session promptly (TCP hop)',
+                    self.remote_first('half_tcp'))
+        half_listener.close()
         self.close_all()
 
         # Plain TCP is never carried through a relay.

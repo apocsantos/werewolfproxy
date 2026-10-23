@@ -237,3 +237,16 @@ Fang's relay; those changes close Fangs that use the member as destination
 or relay, and an address change deactivates profiles routed through it. The
 lab gate checks this and fails without the fix.
 
+Destination finishing first: the same WAN run found two end-of-session
+defects when the destination's target half-closes while the client is still
+sending. Over a QUIC hop the inner session ended without finishing the outer
+stream, so the client's send direction waited out the 60 s upload
+acknowledgement window (3 of 3 `fin` runs; the target saw a reset, never a
+clean end). Over a TCP hop the outer pump ended and dropped its end of the
+pipe, so the inner session's next upload write failed and it reset before
+delivering the destination's final bytes (9 of 15 lab tries with 1 MiB in
+flight). The QUIC hop now finishes the outer stream before waiting, and the
+TCP hop keeps the pipe open until the inner session ends. The lab gate checks
+both hops with a target that answers and half-closes; without the QUIC change
+it fails.
+
