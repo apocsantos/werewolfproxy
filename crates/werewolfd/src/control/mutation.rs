@@ -44,6 +44,8 @@ pub(super) fn handles(command: &str) -> bool {
             | "service.remove"
             | "service.publish"
             | "service.unpublish"
+            | "service.provider.add"
+            | "service.provider.remove"
             | "route.set"
             | "route.remove"
             | "discover.advertise"
@@ -497,6 +499,67 @@ pub(super) async fn handle(
         return ControlResponse::ok(
             req.id,
             json!({"status": status, "name": name, "published": live.published.len()}),
+        );
+    }
+
+    if matches!(
+        req.cmd.as_str(),
+        "service.provider.add" | "service.provider.remove"
+    ) {
+        // Stage27: providers are tried in this order per connection; each
+        // still authorizes the requester itself. The list is intent only.
+        let mut candidate = state.lock().await.services.clone();
+        let name = arg(&req, "name");
+        let peer = arg(&req, "peer");
+        let Some(service) = candidate.iter_mut().find(|service| service.name == name) else {
+            return error(&req.id, "SERVICE_NOT_FOUND");
+        };
+        let status = if req.cmd == "service.provider.add" {
+            // From `--from`, the provider's own kind label must match; a
+            // different kind under the same name is a different service.
+            let kind = arg(&req, "kind");
+            if !kind.is_empty() && service_kind(&kind) != Some(service.kind.clone()) {
+                return error(&req.id, "SERVICE_INVALID");
+            }
+            service
+                .fallbacks
+                .push(werewolf_core::service::ServiceProvider {
+                    peer: peer.clone(),
+                    target: arg(&req, "target"),
+                });
+            "provider_added"
+        } else if service.peer == peer {
+            // Removing the first provider promotes the next one; the last
+            // provider goes only with `service remove`.
+            if service.fallbacks.is_empty() {
+                return error(&req.id, "SERVICE_INVALID");
+            }
+            let next = service.fallbacks.remove(0);
+            service.peer = next.peer;
+            service.target = next.target;
+            "provider_removed"
+        } else {
+            let before = service.fallbacks.len();
+            service.fallbacks.retain(|provider| provider.peer != peer);
+            if service.fallbacks.len() == before {
+                return error(&req.id, "SERVICE_NOT_FOUND");
+            }
+            "provider_removed"
+        };
+        let providers = service.fallbacks.len() + 1;
+        if werewolf_core::service::validate_services(&candidate).is_err() {
+            return error(&req.id, "SERVICE_INVALID");
+        }
+        if durable(&home, "services.json", &candidate, false, &state)
+            .await
+            .is_err()
+        {
+            return error(&req.id, "SERVICE_SAVE_FAILED");
+        }
+        state.lock().await.services = candidate;
+        return ControlResponse::ok(
+            req.id,
+            json!({"status": status, "name": name, "peer": peer, "providers": providers}),
         );
     }
 
@@ -1732,5 +1795,177 @@ mod tests {
         assert_eq!(response.error.unwrap().code, "ROUTE_SAVE_FAILED");
         assert!(state.lock().await.routes.is_empty());
         assert!(!state.lock().await.storage_degraded);
+    }
+
+    // Stage27 `service.provider.add` / `service.provider.remove`.
+
+    fn provider_request(cmd: &str, args: serde_json::Value) -> ControlRequest {
+        ControlRequest {
+            id: "provider".into(),
+            cmd: cmd.into(),
+            args,
+        }
+    }
+
+    fn services_on_disk(fixture: &Fixture) -> Vec<ServiceDefinition> {
+        serde_json::from_slice(&std::fs::read(fixture.0.join("services.json")).unwrap()).unwrap()
+    }
+
+    fn order(state: &DaemonState) -> Vec<String> {
+        state.services[0]
+            .providers()
+            .map(|(peer, _)| peer.to_owned())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn providers_are_added_in_order_and_removed_with_promotion() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        assert!(
+            handle(service_add_request("web"), state.clone(), fixture.0.clone())
+                .await
+                .ok
+        );
+        for peer in ["wolf-b", "wolf-c"] {
+            let response = handle(
+                provider_request(
+                    "service.provider.add",
+                    json!({"name": "web", "peer": peer, "target": "127.0.0.1:8081"}),
+                ),
+                state.clone(),
+                fixture.0.clone(),
+            )
+            .await;
+            assert!(response.ok, "{response:?}");
+        }
+        assert_eq!(
+            order(&*state.lock().await),
+            ["wolf-not-yet-in-pack", "wolf-b", "wolf-c"]
+        );
+        assert_eq!(services_on_disk(&fixture), state.lock().await.services);
+
+        // Removing the first provider promotes the next, target included.
+        let response = handle(
+            provider_request(
+                "service.provider.remove",
+                json!({"name": "web", "peer": "wolf-not-yet-in-pack"}),
+            ),
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert_eq!(response.result.unwrap()["providers"], 2);
+        {
+            let live = state.lock().await;
+            assert_eq!(order(&live), ["wolf-b", "wolf-c"]);
+            assert_eq!(live.services[0].target, "127.0.0.1:8081");
+        }
+        let response = handle(
+            provider_request(
+                "service.provider.remove",
+                json!({"name": "web", "peer": "wolf-c"}),
+            ),
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert!(response.ok);
+        assert_eq!(order(&*state.lock().await), ["wolf-b"]);
+        // Back to one provider: the file is in its Stage23 form again.
+        assert!(!std::fs::read_to_string(fixture.0.join("services.json"))
+            .unwrap()
+            .contains("fallbacks"));
+    }
+
+    #[tokio::test]
+    async fn invalid_provider_changes_leave_the_registry_unchanged() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        assert!(
+            handle(service_add_request("web"), state.clone(), fixture.0.clone())
+                .await
+                .ok
+        );
+        let add = |name: &str, peer: &str, kind: Option<&str>| {
+            let mut args = json!({"name": name, "peer": peer, "target": "127.0.0.1:8081"});
+            if let Some(kind) = kind {
+                args["kind"] = kind.into();
+            }
+            provider_request("service.provider.add", args)
+        };
+        for peer in ["wolf-b", "wolf-c", "wolf-d"] {
+            assert!(
+                handle(add("web", peer, None), state.clone(), fixture.0.clone())
+                    .await
+                    .ok
+            );
+        }
+        let committed = std::fs::read(fixture.0.join("services.json")).unwrap();
+        for (request, code) in [
+            (add("web", "wolf-e", None), "SERVICE_INVALID"), // a fifth provider
+            (add("web", "wolf-b", None), "SERVICE_INVALID"), // listed twice
+            (add("web", "wolf-not-yet-in-pack", None), "SERVICE_INVALID"),
+            (add("ghost", "wolf-e", None), "SERVICE_NOT_FOUND"),
+            (
+                provider_request(
+                    "service.provider.remove",
+                    json!({"name": "web", "peer": "wolf-x"}),
+                ),
+                "SERVICE_NOT_FOUND",
+            ),
+        ] {
+            let response = handle(request, state.clone(), fixture.0.clone()).await;
+            assert_eq!(response.error.unwrap().code, code);
+        }
+        assert_eq!(
+            std::fs::read(fixture.0.join("services.json")).unwrap(),
+            committed
+        );
+
+        // From --from, a different kind under the same name is refused.
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        assert!(
+            handle(service_add_request("web"), state.clone(), fixture.0.clone())
+                .await
+                .ok
+        );
+        let response = handle(
+            add("web", "wolf-b", Some("ssh")),
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert_eq!(response.error.unwrap().code, "SERVICE_INVALID");
+        assert!(
+            handle(
+                add("web", "wolf-b", Some("http")),
+                state.clone(),
+                fixture.0.clone()
+            )
+            .await
+            .ok
+        );
+
+        // The last provider goes only with `service remove`.
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        assert!(
+            handle(service_add_request("web"), state.clone(), fixture.0.clone())
+                .await
+                .ok
+        );
+        let response = handle(
+            provider_request(
+                "service.provider.remove",
+                json!({"name": "web", "peer": "wolf-not-yet-in-pack"}),
+            ),
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert_eq!(response.error.unwrap().code, "SERVICE_INVALID");
+        assert_eq!(state.lock().await.services.len(), 1);
     }
 }

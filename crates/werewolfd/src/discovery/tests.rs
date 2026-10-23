@@ -739,6 +739,19 @@ async fn discover_services_and_add_from_ask_pack_members_now() {
                 .unwrap_err();
             assert_eq!(error.error.unwrap().code, code, "{name} {peer}");
         }
+        // `service provider add web --from wolf-b` becomes a provider
+        // addition carrying the received target and kind.
+        let provider = werewolf_core::protocol::ControlRequest {
+            id: "provider".into(),
+            cmd: "service.provider.add_from".into(),
+            args: serde_json::json!({"name": "web", "peer": "wolf-b"}),
+        };
+        let add = operator::resolve_add_from(provider, &a.state).await.unwrap();
+        assert_eq!(add.cmd, "service.provider.add");
+        assert_eq!(
+            add.args,
+            serde_json::json!({"name": "web", "peer": "wolf-b", "target": "127.0.0.1:8080", "kind": "http"})
+        );
         // Nothing was stored on A by any of this.
         assert!(a.state.lock().await.services.is_empty());
 

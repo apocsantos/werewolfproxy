@@ -125,8 +125,8 @@ Stage23 classes (`SERVICE_*`); an entry may not list a peer twice.
 | Step | Scope |
 |---|---|
 | 0 | This proposal; owner decisions 1–5 |
-| 1 | `werewolf-core`: `fallbacks` in the service definition, validation (Pack names, unique peers, at most 4), strict JSON, unit tests |
-| 2 | CLI and control: `service provider add/remove`, `--from` for a provider, `service show`; CLI contract |
+| 1 | `werewolf-core`: `fallbacks` in the service definition, validation (unique peers, at most 4), strict JSON, unit tests (done, PR #49) |
+| 2 | CLI and control: `service provider add/remove`, `--from` for a provider, `service show`; CLI contract (done, [CLI contract](V1_CLI_CONTRACT.md#stage27-extension-service-providers)) |
 | 3 | Fang: per-connection ordered attempts for direct, QUIC, TCP and routed providers; Pack changes close Fangs naming any provider; lab gate with three providers (first down, first refusing, second's grant revoked, all failing) |
 | 4 | Real-WAN check |
 

@@ -405,9 +405,16 @@ pub(crate) async fn resolve_add_from(
             format!("{peer_name} offers no service {name} to this node"),
         ));
     };
+    // `service provider add NAME --from PEER` (Stage27) becomes an ordinary
+    // provider addition, exactly as `service add --from` becomes `service add`.
+    let cmd = if req.cmd == "service.provider.add_from" {
+        "service.provider.add"
+    } else {
+        "service.add"
+    };
     Ok(ControlRequest {
         id: req.id,
-        cmd: "service.add".into(),
+        cmd: cmd.into(),
         args: json!({
             "name": entry.name,
             "peer": peer_name,

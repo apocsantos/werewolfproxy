@@ -127,7 +127,10 @@ async fn handle_control_client(
         };
         // `service add --from` queries the peer first, outside mutation
         // admission, then saves through the ordinary `service.add` path.
-        let req = if req.cmd == "service.add_from" {
+        let req = if matches!(
+            req.cmd.as_str(),
+            "service.add_from" | "service.provider.add_from"
+        ) {
             match crate::discovery::operator::resolve_add_from(req, &state).await {
                 Ok(add) => add,
                 Err(response) => {
