@@ -17,6 +17,7 @@
 - [Stage26 multi-hop routing design](STAGE26_MULTIHOP_ROUTING_DESIGN.md) (implemented, WAN checked)
 - [Stage27 provider selection design](STAGE27_PROVIDER_SELECTION_DESIGN.md) (implemented, WAN checked)
 - [Stage28 governance and lifecycle survey](STAGE28_GOVERNANCE_SURVEY.md) (decisions accepted) and [statement spec](STAGE28_GOVERNANCE_STATEMENT_SPEC.md) (approved)
+- [Stage29 admission and activation design](STAGE29_ACTIVATION_DESIGN.md) (proposal, awaiting decisions)
 
 
 ## Frozen v1 contracts
