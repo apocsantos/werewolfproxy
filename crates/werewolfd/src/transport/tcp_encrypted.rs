@@ -380,8 +380,6 @@ pub(crate) async fn connect_authenticated_tcp(
 /// Pack record, used as the TLS server name exactly as
 /// `connect_authenticated_tcp` uses the socket's peer address. Liveness is
 /// the carrying stream's job.
-// Called by routed Fangs from Stage26 step 3; until then only by tests.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) async fn connect_authenticated_over<S>(
     stream: S,
     server_ip: std::net::IpAddr,
@@ -421,15 +419,19 @@ where
     .map_err(|_| hs::rejected())
 }
 
-async fn secure_copy_client_side<S>(
-    inbound: &mut TcpStream,
+/// Copies between the local application stream and an established
+/// encrypted-TCP session. `inbound` is the accepted local socket, or for a
+/// routed Fang (Stage26) the pipe that carries the inner session.
+pub(crate) async fn secure_copy_client_side<I, S>(
+    inbound: &mut I,
     outbound: S,
     key: Zeroizing<[u8; 32]>,
 ) -> io::Result<()>
 where
+    I: AsyncRead + AsyncWrite + Unpin,
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let (mut in_r, mut in_w) = inbound.split();
+    let (mut in_r, mut in_w) = tokio::io::split(inbound);
     let (mut out_r, mut out_w) = tokio::io::split(outbound);
 
     let client_to_server = async {
