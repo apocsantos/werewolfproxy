@@ -15,6 +15,8 @@
 - [Stage24 FindNode design](STAGE24_FINDNODE_DESIGN.md) (Phase 1 implemented), [RPC wire spec](STAGE24_FINDNODE_RPC_WIRE_SPEC.md) (approved) and [discover CLI](V1_CLI_CONTRACT.md#stage24-extension-discovery)
 - [Stage25 service discovery design](STAGE25_SERVICE_DISCOVERY_DESIGN.md) (implemented, WAN checked) and [`services` RPC wire spec](STAGE25_SERVICES_RPC_WIRE_SPEC.md) (implemented)
 - [Stage26 multi-hop routing design](STAGE26_MULTIHOP_ROUTING_DESIGN.md) (implemented, WAN checked)
+- [Stage27 provider selection design](STAGE27_PROVIDER_SELECTION_DESIGN.md) (implemented, WAN checked)
+- [Stage28 governance and lifecycle survey](STAGE28_GOVERNANCE_SURVEY.md) (decisions accepted) and [statement spec](STAGE28_GOVERNANCE_STATEMENT_SPEC.md) (approved)
 
 
 ## Frozen v1 contracts
