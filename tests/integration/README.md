@@ -181,6 +181,24 @@ deny-by-default.
 | Relay address change | `pack set-address wolf-b` on A closes the routed Fang (1 closed) and resets its live session |
 | Route removal | After `route remove`, the next Fang to C is direct (no `via`) |
 
+```bash
+python3 -B tests/integration/provider_gate.py [--keep-temp]
+```
+
+`provider_gate.py` (Stage27) runs four wolves: A's service `web` lists
+providers B, C and D in that order. Each provider's target first sends a tag
+naming it and counts its connections.
+
+| Assertion | Required evidence |
+|---|---|
+| Refusal skipped | With no grant on B, C serves and B's target sees no connection |
+| First acceptor serves | Once B grants, B serves and C and D see nothing more |
+| No retry after establishment | B's target resets mid-session: the client sees the reset and no other provider is contacted |
+| Unreachable skipped in time | B's Pack address moved to a silent port closes the Fang; reopened, C serves after B's 5 s handshake deadline, under 15 s |
+| All failing | With C and D ungranted too, the connection is reset within the window |
+| Pack change | Removing D from A's Pack closes the Fang; reopening fails while D is listed |
+| No plain TCP | `--transport tcp-plain` exits 70 |
+
 ## Stage 1 execution results — 2026-09-07
 
 Executed against checkout `63691aade2aa165b16864a80272f2a55eadcee00` with its

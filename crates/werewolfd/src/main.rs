@@ -582,7 +582,7 @@ async fn open_fang_with_profile(
                 fang_id.clone(),
                 std::time::Instant::now(),
                 "quic",
-                None,
+                &[],
             );
 
             st.status.active_fangs = st.fang_registry.len();
@@ -718,7 +718,10 @@ async fn open_fang_with_profile(
         fang_id.clone(),
         std::time::Instant::now(),
         &shown_transport,
-        routed.as_ref().map(|routed| routed.via.as_str()),
+        &routed
+            .as_ref()
+            .map(|routed| vec![routed.via.clone()])
+            .unwrap_or_default(),
     );
 
     if release.send(true).is_err() {
@@ -740,6 +743,121 @@ async fn open_fang_with_profile(
                 None => peer_addr,
             },
             "via": routed.as_ref().map(|routed| routed.via.clone())
+        }),
+    )
+}
+
+/// Stage27: a Fang for a service with fallbacks. The same gates as any Fang
+/// open (Silver, Pelt, a free local address), every provider resolved now,
+/// and one listener that tries them in order per connection.
+async fn open_provider_fang(
+    req_id: String,
+    state: Arc<Mutex<DaemonState>>,
+    service: werewolf_core::service::ServiceDefinition,
+    local: String,
+    transport: String,
+) -> ControlResponse {
+    let st = state.lock().await;
+    if matches!(st.status.mode, WolfMode::Silver) {
+        return ControlResponse::err(
+            req_id,
+            "SILVER_ACTIVE",
+            "Silver mode is active. Fang open rejected.",
+        );
+    }
+    if local.is_empty() {
+        return ControlResponse::err(req_id, "FANG_INVALID", "local is required");
+    }
+    if st.fang_registry.has_active_local(&local) {
+        return ControlResponse::err(
+            req_id,
+            "FANG_ALREADY_ACTIVE",
+            format!("Fang already active on local address: {}", local),
+        );
+    }
+    let Some(identity) = st.pelt.clone() else {
+        return ControlResponse::err(req_id, "NO_PELT", "No local Pelt identity exists");
+    };
+    let providers = match transport::failover::resolve(&service, &st.peers, &st.routes, &transport)
+    {
+        Ok(providers) => providers,
+        Err((code, message)) => return ControlResponse::err(req_id, code, message),
+    };
+    let also_uses: Vec<String> = providers.iter().flat_map(|p| p.uses()).collect();
+    let order: Vec<String> = providers.iter().map(|p| p.peer.clone()).collect();
+    let fang_id = generate_fang_id(
+        &service.peer,
+        &local,
+        &service.target,
+        st.fang_registry.len(),
+    );
+    let (cancellation, release) = FangCancellation::prepared();
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let (task_id, task_local, task_cancellation) =
+        (fang_id.clone(), local.clone(), cancellation.clone());
+    let handle = tokio::spawn(async move {
+        if let Err(e) = transport::failover::run_failover_forwarder(
+            &task_id,
+            &task_local,
+            providers,
+            identity,
+            task_cancellation,
+            ready_tx,
+        )
+        .await
+        {
+            eprintln!("fang {} failed: {}", task_id, e);
+        }
+    });
+    match ready_rx.await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            handle.abort();
+            return ControlResponse::err(req_id, "FANG_LISTENER_FAILED", error.to_string());
+        }
+        Err(_) => {
+            handle.abort();
+            return ControlResponse::err(
+                req_id,
+                "FANG_LISTENER_FAILED",
+                "Fang listener stopped before becoming ready",
+            );
+        }
+    }
+    drop(st);
+    let mut st = state.lock().await;
+    let shown = format!("providers: {}", order.join(", "));
+    st.fang_registry.push(FangRecord {
+        id: fang_id.clone(),
+        peer: service.peer.clone(),
+        local: local.clone(),
+        remote: service.target.clone(),
+        state: FangState::Active,
+    });
+    st.fang_registry.insert_task(fang_id.clone(), handle);
+    st.fang_registry
+        .insert_cancellation(fang_id.clone(), cancellation);
+    st.fang_registry.insert_started(
+        fang_id.clone(),
+        std::time::Instant::now(),
+        &shown,
+        &also_uses,
+    );
+    st.status.active_fangs = st.fang_registry.len();
+    st.status.mode = WolfMode::Wolf;
+    if release.send(true).is_err() {
+        st.storage_degraded = true;
+        return ControlResponse::err(req_id, "STORAGE_DEGRADED", "activation publication failed");
+    }
+    ControlResponse::ok(
+        req_id,
+        json!({
+            "fang_id": fang_id,
+            "service": service.name,
+            "local": local,
+            "state": "active",
+            "transport": shown,
+            "providers": order,
         }),
     )
 }

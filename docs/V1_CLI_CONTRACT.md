@@ -227,8 +227,7 @@ from contact records are always dialled directly.
 ## Stage27 extension: service providers
 
 Stage27 ([design](STAGE27_PROVIDER_SELECTION_DESIGN.md)) lets one service
-entry name an ordered list of providers. Step 2 adds the list; trying them
-per connection follows in step 3.
+entry name an ordered list of providers.
 
 - service provider add NAME PEER TARGET
 - service provider add NAME --from PEER [--transport quic|tcp]
@@ -248,4 +247,21 @@ provider keeps its Stage23 form. Errors are `SERVICE_INVALID`,
 `SERVICE_NOT_FOUND`, `SERVICE_SAVE_FAILED` and the `--from` discovery
 errors; werewolfctl exits 70. `--transport` without `--from` is a usage
 error (exit 64) for `service add` and `service provider add`.
+
+`service connect NAME` on an entry with fallbacks opens one local listener
+whose every connection tries the providers in order, each through its
+ordinary session (direct, or through its Stage26 route). A provider is
+skipped only if it fails before its session is established (unreachable,
+TLS pin mismatch, OPEN refused); once its ACK has verified, any failure
+resets the local connection and no other provider is tried. The selection
+for one connection has 15 seconds; if every provider fails, or the time
+runs out, the local connection is reset. Every provider must resolve when
+the Fang opens (a Pack member with an address for `--transport`, or a valid
+route), otherwise the open fails (`FANG_UNKNOWN_PEER`, `FANG_BAD_ADDRESS`,
+`FANG_BAD_QUIC_ADDRESS`, `FANG_ROUTE_INVALID`); `--transport tcp-plain` is
+refused (`FANG_INVALID`). The open reports `providers` in order and `fang
+active` shows `providers: A, B, ...`. Changing, revoking or removing any
+listed provider, or a provider's relay, closes the Fang; provider list
+changes apply to Fangs opened afterwards. The disposable gate
+`tests/integration/provider_gate.py` exercises this contract.
 

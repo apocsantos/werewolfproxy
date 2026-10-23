@@ -1,3 +1,4 @@
+pub(super) mod failover;
 pub(super) mod quic;
 pub(super) mod relay;
 pub(super) mod tcp_encrypted;

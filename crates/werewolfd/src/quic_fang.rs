@@ -92,7 +92,8 @@ pub async fn open_quic_fang(
                     return;
                 };
                 let _connection_close = CloseClientConnection(connection);
-                let _ = proxy_streams(tcp, send, recv).await;
+                let mut tcp = tcp;
+                let _ = proxy_streams(&mut tcp, send, recv).await;
             });
         }
     });
@@ -208,8 +209,8 @@ impl Drop for AbortiveSend {
     }
 }
 
-async fn proxy_streams(
-    mut tcp: TcpStream,
+pub(crate) async fn proxy_streams(
+    tcp: &mut TcpStream,
     send: SendStream,
     mut recv: RecvStream,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -245,7 +246,7 @@ async fn proxy_streams(
         _ => return Err("upload not acknowledged by the receiver".into()),
     }
     send.clean = true;
-    crate::transport::disarm_reset_on_close(&tcp)?;
+    crate::transport::disarm_reset_on_close(tcp)?;
 
     Ok(())
 }
