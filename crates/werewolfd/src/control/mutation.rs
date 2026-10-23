@@ -861,18 +861,22 @@ async fn apply_pack_address_change(
         let old_active = live.active_profiles.clone();
         let mut candidate_active = old_active.clone();
         let affected_ids = if address_changed {
+            // Profiles to this peer, or routed through it as the relay
+            // (Stage26), need explicit reactivation, as do their Fangs.
+            let uses_peer = |profile_peer: &str| {
+                profile_peer == peer_name
+                    || live
+                        .routes
+                        .iter()
+                        .any(|route| route.peer == profile_peer && route.via == peer_name)
+            };
             candidate_active.retain(|profile_name| {
                 !live
                     .fang_profiles
                     .iter()
-                    .any(|profile| profile.name == *profile_name && profile.peer == peer_name)
+                    .any(|profile| profile.name == *profile_name && uses_peer(&profile.peer))
             });
-            live.fang_registry
-                .records()
-                .iter()
-                .filter(|fang| fang.peer == peer_name)
-                .map(|fang| fang.id.clone())
-                .collect::<Vec<_>>()
+            live.fang_registry.ids_using_peer(peer_name)
         } else {
             Vec::new()
         };

@@ -229,3 +229,11 @@ grant on a live session was not added to the gate; Silver on the relay was.
 Session-end behaviour through a relay (D06/D07 equivalents) is not yet
 claimed; it belongs to step 4.
 
+Relay Pack changes: the first WAN run found that `29291e4` closed Fangs
+only by destination when a Pack member's address changed or it was revoked
+or removed, so a Fang routed through that member as its relay stayed active
+with the relay's old address and key. The Fang registry now records each
+Fang's relay; those changes close Fangs that use the member as destination
+or relay, and an address change deactivates profiles routed through it. The
+lab gate checks this and fails without the fix.
+

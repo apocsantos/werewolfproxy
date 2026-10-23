@@ -1197,6 +1197,104 @@ mod characterization_tests {
         assert_eq!(live.peers[0].address, "quic://127.0.0.1:43003");
     }
 
+    /// Stage26: a routed Fang depends on its relay as much as on its
+    /// destination, so a relay address change or revocation closes it, and an
+    /// address change deactivates profiles routed through that relay.
+    #[tokio::test]
+    async fn relay_pack_changes_close_routed_fangs() {
+        for cmd in ["pack.set_address", "pack.revoke", "pack.remove"] {
+            let fixture = Fixture::new();
+            let relay = generate_identity();
+            let destination = generate_identity();
+            let member =
+                |name: &str, identity: &werewolf_core::pelt::PeltIdentity, address: &str| {
+                    werewolf_core::pack::PeerRecord {
+                        name: name.into(),
+                        fingerprint: identity.fingerprint.clone(),
+                        public_key_b64: Some(identity.public_key_b64.clone()),
+                        address: address.into(),
+                        trust: werewolf_core::pack::TrustLevel::Packmate,
+                    }
+                };
+            let profile =
+                |name: &str, peer: &str, port: u16| werewolf_core::fang_profile::FangProfile {
+                    name: name.into(),
+                    peer: peer.into(),
+                    local: format!("127.0.0.1:{port}"),
+                    remote: "127.0.0.1:42000".into(),
+                    transport: "quic".into(),
+                };
+            let profiles = vec![
+                profile("c-routed", "c", 41101),
+                profile("b-direct", "b", 41102),
+            ];
+            let mut registry = crate::fang_registry::FangRegistry::default();
+            for (id, peer, via, port) in [
+                ("c-routed", "c", Some("b"), 41101),
+                ("b-direct", "b", None, 41102),
+                ("c-direct", "c", None, 41103),
+            ] {
+                registry.push(werewolf_core::fang::FangRecord {
+                    id: id.into(),
+                    peer: peer.into(),
+                    local: format!("127.0.0.1:{port}"),
+                    remote: "127.0.0.1:42000".into(),
+                    state: werewolf_core::fang::FangState::Active,
+                });
+                registry.insert_started(id.into(), std::time::Instant::now(), "tcp", via);
+            }
+            let state = Arc::new(Mutex::new(DaemonState {
+                peers: vec![
+                    member("b", &relay, "quic://127.0.0.1:43001"),
+                    member("c", &destination, "tcp://127.0.0.1:43002"),
+                ],
+                routes: vec![werewolf_core::route::Route {
+                    peer: "c".into(),
+                    via: "b".into(),
+                    hop: werewolf_core::route::RouteHop::Quic,
+                }],
+                fang_profiles: profiles,
+                active_profiles: vec!["c-routed".into(), "b-direct".into()],
+                fang_registry: registry,
+                ..fixture.state()
+            }));
+
+            let mut args = json!({"name": "b"});
+            if cmd == "pack.set_address" {
+                args["address"] = "quic://127.0.0.1:43009".into();
+            }
+            let response = handle_request(
+                ControlRequest {
+                    id: "relay".into(),
+                    cmd: cmd.into(),
+                    args,
+                },
+                state.clone(),
+                fixture.0.clone(),
+            )
+            .await;
+            assert!(response.ok, "{cmd}: {response:?}");
+            // The routed Fang and the direct Fang to the relay close; the
+            // direct Fang to the destination does not.
+            assert_eq!(response.result.unwrap()["closed_fangs"], 2, "{cmd}");
+            let live = state.lock().await;
+            let left: Vec<_> = live
+                .fang_registry
+                .records()
+                .iter()
+                .map(|f| f.id.clone())
+                .collect();
+            assert_eq!(left, ["c-direct"], "{cmd}");
+            if cmd == "pack.set_address" {
+                assert!(
+                    live.active_profiles.is_empty(),
+                    "{:?}",
+                    live.active_profiles
+                );
+            }
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn pack_address_response_waits_for_detached_child_exit() {
         use std::sync::Condvar;

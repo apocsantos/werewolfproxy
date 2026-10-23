@@ -578,8 +578,12 @@ async fn open_fang_with_profile(
             st.fang_registry.insert_task(fang_id.clone(), handle);
             st.fang_registry
                 .insert_cancellation(fang_id.clone(), cancellation);
-            st.fang_registry
-                .insert_started(fang_id.clone(), std::time::Instant::now(), "quic");
+            st.fang_registry.insert_started(
+                fang_id.clone(),
+                std::time::Instant::now(),
+                "quic",
+                None,
+            );
 
             st.status.active_fangs = st.fang_registry.len();
             st.status.mode = WolfMode::Wolf;
@@ -710,8 +714,12 @@ async fn open_fang_with_profile(
         .as_ref()
         .map(|routed| routed.describe())
         .unwrap_or_else(|| transport.clone());
-    st.fang_registry
-        .insert_started(fang_id.clone(), std::time::Instant::now(), &shown_transport);
+    st.fang_registry.insert_started(
+        fang_id.clone(),
+        std::time::Instant::now(),
+        &shown_transport,
+        routed.as_ref().map(|routed| routed.via.as_str()),
+    );
 
     if release.send(true).is_err() {
         st.storage_degraded = true;
