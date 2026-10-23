@@ -1,9 +1,10 @@
 # Stage26 multi-hop routing — design proposal
 
-**Status: design accepted 2026-10-22 (1A, 2a, 3a, 4a, 5a, 6a; see
-[Decisions](#decisions-accepted-2026-10-22)).** Nothing is implemented yet.
-1A needs no wire change: step 1 must prove the encrypted-TCP transcripts
-and framing are byte-identical before any routing code lands.
+**Status: implemented and checked over the real WAN (steps 1–4 done).**
+The design was accepted 2026-10-22 (1A, 2a, 3a, 4a, 5a, 6a; see
+[Decisions](#decisions-accepted-2026-10-22)). See the
+[real-WAN check](#real-wan-check-2026-10-23); it found three defects,
+fixed in PRs #42 and #43.
 
 This is the next step in [ARCHITECTURE.md §65](ARCHITECTURE.md) after
 distributed service discovery: §21 (multi-hop routing), §22 (end-to-end
@@ -190,7 +191,7 @@ degraded; Silver refuses a routed Fang like any Fang.
 | 1 | Refactor: the encrypted-TCP client runs over any authenticated byte stream (done, PR #38: the client handshake moved verbatim into `client_handshake`, same `hs::` calls and order; tests drive it through an in-memory pipe against the unmodified receiver; no wire change) |
 | 2 | Routes: `routes.json`, `route set/list/remove`, CLI contract, unit tests (done, [CLI contract](V1_CLI_CONTRACT.md#stage26-extension-routes)) |
 | 3 | Routed Fang and `service connect`; lab gate with three wolves (done, `tests/integration/routed_fang_gate.py`; see step 3 notes) |
-| 4 | Real-WAN check: DarkSide → VPS (relay) → a destination reachable only from the VPS (a second daemon on the VPS's loopback, or a third host), plus D06/D07-style failure checks through the relay |
+| 4 | Real-WAN check DarkSide → VPS (relay) → a destination reachable only from the VPS, with D07-style failures through the relay (done, [below](#real-wan-check-2026-10-23)) |
 
 ## Decisions (accepted 2026-10-22)
 
@@ -249,4 +250,54 @@ flight). The QUIC hop now finishes the outer stream before waiting, and the
 TCP hop keeps the pipe open until the inner session ends. The lab gate checks
 both hops with a target that answers and half-closes; without the QUIC change
 it fails.
+
+## Real-WAN check (2026-10-23)
+
+Topology: DarkSide (A, the Stage22R node) reaches node C through the VPS
+(B, the relay). C is a second daemon on the VPS, run as `debian` in user
+mode with its own Den, listening only on the VPS's loopback
+(`127.0.0.1:18443` TCP, `127.0.0.1:19560` QUIC). DarkSide's Pack records C
+at `tcp://127.0.0.1:18443`, which on DarkSide is its own loopback where
+nothing listens, so the only path to C is through the relay.
+
+| Node | Build | Grants for DarkSide (`node-a2`) |
+|---|---|---|
+| A, DarkSide | `29291e4`, then `bfd96b2` (#42), then `f808802` (#43); `werewolfd` `afc096de…6664f91` at the end | — |
+| B, VPS `werewolfd.service` (relay) | `bcf7bbd` (`c17d76f9…`), unchanged | `127.0.0.1:7000`, plus `127.0.0.1:18443` (C's listener) for this check |
+| C, VPS user-mode daemon | `bcf7bbd`, unchanged | `127.0.0.1:7000` (echo target, PID 4481) and `127.0.0.1:7100` (the D07 target) |
+
+The relay and C ran the unchanged D08-certified build throughout: decision
+1A needs no change at either.
+
+Disposable tools outside the repository: `/tmp/stage26-wan/probe.py`
+(`ea6c6539…ca67`, a new session through the Fang every 2 s), the D07
+`client.py` (`ae46174f…f9adf7`) and `target.py` (`ca613f25…`), and a 64 MiB
+full-duplex client (`duplex.py`, `e07bc24d…ec87`).
+
+| Check | Result |
+|---|---|
+| No route | `service connect` to `node-c` opens a direct Fang; a session through it gets no data, because `127.0.0.1:18443` is DarkSide's own loopback |
+| QUIC hop, `route set node-c --via node-b` | `fang active`: `tcp via node-b (quic)`; 64 MiB full duplex exact (SHA-256 `048a837c…7868` on `bfd96b2`), 0.85 MiB/s, against 1.1 MiB/s for a direct Fang |
+| TCP hop (`node-b` temporarily `tcp://51.83.41.28:8443`, `--hop tcp`) | 16 MiB full duplex exact (`5b969030…3492`), 1.30 MiB/s |
+| Relay address change | With a session held open, `pack set-address node-b` closed both Fangs using `node-b`, the direct `wan-quic` and the routed one (`closed_fangs: 2`); the held session was reset at once |
+| Relay grant removed (VPS 15:02:22–15:02:37 UTC) | 8 of 8 probes reset, each within 0.13 s; echo before and after |
+| C's grant removed (15:02:52–15:03:07 UTC) | 8 of 8 probes reset, each within 0.26 s; echo before and after |
+| D07 series through the relay, on `f808802` | 9 of 9 PASS: `fin` ×3 (exactly 8 MiB then EOF; send direction ended about 0.05 s later), echo 64 MiB exact, `rst` ×2 and `kill` ×3 (reset seen, exact prefix) |
+
+### Defects found and fixed
+
+| Found on | Defect | Fix |
+|---|---|---|
+| `29291e4` | A Pack change to the **relay** (address, revoke, remove) closed only Fangs whose destination was that member; a Fang routed through it kept dialling its old address with its old key, even after revocation (LC-01) | #42: the Fang registry records each Fang's relay; such changes close Fangs using the member as destination or relay, and an address change deactivates profiles routed through it |
+| `bfd96b2` | QUIC hop, destination finishing first: the client's send direction waited out the 60 s upload-acknowledgement window (WAN `fin` ×3: send ended at about 69 s; the target saw a reset at about 69 s, never a clean end) | #43: finish the outer stream before waiting |
+| `bfd96b2` (lab) | TCP hop, destination finishing first with an upload in flight: the outer pump dropped its end of the pipe, the inner session's next write failed, and it reset before delivering the destination's final bytes (9 of 15 lab tries with 1 MiB) | #43: the pipe outlives the pump |
+
+None of the three made a session look complete. The first run's `kill-2`
+(exactly 8 MiB then EOF, no reset) was excluded as ambiguous under the D07
+rule; the rerun on `f808802` had no ambiguous runs.
+
+Not claimed: D06-style path loss through the relay (blackholes between
+DarkSide and the relay), more than one relay, discovery RPCs through a
+relay (decision 5a), and the relay's view of timing and volume, which is as
+documented in the security notes.
 
