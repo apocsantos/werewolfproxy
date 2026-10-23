@@ -32,5 +32,6 @@ mod state_file;
 
 pub mod service;
 
+pub mod governance;
 pub mod published;
 pub mod route;
