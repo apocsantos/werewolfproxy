@@ -215,6 +215,23 @@ B and C; B serves an echo target to A.
 | Restart | After restart A's head is sequence 1 with B revoked, and re-adding B still exits 70 |
 | Gap and rotation | On B (head 0) a sequence-2 statement exits 70; a rotation of key 9 applies and is in force |
 | Fork | On A the rotation conflicts with the applied revocation: exit 70, `forked` set, every later statement exits 70, and the flag survives restart |
+| Admission | On B an admission applies and only updates the roster (not activated, B admitted) |
+
+```bash
+python3 -B tests/integration/activation_gate.py [--keep-temp]
+```
+
+`activation_gate.py` (Stage29) runs three wolves on one governance network: A
+and B are admitted, X at first is not. A trusts B and X, and X serves an
+echo target to A.
+
+| Assertion | Required evidence |
+|---|---|
+| Before activation | Every node is admitted; A reaches the echo target through X |
+| Activation | All three heads advance to sequence 2 with the same hash; A removes `wolf-x` and closes its Fang; X reports `admitted: false`, its inbound authority is locked, its Fang open and discovery exit 70, and A's `pack add` of X exits 70 |
+| Fence holds | `silver on` then `silver off` on X leaves it locked; after a restart X is still unadmitted and locked |
+| Admitted later | An admission of X lifts the fence: X unlocked and admitted at sequence 3, its discovery works, and A re-adds X and reaches the echo target through it again |
+| Permanent revocation | Revoking X fences it again and removes it on A; an admission of X exits 70 on every node with no head moving, and A's `pack add` of X exits 70 |
 
 ## Stage 1 execution results — 2026-09-07
 

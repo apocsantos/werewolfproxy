@@ -323,3 +323,28 @@ network ID, sequence, head hash, threshold, current keys, revoked keys and
 the fork flag. Errors exit 70. The disposable gate
 `tests/integration/governance_gate.py` exercises this contract.
 
+Stage29 ([design](STAGE29_ACTIVATION_DESIGN.md),
+[addendum](STAGE29_GOVERNANCE_ADDENDUM_SPEC.md)) adds admission and
+activation statements. Activation is a network-chain fact; admission is
+local eligibility derived from that chain. Every node applies a valid
+activation. In the same protected generation it removes every Pack member
+whose key is not on the roster or is revoked, exactly as a revocation does,
+and reports them in `revoked_members`. After activation `pack add` of a key
+not on the roster fails with `PACK_NOT_ON_ROSTER` (a revoked key still with
+`PACK_REVOKED_BY_NETWORK`). A node whose own Pelt is not on the roster or
+is revoked is **unadmitted**. While unadmitted:
+
+- Fang, profile and `service connect` opens fail with
+  `GOVERNANCE_UNADMITTED`;
+- discovery commands fail with the same code;
+- inbound sessions and RPCs are refused, using the same lock as Silver;
+- open Fangs close when it becomes unadmitted.
+
+`governance apply/status` keep working. A later admission of its Pelt lifts
+the fence automatically. `silver off` does not lift it.
+
+`governance status` adds `roster`, `activated_at` and `admitted`, and
+`apply` reports `admitted`. An activated node whose Pack holds a key the
+head excludes refuses to start. The disposable gate
+`tests/integration/activation_gate.py` exercises this contract.
+

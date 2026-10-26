@@ -67,7 +67,10 @@ follows.
   are delivered by an operator (no gossip), so a node that is not given a
   revocation keeps trusting the member. A fork fences governance with no
   tooling to resolve it. Governance requires a manifest-enabled Den; OS root
-  on a host still controls that host's node. Admission, activation (the
-  "root becomes unobtainium" lockdown), death and the Tombstone are not
+  on a host still controls that host's node. Stage29 adds admission and
+  activation: after activation the roster bounds every node's Pack, which
+  stops one compromised host from widening trust on any other host, but
+  not root on that host from rewriting its own Den. Statement delivery
+  between nodes (`governance sync`), death and the Tombstone are not
   implemented.
 

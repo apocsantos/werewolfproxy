@@ -471,6 +471,13 @@ async fn open_fang_with_profile(
             "Silver mode is active. Fang open rejected.",
         );
     }
+    if governance::unadmitted(&st) {
+        return ControlResponse::err(
+            req_id,
+            "GOVERNANCE_UNADMITTED",
+            "this node is not admitted to its activated network",
+        );
+    }
 
     if peer.is_empty() || local.is_empty() || remote.is_empty() {
         return ControlResponse::err(
@@ -764,6 +771,13 @@ async fn open_provider_fang(
             req_id,
             "SILVER_ACTIVE",
             "Silver mode is active. Fang open rejected.",
+        );
+    }
+    if governance::unadmitted(&st) {
+        return ControlResponse::err(
+            req_id,
+            "GOVERNANCE_UNADMITTED",
+            "this node is not admitted to its activated network",
         );
     }
     if local.is_empty() {
