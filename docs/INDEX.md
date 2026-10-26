@@ -18,7 +18,7 @@
 - [Stage27 provider selection design](STAGE27_PROVIDER_SELECTION_DESIGN.md) (implemented, WAN checked)
 - [Stage28 governance and lifecycle survey](STAGE28_GOVERNANCE_SURVEY.md) (decisions accepted) and [statement spec](STAGE28_GOVERNANCE_STATEMENT_SPEC.md) (approved)
 - [Stage29 admission and activation design](STAGE29_ACTIVATION_DESIGN.md) (decisions accepted, WAN checked) and [statement addendum](STAGE29_GOVERNANCE_ADDENDUM_SPEC.md) (implemented), [`governance` RPC spec](STAGE29_GOVERNANCE_RPC_WIRE_SPEC.md) (implemented)
-- [Stage30 lifecycle, death and Tombstone survey](STAGE30_LIFECYCLE_SURVEY.md) (decisions accepted)
+- [Stage30 lifecycle, death and Tombstone survey](STAGE30_LIFECYCLE_SURVEY.md) (decisions accepted) and [death, retirement and Tombstone spec](STAGE30_LIFECYCLE_SPEC.md) (for review)
 
 
 ## Frozen v1 contracts
