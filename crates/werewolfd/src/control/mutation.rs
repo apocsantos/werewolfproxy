@@ -48,6 +48,7 @@ pub(super) fn handles(command: &str) -> bool {
             | "service.provider.remove"
             | "governance.apply"
             | "governance.sync_apply"
+            | "den.retire"
             | "route.set"
             | "route.remove"
             | "discover.advertise"
@@ -260,9 +261,28 @@ pub(super) async fn handle(
     state: Arc<Mutex<DaemonState>>,
     home: PathBuf,
 ) -> ControlResponse {
+    if req.cmd == "den.retire" {
+        let confirm = req.args["confirm"].as_str().unwrap_or("").to_owned();
+        return match crate::terminal::retire(&state, &confirm).await {
+            Ok(result) => ControlResponse::ok(&req.id, result),
+            Err((code, message)) => ControlResponse::err(&req.id, code, message),
+        };
+    }
     if req.cmd == "pelt.init" {
         if state.lock().await.pelt.is_some() {
             return error(&req.id, "ALREADY_INITIALIZED");
+        }
+        // Stage30: a Den that holds a Tombstone is never initialized again.
+        if let Some(den) = state.lock().await.den.clone() {
+            if !matches!(
+                den.read(
+                    std::ffi::OsStr::new(werewolf_core::tombstone::FILE_NAME),
+                    werewolf_core::tombstone::MAX_LEN + 1,
+                ),
+                Ok(None)
+            ) {
+                return error(&req.id, "LIFECYCLE_TOMBSTONE");
+            }
         }
         let identity = generate_identity();
         if state_validation::identity(&identity).is_err() {
@@ -1214,17 +1234,6 @@ async fn apply_statement(
         Ok(Outcome::AlreadyApplied) => {
             return Ok(json!({"status": "already_applied", "sequence": statement.core.sequence}))
         }
-        // Stage30 step 1: the core knows the death statement, but this
-        // daemon cannot yet destroy anything (spec section 4). It refuses
-        // death before any effect, archive included, so a node never runs
-        // on a DEAD head.
-        Ok(Outcome::Applied(next)) if next.dead_at.is_some() => {
-            return Err((
-                "GOVERNANCE_REJECTED",
-                "this build cannot apply a death statement: destruction is not implemented yet"
-                    .into(),
-            ))
-        }
         Ok(Outcome::Applied(next)) => next,
         Ok(Outcome::Fork(fenced)) => {
             // Record the fork durably, then refuse: governance is fenced
@@ -1361,6 +1370,11 @@ async fn apply_statement(
                 "saved; authority cleanup timed out".into(),
             ));
         }
+    }
+    // Stage30: the DEAD head is durably committed and published, the point
+    // of no return. Destruction follows; the process then exits 67.
+    if next.dead_at.is_some() {
+        return Ok(crate::terminal::die(state, statement.clone()).await);
     }
     // Admitted again (or for the first time after activation): the fence
     // lifts, but only if Silver is not holding the authority locked too.
@@ -2391,15 +2405,16 @@ mod tests {
         );
     }
 
-    /// Stage30 step 1: a valid death statement is refused before any effect,
-    /// archive included: this build cannot destroy, so it must never commit
-    /// a DEAD head.
-    #[tokio::test]
-    async fn this_build_refuses_a_death_statement_with_no_effect() {
+    /// Stage30: genesis then a death statement on a migrated Den, with a
+    /// Pelt. Returns the state after the death reply.
+    async fn dead_node(fixture: &Fixture) -> (Arc<Mutex<DaemonState>>, serde_json::Value) {
         use ed25519_dalek::SigningKey;
         use werewolf_core::governance::{sign, Body, Core, Statement};
-        let fixture = Fixture::new();
         let state = fixture.state();
+        fixture.write(
+            "pelt.json",
+            &serde_json::to_vec(&generate_identity()).unwrap(),
+        );
         let den = state.lock().await.den.clone().unwrap();
         let protected_state::Transaction::DurablyCommitted(generation) =
             protected_state::migrate(&den)
@@ -2424,19 +2439,152 @@ mod tests {
         apply_statement(&genesis, Some(&genesis.core.hash()), &state)
             .await
             .unwrap();
-        let before = state.lock().await.protected_state_generation;
         let death = signed(Core {
             network_id: [0x77; 32],
             sequence: 1,
             previous: genesis.core.hash(),
             body: Body::Death,
         });
-        let error = apply_statement(&death, None, &state).await.unwrap_err();
-        assert_eq!(error.0, "GOVERNANCE_REJECTED");
+        let reply = apply_statement(&death, None, &state).await.unwrap();
+        (state, reply)
+    }
+
+    fn den_names(fixture: &Fixture) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(&fixture.0)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Stage30: a death statement commits DEAD, locks the node, and leaves
+    /// only the Tombstone (no `.den.lock` here: the test holds none).
+    #[tokio::test]
+    async fn a_death_statement_destroys_the_node_and_leaves_a_tombstone() {
+        let fixture = Fixture::new();
+        let (state, reply) = dead_node(&fixture).await;
+        assert_eq!(reply["status"], "applied");
+        assert_eq!(reply["lifecycle"], "dead");
+        assert_eq!(reply["destruction"], "complete");
+        assert_eq!(den_names(&fixture), vec!["tombstone.json"]);
+        let tombstone = werewolf_core::tombstone::Tombstone::parse(
+            &std::fs::read(fixture.0.join("tombstone.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(tombstone.kind(), werewolf_core::tombstone::Kind::Death);
         let live = state.lock().await;
-        let head = live.governance.as_ref().unwrap();
-        assert_eq!((head.sequence, head.dead_at), (0, None));
-        assert_eq!(live.protected_state_generation, before);
-        assert!(!fixture.0.join("governance_00000001.wwgov").exists());
+        assert!(live.dying && live.terminal_exit_requested);
+        assert!(live.inbound_authority.is_locked());
+        assert_eq!(live.governance.as_ref().unwrap().dead_at, Some(1));
+    }
+
+    #[tokio::test]
+    async fn retirement_needs_the_exact_fingerprint_and_a_durable_tombstone() {
+        let fixture = Fixture::new();
+        let state = fixture.state_with_silver_open();
+        let identity = generate_identity();
+        fixture.write("pelt.json", &serde_json::to_vec(&identity).unwrap());
+        fixture.write("routes.json", b"[]");
+        state.lock().await.pelt = Some(identity.clone());
+
+        // The wrong fingerprint changes nothing.
+        let error = crate::terminal::retire(&state, "wwp1:00")
+            .await
+            .unwrap_err();
+        assert_eq!(error.0, "RETIRE_CONFIRM_MISMATCH");
+        assert!(!state.lock().await.dying);
+
+        // A Tombstone that cannot be written: nothing happens, and the node
+        // unlocks again.
+        std::fs::create_dir(fixture.0.join("tombstone.json")).unwrap();
+        let error = crate::terminal::retire(&state, &identity.fingerprint)
+            .await
+            .unwrap_err();
+        assert_eq!(error.0, "RETIRE_SAVE_FAILED");
+        {
+            let live = state.lock().await;
+            assert!(!live.dying);
+            assert!(!live.inbound_authority.is_locked());
+        }
+        assert!(den_names(&fixture).contains(&"pelt.json".to_string()));
+        std::fs::remove_dir(fixture.0.join("tombstone.json")).unwrap();
+
+        // With storage working: retired, only the Tombstone remains.
+        let result = crate::terminal::retire(&state, &identity.fingerprint)
+            .await
+            .unwrap();
+        assert_eq!(
+            result,
+            serde_json::json!({"status": "retired", "destruction": "complete"})
+        );
+        assert_eq!(den_names(&fixture), vec!["tombstone.json"]);
+        let live = state.lock().await;
+        assert!(live.dying && live.terminal_exit_requested);
+        assert!(live.inbound_authority.is_locked());
+    }
+
+    #[tokio::test]
+    async fn a_dying_node_answers_only_status() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        state.lock().await.dying = true;
+        let ask = |cmd: &str| ControlRequest {
+            id: "1".into(),
+            cmd: cmd.into(),
+            args: serde_json::json!({}),
+        };
+        for cmd in [
+            "pack.list",
+            "pelt.init",
+            "governance.apply",
+            "silver.reset",
+            "den.retire",
+        ] {
+            let response =
+                crate::control::handle_request(ask(cmd), state.clone(), fixture.0.clone()).await;
+            assert_eq!(response.error.unwrap().code, "LIFECYCLE_DYING", "{cmd}");
+        }
+        let status =
+            crate::control::handle_request(ask("status"), state.clone(), fixture.0.clone()).await;
+        assert_eq!(status.result.unwrap()["lifecycle"], "DYING");
+        let governance = crate::control::handle_request(
+            ask("governance.status"),
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert_eq!(
+            governance.result.unwrap()["lifecycle"],
+            serde_json::json!({"chain": "none", "node": "dying"})
+        );
+    }
+
+    #[tokio::test]
+    async fn a_den_with_a_tombstone_is_never_initialized_again() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        fixture.write(
+            "tombstone.json",
+            &werewolf_core::tombstone::Tombstone::retirement(
+                werewolf_core::tombstone::Destruction::Complete,
+                "werewolfd test",
+            )
+            .unwrap()
+            .encode()
+            .unwrap(),
+        );
+        let response = handle(
+            ControlRequest {
+                id: "1".into(),
+                cmd: "pelt.init".into(),
+                args: serde_json::json!({}),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        assert_eq!(response.error.as_ref().unwrap().code, "LIFECYCLE_TOMBSTONE");
+        assert!(state.lock().await.pelt.is_none());
     }
 }

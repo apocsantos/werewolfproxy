@@ -185,6 +185,7 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
         "route.set" => &["peer", "via", "hop"],
         "governance.apply" => &["statement", "expect_hash"],
         "governance.sync" => &["peer", "transport"],
+        "den.retire" => &["confirm"],
         "route.remove" => &["peer"],
         "pack.remove"
         | "pack.revoke"
@@ -307,6 +308,7 @@ pub(super) fn mutates(cmd: &str) -> bool {
             | "service.provider.remove"
             | "governance.apply"
             | "governance.sync_apply"
+            | "den.retire"
             | "route.set"
             | "route.remove"
             | "discover.advertise"

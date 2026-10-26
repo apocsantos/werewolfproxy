@@ -4,6 +4,10 @@ name = "werewolfd"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Lab builds only: step-boundary crash points for the Stage30 death gate.
+lab-faults = []
+
 [dependencies]
 werewolf-core = { path = "../werewolf-core" }
 tokio = { version = "1", features = ["full"] }

@@ -191,8 +191,33 @@ async fn handle_control_client(
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "control operation timeout"))?
         };
         limits::write_response(&mut writer, &response, end).await?;
+        // Stage30: a finished terminal transition exits once its reply is
+        // written.
+        let live = state.lock().await;
+        if live.terminal_exit_requested {
+            live.terminal_exit.notify_one();
+            return Ok(());
+        }
     }
     Ok(())
+}
+
+/// Stage30: while DYING only `status` and `governance status` answer. Run
+/// after mutation admission (in `handle_request`) and in the pre-admission
+/// resolvers, which lock the state anyway; the client loop itself never
+/// takes the state lock before admission.
+pub(crate) async fn dying_refusal(
+    req: &ControlRequest,
+    state: &Arc<Mutex<DaemonState>>,
+) -> Option<ControlResponse> {
+    let dying = state.lock().await.dying;
+    (dying && !matches!(req.cmd.as_str(), "status" | "governance.status")).then(|| {
+        ControlResponse::err(
+            &req.id,
+            "LIFECYCLE_DYING",
+            "the node is dying: only status is answered",
+        )
+    })
 }
 
 async fn handle_request(
@@ -200,6 +225,9 @@ async fn handle_request(
     state: Arc<Mutex<DaemonState>>,
     home: PathBuf,
 ) -> ControlResponse {
+    if let Some(refusal) = dying_refusal(&req, &state).await {
+        return refusal;
+    }
     if limits::mutates(&req.cmd) && state.lock().await.storage_degraded {
         return ControlResponse::err(req.id, "STORAGE_DEGRADED", "operator intervention required");
     }
@@ -236,7 +264,9 @@ async fn handle_request(
             let mut st = state.lock().await;
             st.status.packmates = st.peers.len();
             st.status.active_fangs = st.fang_registry.len();
-            let lifecycle = if matches!(st.status.mode, WolfMode::Silver) {
+            let lifecycle = if st.dying {
+                "DYING"
+            } else if matches!(st.status.mode, WolfMode::Silver) {
                 "LOCKED"
             } else {
                 // Control is started only after persistent-state validation;
@@ -303,7 +333,10 @@ async fn handle_request(
         "governance.status" => {
             let st = state.lock().await;
             match &st.governance {
-                None => ControlResponse::ok(req.id, json!({"genesis": false})),
+                None => ControlResponse::ok(
+                    req.id,
+                    json!({"genesis": false, "lifecycle": crate::terminal::lifecycle(&st)}),
+                ),
                 Some(head) => {
                     use base64::{engine::general_purpose::STANDARD, Engine};
                     use werewolf_core::governance::tool::hex;
@@ -321,6 +354,8 @@ async fn handle_request(
                             "roster": head.roster.iter().map(|k| STANDARD.encode(k)).collect::<Vec<_>>(),
                             "activated_at": head.activated_at,
                             "admitted": !crate::governance::unadmitted(&st),
+                            "dead_at": head.dead_at,
+                            "lifecycle": crate::terminal::lifecycle(&st),
                         }),
                     )
                 }

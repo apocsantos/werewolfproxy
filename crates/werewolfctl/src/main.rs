@@ -138,6 +138,13 @@ enum RouteCommands {
 enum DenCommands {
     Init,
     Info,
+    /// Stage30: destroy this node locally (identity first, then every file
+    /// in the Den), leaving only a retirement Tombstone. Irreversible.
+    Retire {
+        /// This node's own Pelt fingerprint, typed in full.
+        #[arg(long)]
+        confirm: String,
+    },
 }
 #[derive(Subcommand)]
 enum StateCommands {
@@ -403,6 +410,19 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         let _lock = den
             .lock(OsStr::new(".den.lock"))
             .map_err(|e| CliError::new(ExitClass::Conflict, e))?;
+        // Stage30: a Den that holds a Tombstone is never initialized again.
+        if !matches!(
+            den.read(
+                OsStr::new(werewolf_core::tombstone::FILE_NAME),
+                werewolf_core::tombstone::MAX_LEN + 1
+            ),
+            Ok(None)
+        ) {
+            return Err(CliError::new(
+                ExitClass::Rejected,
+                "LIFECYCLE_TOMBSTONE: this Den holds a Tombstone and is never initialized again",
+            ));
+        }
         return print_local(
             cli.json,
             "den.init",
@@ -447,6 +467,9 @@ fn request_for(command: Commands) -> Result<(String, Value), CliError> {
         Commands::Den {
             command: DenCommands::Info,
         } => ("den.info", json!({})),
+        Commands::Den {
+            command: DenCommands::Retire { confirm },
+        } => ("den.retire", json!({"confirm": confirm})),
         Commands::State {
             command: StateCommands::ManifestMigrate,
         } => ("state.manifest.migrate", json!({})),

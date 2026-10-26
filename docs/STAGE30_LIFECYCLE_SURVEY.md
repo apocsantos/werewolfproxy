@@ -420,9 +420,11 @@ owner's bias).**
   every operator, exactly as they did the genesis.
   - It is self-authenticating; anyone may carry it, over any channel.
   - The operator runs `governance apply`.
-- **The secondary path:** `governance sync` from a peer that has not died
-  yet. Peers destroy their Pelt on death, so this window is a race and
-  never the plan.
+- **The secondary path:** ~~`governance sync` from a peer that has not died
+  yet~~. *Corrected in Stage30 step 2:* there is no such window. A
+  responder serves only applied statements, and applying a death locks
+  and destroys the node first, so sync can never deliver a death. The file
+  is the only channel (see the spec's step 2 notes).
 - **What the node does:** having learned of death, it performs its own
   terminal transition (question 7).
 - **A node that never learns:**
