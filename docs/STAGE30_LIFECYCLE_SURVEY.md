@@ -1,7 +1,9 @@
 # Stage30 network lifecycle, death and the Tombstone — design survey
 
-**Status: survey for review.** Docs only. No code is written until the
-decisions below are reviewed and frozen, as in Stage28.
+**Status: decisions accepted 2026-10-26 (1a, 2a, 3a + 3a-ii, 4a, 5a, 6a,
+7a, 8) with two owner additions; see
+[Decisions](#decisions-accepted-2026-10-26).** Docs only. The format and
+rules go into a spec for review before any code, as in Stage28.
 
 [ARCHITECTURE.md](ARCHITECTURE.md) sets the goals:
 
@@ -178,6 +180,19 @@ unusable for a legitimate quorum: it can still sign, but not legitimately.
 | DEGRADED | At least 7 and fewer than 10 usable. Recoverable: rotation (kind 1) replaces lost or compromised keys while 7 can still sign |
 | UNRECOVERABLE | Fewer than 7 usable. The rules allow no other recovery path, so this is permanent |
 | COMPROMISED (noted, not a lifecycle state) | 7 or more keys in hostile hands: the attacker can sign anything, death included. The design cannot defend against this, by definition |
+
+**UNRECOVERABLE is a legitimate-custody determination, not cryptographic
+proof that private keys no longer exist** (owner clarification). It means
+that fewer than seven indices remain in the custody of their legitimate
+holders, so no legitimate quorum can form under the rules. A key reported
+lost may still exist: in a forgotten backup, or in an attacker's hands, and
+it can still sign. Three consequences:
+
+- UNRECOVERABLE never destroys anything by itself (decision 3);
+- every loss report is also treated as a possible compromise: a lost key
+  that reappears in hostile hands counts toward COMPROMISED, not toward
+  recovery;
+- nothing in the software, and no test, claims that a lost key is gone.
 
 The criteria are objective, but the evidence is held by people. The
 question is how to measure the number of usable keys without trusting one
@@ -478,7 +493,30 @@ order (recommended).**
 
 Death goes through mutation admission like every governance mutation, so
 it is linearized with other mutations. After the commit, every mutation is
-refused. Retirement (3a-ii) runs steps 2–5 with no chain step.
+refused.
+
+**Local retirement (3a-ii; owner addition to 7a).** Retirement has no DEAD
+chain-head commit to serve as its durable point of no return, so the
+retirement Tombstone takes that role:
+
+1. **Lock** in memory (as step 2 above). A crash here leaves the node
+   exactly as before, since nothing durable has changed.
+2. **Durably write the incomplete retirement Tombstone**
+   (`kind: "retirement"`, `destruction: "incomplete"`). It is written to a
+   temporary file, the file is synced, renamed into place, and the Den
+   directory is synced. **Only after that sync succeeds** does any
+   irreversible step begin. This is the point of no return. If the write or
+   the sync fails, retirement fails with no effect and the node is
+   unlocked.
+3. **Destroy**, secrets first, exactly as step 4 above.
+4. **Mark the Tombstone complete** (atomic replace), and exit.
+
+At startup, a retirement Tombstone means exactly what a death Tombstone
+means: resume destruction and never become READY.
+
+The same durability applies to the death Tombstone in step 3 (file and
+directory synced). For death, though, the DEAD head commit in step 1 is
+already the point of no return.
 
 **7b. Destroy first, then record.** Rejected: a crash would leave a
 half-destroyed Den with no marker of intent, which startup could mistake
@@ -571,27 +609,39 @@ Then, in the owner's order:
   exactly like `pelt init` on an existing node today. It affects only that
   node.
 
-## Decisions requested
+## Decisions (accepted 2026-10-26)
 
-Each decision has a recommended option. Accept it, or change it.
+The owner accepted every recommendation below, with two additions:
+
+- **7a, retirement.** Local retirement must durably write its incomplete
+  retirement Tombstone before the irreversible process begins, because,
+  unlike network death, it has no DEAD chain-head commit to serve as its
+  durable point of no return. See question 7.
+- **2a, clarification.** UNRECOVERABLE is a legitimate-custody
+  determination, not cryptographic proof that private keys no longer
+  exist. See question 2.
+
+5a was chosen over 5b: the Tombstone records no timestamp.
 
 1. **States:** 1a, three axes (chain lifecycle, node condition, governance
    capability), with DEAD terminal and nothing chaining after it.
 2. **Capability criteria:** 2a, a key check (lower bound) plus loss reports
    held off-chain; UNRECOVERABLE if and only if at least 4 indices are
-   reported lost; the last-quorum rule.
+   reported lost, a legitimate-custody determination, not proof that the
+   keys no longer exist; the last-quorum rule.
 3. **Death trigger:** 3a, an explicit 7-of-10 kind-5 statement only, plus
    3a-ii local retirement (`den retire`); amend ARCHITECTURE §36 and §62.
 4. **Destruction:** 4a, overwrite and unlink with the bounded claim;
    cryptographic erasure (4b) is a later, separate stage.
-5. **Tombstone:** 5a, minimal, with no timestamp (or 5b with a
-   non-authoritative one); the exact schema and the scanning test as the
-   proof.
+5. **Tombstone:** 5a, minimal, with no timestamp; the exact schema and
+   the scanning test as the proof.
 6. **Learning of death:** 6a, the file first and sync second, with
    retirement for nodes that never learn.
 7. **Crash semantics:** 7a, commit DEAD, lock, write the Tombstone as
    incomplete, destroy secrets first, then mark it complete; never READY
-   again.
+   again. Local retirement durably writes (file and directory synced) its
+   incomplete retirement Tombstone before any irreversible step, as its
+   point of no return.
 8. **Testing:** assert the Den allowlist, Tombstone scanning, behaviour,
    crash convergence and propagation; *measure and report* media residue;
    claim nothing about storage, logs, swap or copies.

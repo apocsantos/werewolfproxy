@@ -66,7 +66,7 @@ None of this is in the 1.0.0-rc.1 archive.
 | [Stage27](STAGE27_PROVIDER_SELECTION_DESIGN.md) | Provider selection: ordered providers per service, per-connection failover before establishment only | Implemented; lab gate `provider_gate.py`; WAN checked |
 | [Stage28](STAGE28_GOVERNANCE_SURVEY.md) | Network governance: 7-of-10 signed statements (genesis, key rotation, network revocation), offline signing tool, chain head in the protected manifest (schema 2), fork fencing | Implemented; lab gate `governance_gate.py`; no network component to WAN-check (statements are operator-delivered) |
 | [Stage29](STAGE29_ACTIVATION_DESIGN.md) | Admission and activation: network roster (at most 1024), one-way activation as a chain fact, locally derived admission with a fence for unadmitted nodes, `pack add` bounded by the roster, permanent revocation; manual `governance sync` from Pack peers with conflict fencing | Implemented; lab gates `activation_gate.py`, `sync_gate.py`; WAN checked (sync through a relay, disposable daemons only) |
-| [Stage30](STAGE30_LIFECYCLE_SURVEY.md) | Network lifecycle: chain, node and capability states; DEGRADED vs UNRECOVERABLE criteria; 7-of-10 death statement and local retirement; destruction, crash semantics and the Tombstone | Survey for review (docs only) |
+| [Stage30](STAGE30_LIFECYCLE_SURVEY.md) | Network lifecycle: chain, node and capability states; DEGRADED vs UNRECOVERABLE criteria; 7-of-10 death statement and local retirement; destruction, crash semantics and the Tombstone | Decisions accepted 2026-10-26; spec next (docs only, no code yet) |
 
 ## Known gaps
 
