@@ -17,6 +17,11 @@ struct Document {
     revoked: Vec<String>,
     applied: Vec<String>,
     forked: bool,
+    /// Stage29 fields, omitted while empty so a Stage28 head keeps its bytes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    roster: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    activated_at: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -48,6 +53,8 @@ fn document(head: &Head) -> Document {
         revoked: head.revoked.iter().map(|k| tool::hex(k)).collect(),
         applied: head.applied.iter().map(|h| tool::hex(h)).collect(),
         forked: head.forked,
+        roster: head.roster.iter().map(|k| tool::hex(k)).collect(),
+        activated_at: head.activated_at,
     }
 }
 
@@ -86,6 +93,8 @@ pub(crate) fn parse(bytes: &[u8]) -> io::Result<Head> {
         revoked: doc.revoked.iter().map(hex32).collect::<io::Result<_>>()?,
         applied: doc.applied.iter().map(hex32).collect::<io::Result<_>>()?,
         forked: doc.forked,
+        roster: doc.roster.iter().map(hex32).collect::<io::Result<_>>()?,
+        activated_at: doc.activated_at,
     };
     if canonical(&head)? != bytes {
         return Err(invalid());
@@ -114,7 +123,14 @@ fn check(head: &Head) -> io::Result<()> {
                     .enumerate()
                     .all(|(index, key)| !keys[..index].contains(key))
         })
-        && head.revoked.windows(2).all(|pair| pair[0] < pair[1]);
+        && head.revoked.windows(2).all(|pair| pair[0] < pair[1])
+        && head.roster.len() <= werewolf_core::governance::MAX_ROSTER
+        && head.roster.windows(2).all(|pair| pair[0] < pair[1])
+        && head
+            .roster
+            .iter()
+            .all(|key| head.revoked.binary_search(key).is_err())
+        && head.activated_at.is_none_or(|at| at <= head.sequence);
     if ok {
         Ok(())
     } else {
@@ -212,5 +228,64 @@ pub(crate) mod tests {
             assert!(canonical(&head).is_err());
         }
         assert!(parse(b"{}").is_err());
+    }
+
+    #[test]
+    fn stage28_heads_keep_their_bytes_and_stage29_fields_are_checked() {
+        let head = sample_head();
+        let stage28 = canonical(&head).unwrap();
+        let text = String::from_utf8(stage28.clone()).unwrap();
+        assert!(
+            !text.contains("roster") && !text.contains("activated_at"),
+            "{text}"
+        );
+        assert_eq!(parse(&stage28).unwrap(), head);
+
+        let a = SigningKey::from_bytes(&[0xB1; 32])
+            .verifying_key()
+            .to_bytes();
+        let b = SigningKey::from_bytes(&[0xB2; 32])
+            .verifying_key()
+            .to_bytes();
+        let mut roster = vec![a, b];
+        roster.sort();
+        let stage29 = Head {
+            roster: roster.clone(),
+            activated_at: Some(0),
+            ..head.clone()
+        };
+        let bytes = canonical(&stage29).unwrap();
+        assert_eq!(parse(&bytes).unwrap(), stage29);
+        for broken in [
+            Head {
+                roster: vec![roster[1], roster[0]],
+                ..stage29.clone()
+            },
+            Head {
+                roster: vec![a, a],
+                ..stage29.clone()
+            },
+            Head {
+                revoked: vec![a],
+                roster: vec![a],
+                ..stage29.clone()
+            },
+            Head {
+                activated_at: Some(1),
+                ..stage29.clone()
+            },
+            Head {
+                roster: (0..1025u32)
+                    .map(|i| {
+                        let mut key = [0u8; 32];
+                        key[..4].copy_from_slice(&i.to_be_bytes());
+                        key
+                    })
+                    .collect(),
+                ..stage29.clone()
+            },
+        ] {
+            assert!(canonical(&broken).is_err());
+        }
     }
 }

@@ -76,6 +76,22 @@ pub(crate) enum DraftKind {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Admit members to the network roster by their Pelt public keys.
+    Admit {
+        #[arg(long)]
+        after: PathBuf,
+        #[arg(long = "member", required = true)]
+        members: Vec<String>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Activate the network: one-way, from this statement on.
+    Activate {
+        #[arg(long)]
+        after: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Revoke members network-wide by their Pelt public keys.
     Revoke {
         #[arg(long)]
@@ -165,6 +181,21 @@ fn run_local(json_output: bool, command: GovernanceCommands) -> Result<(), CliEr
                         })
                         .collect::<Result<Vec<_>, CliError>>()?;
                     (tool::draft_after(&previous, Body::Rotation(entries)), out)
+                }
+                DraftKind::Admit {
+                    after,
+                    members,
+                    out,
+                } => {
+                    let previous = tool::read_statement(&after).map_err(fail)?;
+                    (
+                        tool::draft_after(&previous, Body::Admission(keys(&members)?)),
+                        out,
+                    )
+                }
+                DraftKind::Activate { after, out } => {
+                    let previous = tool::read_statement(&after).map_err(fail)?;
+                    (tool::draft_after(&previous, Body::Activation), out)
                 }
                 DraftKind::Revoke {
                     after,

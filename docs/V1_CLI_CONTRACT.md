@@ -275,6 +275,8 @@ governance statements signed by at least 7 of 10 governance keys.
 - governance draft genesis --key PUB_B64 (×10, index order) [--network-id HEX] --out FILE
 - governance draft rotate --after PREVIOUS --set INDEX=PUB_B64 ... --out FILE
 - governance draft revoke --after PREVIOUS --member PUB_B64 ... --out FILE
+- governance draft admit --after PREVIOUS --member PUB_B64 ... --out FILE (Stage29)
+- governance draft activate --after PREVIOUS --out FILE (Stage29)
 - governance sign DRAFT KEYFILE --index N --out PART
 - governance combine DRAFT PART... --out FILE
 - governance inspect FILE [--chain FILE...] [--expect-genesis HEX]
