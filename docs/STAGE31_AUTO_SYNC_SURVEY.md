@@ -1,7 +1,10 @@
 # Stage31 automatic governance sync — design survey
 
-**Status: survey for owner decisions.** Docs only. The rules go into a
-spec for review before any code, as in Stage28 and Stage30.
+**Status: decisions accepted 2026-10-26 (1a, 3a, 6a and 7a with owner
+corrections; 2a, 4a, 5a, 8a and 9 as proposed); see
+[Decisions](#decisions-accepted-2026-10-26).** Docs only. The rules go
+into a spec for review before any code, as in Stage28 and Stage30. Where
+the sections below differ from the decisions, the decisions apply.
 
 Stage29 decision G4 ([wire spec](STAGE29_GOVERNANCE_RPC_WIRE_SPEC.md#decisions-approved-2026-10-26))
 kept sync manual: wire protocol, archive semantics, fork detection and
@@ -254,3 +257,35 @@ architecture-complete candidate.
 ## Recommendations in one line
 
 1a, 2a, 3a, 4a, 5a, 6a, 7a, 8a, and the tests in 9.
+
+## Decisions accepted 2026-10-26
+
+- **1a, corrected.** Only nodes whose chain is `active` **and** that are
+  admitted sync automatically. An unadmitted node does not; it receives
+  its Admission by file. During the ceremony and before any genesis, sync
+  stays manual.
+- **2a.** A persisted local off switch, default on.
+- **3a, corrected.** The initial run, after a short random delay, happens
+  whenever the node goes from ineligible to eligible, not only after
+  `READY`. Eligible means: chain active, admitted, the switch on, a Pelt,
+  no Silver, no fenced fork, not DYING. Examples: start-up of an eligible
+  node; applying the activation on an admitted node; applying its own
+  Admission by file on an active chain; the switch turned on; Silver
+  cleared. After that, the jittered interval.
+- **4a.** Every Pack member, through the manual resolver.
+- **5a.** Every statement kind applies exactly as in manual sync; a fork
+  fences and stops automatic sync.
+- **6a, corrected.** An operator discovery command cancels an automatic
+  run only before its apply begins. Once `governance.sync_apply` has been
+  submitted, the run completes; it is never cancelled mid-apply.
+- **7a, clarified.** Compliant nodes cannot normally propagate a death
+  through sync, because a node that applies a death destroys itself before
+  serving it. The file stays the certified delivery path. There is **no
+  requester-side weakening** of valid 7-of-10 death authority: a requester
+  that receives a valid death through sync (manual or automatic), from any
+  responder, applies it like any other statement and performs its terminal
+  transition. (This is today's behaviour: sync applies through the same
+  `apply_statement` as a file.)
+- **8a.** A runtime `auto_sync` object on `governance status`; only the
+  switch is persisted.
+- **9.** The certification plan as proposed.
