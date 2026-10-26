@@ -294,6 +294,9 @@ async fn handle_request(
                             "keys": head.keys().iter().map(|k| STANDARD.encode(k)).collect::<Vec<_>>(),
                             "revoked": head.revoked.iter().map(|k| STANDARD.encode(k)).collect::<Vec<_>>(),
                             "forked": head.forked,
+                            "roster": head.roster.iter().map(|k| STANDARD.encode(k)).collect::<Vec<_>>(),
+                            "activated_at": head.activated_at,
+                            "admitted": !crate::governance::unadmitted(&st),
                         }),
                     )
                 }
@@ -572,7 +575,10 @@ async fn handle_request(
                     "local state mutation rejected",
                 );
             }
-            if authority.open_after_durable(expected).is_err() {
+            // Stage29: an unadmitted node stays fenced after Silver ends; the
+            // inbound authority opens only when both allow it.
+            let fenced = crate::governance::unadmitted(&*state.lock().await);
+            if !fenced && authority.open_after_durable(expected).is_err() {
                 return ControlResponse::err(
                     req.id,
                     "SILVER_SUPERSEDED",

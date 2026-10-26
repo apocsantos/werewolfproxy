@@ -199,6 +199,13 @@ async fn network(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> Control
                 "Silver mode is active. Discovery rejected.",
             );
         }
+        if crate::governance::unadmitted(&st) {
+            return ControlResponse::err(
+                req.id,
+                "GOVERNANCE_UNADMITTED",
+                "this node is not admitted to its activated network",
+            );
+        }
         let Some(identity) = st.pelt.clone() else {
             return ControlResponse::err(req.id, "NO_PELT", "No local Pelt identity exists");
         };
@@ -265,6 +272,13 @@ async fn prepare(
             id,
             "SILVER_ACTIVE",
             "Silver mode is active. Discovery rejected.",
+        ));
+    }
+    if crate::governance::unadmitted(&st) {
+        return Err(ControlResponse::err(
+            id,
+            "GOVERNANCE_UNADMITTED",
+            "this node is not admitted to its activated network",
         ));
     }
     let Some(identity) = st.pelt.clone() else {

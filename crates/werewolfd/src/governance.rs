@@ -1,9 +1,48 @@
 //! Stage28 governance on the node (`docs/STAGE28_GOVERNANCE_STATEMENT_SPEC.md`):
 //! the persisted form of the chain head, a protected manifest document.
 
+use crate::state::DaemonState;
 use serde::{Deserialize, Serialize};
 use std::io;
-use werewolf_core::governance::{tool, Head, Key, KEY_COUNT, THRESHOLD};
+use werewolf_core::{
+    governance::{tool, Head, Key, KEY_COUNT, THRESHOLD},
+    pack::PeerRecord,
+};
+
+/// This node's own Pelt public key, if it has a Pelt.
+pub(crate) fn own_key(st: &DaemonState) -> Option<Key> {
+    st.pelt
+        .as_ref()
+        .and_then(|pelt| tool::public_key(&pelt.public_key_b64).ok())
+}
+
+/// Stage29 local admission: activation is a network-chain fact; whether this
+/// node may act as a member is derived from the head and its current Pelt,
+/// never stored. A node without a Pelt is unadmitted once activated.
+pub(crate) fn unadmitted(st: &DaemonState) -> bool {
+    match (&st.governance, own_key(st)) {
+        (Some(head), Some(own)) => !head.admits(&own),
+        (Some(head), None) => head.activated_at.is_some(),
+        (None, _) => false,
+    }
+}
+
+/// Whether the head excludes this Pack member: its key is network-revoked,
+/// or, after activation, it is not on the roster (or has no full key to
+/// check against the roster).
+pub(crate) fn excludes(head: &Head, peer: &PeerRecord) -> bool {
+    match peer
+        .public_key_b64
+        .as_deref()
+        .and_then(|b64| tool::public_key(b64).ok())
+    {
+        Some(key) => {
+            head.revoked.binary_search(&key).is_ok()
+                || (head.activated_at.is_some() && head.roster.binary_search(&key).is_err())
+        }
+        None => head.activated_at.is_some(),
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

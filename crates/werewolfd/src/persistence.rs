@@ -124,6 +124,22 @@ pub(super) fn load_startup_state(
         initial_state.pelt = Some(pelt);
         initial_state.status.pelt_ready = true;
     }
+    if let Some(head) = &initial_state.governance {
+        // Stage29: a Pack member the head excludes (revoked, or not on the
+        // roster after activation) means the Pack was changed outside
+        // governance; fail closed rather than trust it.
+        if initial_state
+            .peers
+            .iter()
+            .any(|peer| crate::governance::excludes(head, peer))
+        {
+            return Err(invalid());
+        }
+        // An unadmitted node starts fenced: no inbound sessions or RPCs.
+        if crate::governance::unadmitted(initial_state) {
+            initial_state.inbound_authority = Authority::new(true);
+        }
+    }
     Ok(())
 }
 
@@ -377,6 +393,60 @@ mod tests {
         assert_eq!(state.services.len(), 1);
         assert_eq!(state.services[0].name, "web");
         assert!(state.protected_state_generation.is_none());
+    }
+
+    /// Stage29: an activated node whose Pack holds a key the head excludes
+    /// (changed outside governance) refuses to start; an unadmitted node
+    /// starts with its inbound authority locked.
+    #[test]
+    fn activated_governance_is_enforced_at_startup() {
+        use werewolf_core::{
+            governance::tool,
+            pack::{PeerRecord, TrustLevel},
+        };
+        let fixture = Fixture::new();
+        let node = generate_identity();
+        fixture.write("pelt.json", &serde_json::to_vec(&node).unwrap());
+        assert!(matches!(
+            crate::protected_state::migrate(&fixture.1),
+            crate::protected_state::Transaction::DurablyCommitted(_)
+        ));
+        let member = generate_identity();
+        let member_key = tool::public_key(&member.public_key_b64).unwrap();
+        let own_key = tool::public_key(&node.public_key_b64).unwrap();
+        let mut head = crate::governance::tests::sample_head();
+        head.activated_at = Some(0);
+        let commit = |generation: u64, roster: Vec<[u8; 32]>, generation_peers: Vec<PeerRecord>| {
+            let mut state = crate::protected_state::legacy_state(&fixture.1).unwrap();
+            let mut roster = roster;
+            roster.sort();
+            state.governance = Some(werewolf_core::governance::Head {
+                roster,
+                ..head.clone()
+            });
+            state.peers = generation_peers;
+            assert!(matches!(
+                crate::protected_state::commit(&fixture.1, generation, &state),
+                crate::protected_state::Transaction::DurablyCommitted(_)
+            ));
+        };
+        let peer = PeerRecord {
+            name: "member".into(),
+            fingerprint: member.fingerprint.clone(),
+            address: "tcp://127.0.0.1:1".into(),
+            trust: TrustLevel::Packmate,
+            public_key_b64: Some(member.public_key_b64.clone()),
+        };
+        // Both on the roster: starts normally, unlocked.
+        commit(1, vec![member_key, own_key], vec![peer.clone()]);
+        let state = fixture.startup();
+        assert!(!state.inbound_authority.is_locked());
+        // The node itself not on the roster: starts fenced.
+        commit(2, vec![member_key], vec![peer.clone()]);
+        assert!(fixture.startup().inbound_authority.is_locked());
+        // A Pack member the roster excludes: refuses to start.
+        commit(3, vec![own_key], vec![peer]);
+        assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
     }
 
     #[test]

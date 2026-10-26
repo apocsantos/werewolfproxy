@@ -155,14 +155,16 @@ class GovernanceGate(ServiceGate):
                 'fork flag lost on restart')
         self.record('a validly signed conflict fences governance durably', {'forked': True})
 
-        # Stage29 kinds are valid statements, but this daemon refuses them
-        # until their node effects exist (Stage29 step 2).
+        # Stage29: an admission applies and only updates the roster (the
+        # activation gate covers activation and local admission).
         admit = self.statement('admit', ['admit', '--after', rotate, '--member', keys['a']],
                                [0, 1, 2, 3, 4, 5, 6])
-        self.ctl('b', 'governance', 'apply', admit, expect=REJECTED)
-        require(self.ctl('b', 'governance', 'status')['result']['sequence'] == 1,
-                'an unsupported statement changed the head')
-        self.record('admission is refused until its node effects exist', {'exit': REJECTED})
+        result = self.ctl('b', 'governance', 'apply', admit)['result']
+        status = self.ctl('b', 'governance', 'status')['result']
+        require(result['status'] == 'applied' and status['roster'] == [keys['a']]
+                and status['activated_at'] is None and status['admitted'],
+                f'admission on B: {status}')
+        self.record('an admission updates the roster only', {'roster': 1})
         require(all(p.poll() is None for p in [target, *self.wolves]), 'gate process exited')
 
 

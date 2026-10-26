@@ -712,15 +712,27 @@ pub(super) async fn handle(
                 }
                 // Stage28: local administration never re-trusts a member the
                 // network revoked.
-                let revoked = state.lock().await.governance.as_ref().is_some_and(|head| {
-                    werewolf_core::governance::tool::public_key(&public_key_b64)
-                        .is_ok_and(|key| head.revoked.binary_search(&key).is_ok())
-                });
+                let key = werewolf_core::governance::tool::public_key(&public_key_b64).ok();
+                let (revoked, off_roster) = match (&state.lock().await.governance, key) {
+                    (Some(head), Some(key)) => (
+                        head.revoked.binary_search(&key).is_ok(),
+                        head.activated_at.is_some() && head.roster.binary_search(&key).is_err(),
+                    ),
+                    _ => (false, false),
+                };
                 if revoked {
                     return ControlResponse::err(
                         &req.id,
                         "PACK_REVOKED_BY_NETWORK",
                         "this key was revoked by a governance statement",
+                    );
+                }
+                // Stage29 4a: after activation the roster bounds the Pack.
+                if off_roster {
+                    return ControlResponse::err(
+                        &req.id,
+                        "PACK_NOT_ON_ROSTER",
+                        "this key is not on the activated network's roster",
                     );
                 }
                 candidate.push(PeerRecord {
@@ -1063,18 +1075,7 @@ async fn apply_governance(
         Ok(statement) => statement,
         Err(error) => return reject("GOVERNANCE_INVALID", error.to_string()),
     };
-    // Stage29 admission and activation need their node effects (the
-    // activation sweep, local admission); until those exist this node
-    // refuses them rather than recording an activation it cannot enforce.
-    if matches!(
-        statement.core.body,
-        governance::Body::Admission(_) | governance::Body::Activation
-    ) {
-        return reject(
-            "GOVERNANCE_UNSUPPORTED",
-            "admission and activation are not supported by this daemon yet".into(),
-        );
-    }
+
     let expect = match arg(&req, "expect_hash").as_str() {
         "" => None,
         hex => match tool::unhex::<32>(hex) {
@@ -1134,29 +1135,48 @@ async fn apply_governance(
         Err(error) => return reject("GOVERNANCE_REJECTED", error.to_string()),
     };
 
-    // Pack members whose keys this statement newly revokes.
-    let already: &[governance::Key] = head.as_ref().map(|h| h.revoked.as_slice()).unwrap_or(&[]);
+    // Pack members the new head excludes: a revoked key, or after activation
+    // a key not on the roster (Stage29 sweep). The Pack held none before,
+    // so these are exactly the members this statement removes.
     let revoked: Vec<PeerRecord> = peers
         .iter()
-        .filter(|peer| {
-            peer.public_key_b64.as_deref().is_some_and(|b64| {
-                tool::public_key(b64).is_ok_and(|key| {
-                    next.revoked.binary_search(&key).is_ok() && already.binary_search(&key).is_err()
-                })
-            })
-        })
+        .filter(|peer| crate::governance::excludes(&next, peer))
         .cloned()
         .collect();
+    // Stage29 local admission before and after this statement.
+    let (was_admitted, now_admitted) = {
+        let live = state.lock().await;
+        let own = crate::governance::own_key(&live);
+        let admits = |h: &governance::Head| match own {
+            Some(key) => h.admits(&key),
+            None => h.activated_at.is_none(),
+        };
+        (head.as_ref().is_none_or(admits), admits(&next))
+    };
     let candidate: Vec<PeerRecord> = peers
         .iter()
         .filter(|peer| !revoked.iter().any(|r| r.name == peer.name))
         .cloned()
         .collect();
 
-    let (authority, closed) = {
+    let (authority, closed, reopen_epoch) = {
         let mut live = state.lock().await;
         let authority = live.inbound_authority.clone();
         let mut closed = 0;
+        // Becoming unadmitted fences the node first, before anything is
+        // saved: no inbound session or RPC, and every Fang closed.
+        if was_admitted && !now_admitted {
+            if authority.lock().is_err() {
+                return reject(
+                    "AUTHORITY_UNAVAILABLE",
+                    "runtime authority unavailable".into(),
+                );
+            }
+            closed += live.fang_registry.len();
+            live.fang_registry.abort_all();
+            live.fang_registry.clear_started();
+            live.fang_registry.clear_records();
+        }
         for peer in &revoked {
             if authority.deny_peer(&peer.fingerprint).is_err() {
                 return reject(
@@ -1167,7 +1187,9 @@ async fn apply_governance(
             closed += live.fang_registry.terminate_peer(&peer.name);
         }
         live.status.active_fangs = live.fang_registry.len();
-        (authority, closed)
+        // The epoch a later reopening must still match (as Silver reset).
+        let reopen_epoch = authority.epoch().ok();
+        (authority, closed, reopen_epoch)
     };
     let mut protected = protected_from_live(&*state.lock().await);
     protected.peers = candidate.clone();
@@ -1208,6 +1230,16 @@ async fn apply_governance(
             );
         }
     }
+    // Admitted again (or for the first time after activation): the fence
+    // lifts, but only if Silver is not holding the authority locked too.
+    if !was_admitted && now_admitted {
+        let silver = state.lock().await.status.silver == "active";
+        if !silver {
+            if let Some(epoch) = reopen_epoch {
+                let _ = authority.open_after_durable(epoch);
+            }
+        }
+    }
     // Audit copy of the statement, outside the manifest; best effort.
     let archived = state.lock().await.den.clone().is_some_and(|den| {
         matches!(
@@ -1225,8 +1257,9 @@ async fn apply_governance(
             "status": "applied",
             "sequence": next.sequence,
             "hash": tool::hex(&next.hash),
-            "revoked_members": revoked.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+                        "revoked_members": revoked.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
             "closed_fangs": closed,
+            "admitted": now_admitted,
             "archived": archived,
         }),
     )
