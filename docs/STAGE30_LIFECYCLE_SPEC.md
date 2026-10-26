@@ -160,8 +160,8 @@ capability never appears; nodes do not know it.
 
 ### Applying death
 
-Death arrives by `governance apply FILE` or through `governance sync`, and
-goes through the ordinary statement path:
+Death arrives by `governance apply FILE` and goes through the ordinary
+statement path (`governance sync` cannot deliver it; see the step 2 notes):
 
 - mutation admission;
 - verification against the live head;
@@ -192,8 +192,9 @@ The control reply is sent after destruction ends (section 4, step 5):
  "destruction":"complete|incomplete"}
 ```
 
-`governance sync` reports a death it applied in `applied` and stops, since
-nothing chains after it.
+If `governance sync` ever applied a death, it would report it in `applied`
+and stop, since nothing chains after it. In practice no responder can serve
+one (step 2 notes).
 
 ### Retiring a node (3a-ii)
 
@@ -262,7 +263,7 @@ a target that is already gone counts as done.
    4. empty subdirectories, deepest first.
 
    **The target is everything in the Den directory except
-   `tombstone.json` itself**, including a leftover temporary file from an
+   `tombstone.json` itself and the Den lock `.den.lock`**, including a leftover temporary file from an
    interrupted Tombstone write. The daemon is the only writer, and no write
    is in progress during this step. It is not a list of known
    names, so files from older or future versions are covered. The Den is
@@ -291,7 +292,9 @@ a target that is already gone counts as done.
    the Den or overwrites data that is reachable elsewhere (L3). After the
    last unlink, the Den directory is synced.
 5. **Verify the Den against the exact allowlist**: the directory, read
-   again from the start, contains `tombstone.json` and nothing else.
+   again from the start, contains `tombstone.json` and, at most, the inert
+   Den lock `.den.lock` (owner decision 2026-10-26: a regular file of 0
+   bytes, mode 0600, owned by the daemon, one link), and nothing else.
    - Only if it does is the Tombstone rewritten with
      `destruction: "complete"` (atomic replace).
    - Otherwise the Tombstone stays `incomplete`.
@@ -472,9 +475,10 @@ These are applied to ARCHITECTURE.md with this spec's approval.
 - `den init` and `pelt init` refused.
 
 **Lab gate `tests/integration/death_gate.py`, asserting PASS or FAIL:**
-- **Death by file and by sync, on several nodes:**
-  - each Den is left with exactly `tombstone.json`, checked by an exact
-    allowlist walk;
+- **Death by file on several nodes** (sync cannot deliver death; the gate
+  shows that it finds none):
+  - each Den is left with exactly `tombstone.json` and the inert Den lock,
+    checked by an exact allowlist walk;
   - the Tombstone and the Den contain none of a pre-death snapshot's keys,
     fingerprints, addresses, ports, peer names or service names, in raw,
     hex and base64 forms;
@@ -539,7 +543,7 @@ The ARCHITECTURE amendments of section 9 are applied.
 | Step | Scope | State |
 |---|---|---|
 | 1 | Core: kind 5, `Terminal`, `dead_at`, the key check, the Tombstone type; vectors and negative tests; offline `draft death` and `check new/sign/verify` | Done |
-| 2 | Daemon: death apply, the destruction procedure, startup, `den retire`, the error codes, exit 67, the systemd unit; lab gate `death_gate.py` with crash, storage-fault and residue checks | Next |
+| 2 | Daemon: death apply, the destruction procedure, startup, `den retire`, the error codes, exit 67, the systemd unit; lab gate `death_gate.py` with crash, storage-fault and residue checks | Done (residue: script for the owner to run) |
 | 3 | Real-host check on disposable daemons only | |
 
 Step 1 notes:
@@ -561,3 +565,38 @@ Step 1 notes:
 - **The Tombstone type** (`werewolf_core::tombstone`) accepts only its
   canonical bytes. A death Tombstone is checked to contain no governance
   public key in raw, hex or base64 form.
+
+Step 2 notes:
+
+- **The Den lock (owner decision 2026-10-26).** The Den lock
+  `.den.lock` must exist whenever a daemon or `werewolfctl` holds the Den,
+  and is never unlinked: its inode is the lock domain. The exact allowlist
+  (I3) is `{tombstone.json, .den.lock}`, with the lock required to be inert
+  (0 bytes, 0600, this owner, one link). Destruction never unlinks it; a
+  lock with content is emptied in place (overwritten, truncated, synced),
+  keeping its inode.
+- **`governance sync` cannot deliver death (finding).** A responder serves
+  only statements it has applied (G3), and applying a death locks the node
+  and destroys it, archive included, before anything else is answered. No
+  node can ever hold an applied death and answer RPCs, so there is no race
+  window: the file is the only channel. The survey's 6a "secondary path"
+  text is corrected. This also bounds automatic sync (next on the
+  roadmap): it can never propagate death either, unless a later decision
+  adds a serving phase (survey 6b, rejected for Stage30).
+- **`status.lifecycle`** was already a string (`READY` or `LOCKED`), pinned
+  by the JSON schema gate. It gains the value `DYING`; the
+  `{chain, node}` object is on `governance status` only.
+- **The control loop** never takes the state lock before mutation
+  admission (an existing characterization test). DYING is therefore
+  refused in `handle_request` (after admission) and in the two
+  pre-admission resolvers (`governance sync`, `service add --from`).
+- **Crash points** are compiled only with the `lab-faults` feature
+  (`WEREWOLF_LAB_TERMINAL_HALT`). The death gate builds that feature into
+  its own target directory and disables core dumps for those daemons, so no
+  Pelt lands in a core file.
+- **Not run:**
+  - **a full disk**, which needs a size-limited filesystem (root); a
+    read-only entry in the Den is covered instead;
+  - **the media residue measurement**, which needs root.
+    `tests/integration/death_residue.py` is provided for the owner to run
+    with sudo; its counts are recorded as measurements, never as erasure.

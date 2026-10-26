@@ -18,4 +18,5 @@ pub fn default_control_socket() -> std::io::Result<std::path::PathBuf> {
 }
 
 mod atomic;
+mod destroy;
 pub use atomic::CommitOutcome;

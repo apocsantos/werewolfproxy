@@ -13,6 +13,7 @@ mod state;
 #[cfg(test)]
 mod target_authorization_tests;
 mod target_policy;
+mod terminal;
 // Shared TLS plumbing is staged before either production transport adopts it.
 #[allow(dead_code)]
 mod tls_identity;
@@ -120,6 +121,7 @@ enum ExitClass {
     AlreadyRunning,
     Listener,
     Runtime,
+    Tombstone,
 }
 
 impl ExitClass {
@@ -130,6 +132,7 @@ impl ExitClass {
             Self::AlreadyRunning => 66,
             Self::Listener => 69,
             Self::Runtime => 70,
+            Self::Tombstone => terminal::EXIT_CODE,
         }
     }
 
@@ -140,6 +143,7 @@ impl ExitClass {
             Self::AlreadyRunning => "ALREADY_RUNNING",
             Self::Listener => "LISTENER",
             Self::Runtime => "RUNTIME",
+            Self::Tombstone => "TOMBSTONE",
         }
     }
 }
@@ -199,8 +203,26 @@ async fn run(mut args: Args) -> Result<(), DaemonFailure> {
             };
             DaemonFailure::new(class, error)
         })?;
+    // Stage30 section 6: a Tombstone is checked before any security state
+    // is loaded; a Den holding one never becomes READY.
+    if let Some(message) = terminal::at_startup(&den)
+        .map_err(|error| DaemonFailure::new(ExitClass::SecurityState, error))?
+    {
+        return Err(DaemonFailure::new(ExitClass::Tombstone, message));
+    }
     load_startup_state(&den, &mut initial_state)
         .map_err(|error| DaemonFailure::new(ExitClass::SecurityState, error))?;
+    // A committed DEAD head without a Tombstone: a crash between the commit
+    // and the durable Tombstone. Destruction runs now.
+    if let Some(head) = initial_state
+        .governance
+        .as_ref()
+        .filter(|head| head.dead_at.is_some())
+    {
+        let message = terminal::dead_head_at_startup(&den, head)
+            .map_err(|error| DaemonFailure::new(ExitClass::SecurityState, error))?;
+        return Err(DaemonFailure::new(ExitClass::Tombstone, message));
+    }
     initial_state.den = Some(den.clone());
 
     // Build one ephemeral TLS representation of the existing Pelt per process
@@ -352,7 +374,17 @@ async fn run(mut args: Args) -> Result<(), DaemonFailure> {
 
     let signal = lifecycle::wait_for_shutdown();
     tokio::pin!(signal);
+    let terminal_exit = state.lock().await.terminal_exit.clone();
     tokio::select! {
+        _ = terminal_exit.notified() => {
+            shutdown_owned_tasks(
+                &state,
+                &shutdown_tx,
+                &mut transport_tasks,
+                Some(&mut control_task),
+            ).await;
+            Err(DaemonFailure::new(ExitClass::Tombstone, "terminal transition finished"))
+        }
         reason = &mut signal => {
             ww_info!("SYSTEM", "SHUTDOWN_SIGNAL", "{} received", reason.label());
             shutdown_owned_tasks(

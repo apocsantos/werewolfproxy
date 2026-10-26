@@ -389,10 +389,26 @@ Stage30 ([survey](STAGE30_LIFECYCLE_SURVEY.md),
 - `draft death` creates the network's terminal statement (kind 5, empty
   body). Nothing chains after it: every later statement fails as
   `Terminal`. `inspect --chain` reports `dead_at`.
-- **Applying a death on a node is refused in this build**
-  (`GOVERNANCE_REJECTED`, with no effect, archive included). The
-  destruction it requires comes in step 2, and a node holding a DEAD head
-  refuses to start.
+- **Applying a death** (`governance apply FILE`) commits the DEAD head,
+  then locks the node, writes an incomplete Tombstone durably, destroys
+  the Pelt first and then every file in the Den except the Tombstone and
+  the inert Den lock, verifies that exactly those remain, marks the
+  Tombstone complete, replies `{"status":"applied","lifecycle":"dead",
+  "destruction":"complete|incomplete",...}`, and exits 67. `governance
+  sync` cannot deliver a death: every node that applied one is gone.
+- `den retire --confirm FINGERPRINT` does the same on this one node with
+  no statement, leaving a retirement Tombstone. The fingerprint must be
+  the node's own (`RETIRE_CONFIRM_MISMATCH`). If the Tombstone cannot be
+  written durably, nothing happens (`RETIRE_SAVE_FAILED`).
+- While a node is dying, every command but `status` (`lifecycle:
+  "DYING"`) and `governance status` fails with `LIFECYCLE_DYING`.
+  `governance status` reports `lifecycle: {chain, node}` and `dead_at`.
+- A Den holding a Tombstone: the daemon finishes or verifies destruction
+  and exits 67 at start, binding nothing; `den init` and `pelt init` fail
+  with `LIFECYCLE_TOMBSTONE`. A malformed Tombstone exits 65. The packaged
+  systemd unit does not restart on 67.
+- **Bounded claim:** see KNOWN_LIMITATIONS; Werewolf makes no claim about
+  storage media, logs, swap, backups or copies outside the Den.
 - `check new/sign/verify` is the key check: holders answer a fresh random
   challenge with their governance keys, under a signature domain of its
   own. `verify` checks every answer against the keys in force at the

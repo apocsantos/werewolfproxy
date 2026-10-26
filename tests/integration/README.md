@@ -249,6 +249,36 @@ A, B and an unreachable "ghost" member; A and B trust C.
 | Revocation through a peer | A and B revoke the ghost; C's sync removes `ghost` from its Pack and re-adding it exits 70 |
 | Conflict (addition D) | A and B apply different valid admissions as sequence 7: C's sync applies nothing, stops with `GOVERNANCE_FORK`, C is forked at 6, and a further sync or apply exits 70 |
 
+```bash
+python3 -B tests/integration/death_gate.py [--keep-temp]
+```
+
+`death_gate.py` (Stage30 step 2) builds werewolfd with the `lab-faults`
+feature into `target/stage30-lab-faults` (no other gate or release build
+uses it). It runs disposable daemons only, with core dumps disabled for
+them.
+
+| Assertion | Required evidence |
+|---|---|
+| Death from a file | B and C apply the death: reply `lifecycle: dead`, `destruction: complete`; exit 67; each Den is exactly `.den.lock` (0 bytes) and `tombstone.json` (kind `death`, terminal sequence and hash of the statement); no pre-death value (Pelt strings and keys, peer names, fingerprints, addresses, Pack and governance keys, in raw, hex and base64) remains in either Den; A's echo through B fails and A's sync reports B and C unreachable |
+| Offline node | D, stopped during the death, restarts normally; its sync applies nothing (no holder of the death is alive); the file kills it as above |
+| Dead Den restart | Restarting B exits 67 at once, binds no listener, leaves the Den unchanged; `den init` on it exits 70 |
+| Retirement | A wrong `--confirm` exits 70; the right fingerprint retires A (`complete`, exit 67); the retirement Tombstone has only `format`, `version`, `kind`, `destruction`, `software` |
+| Storage fault | An unremovable entry in the Den: retirement reports `incomplete`, exits 67, the Pelt is gone; a restart stays `incomplete`; once the entry is removable a restart completes |
+| Crash convergence | An abort at each step boundary (death: after the DEAD commit, after the Tombstone, after the Pelt, after the security state, before completion; retirement: the last four) is followed by a restart that exits 67 with a complete Tombstone and a clean Den |
+
+Not run by the gate: a full disk (needs a size-limited filesystem). The
+media residue measurement needs root and is a separate script:
+
+```bash
+sudo python3 tests/integration/death_residue.py [BINARY_DIR]
+```
+
+It loop-mounts a 64 MiB ext4 image, retires a disposable daemon whose Den
+is on it, unmounts, and counts occurrences of the Pelt secret and a Pack key
+in the raw image. Counts are reported as a measurement of that filesystem,
+never as erasure.
+
 ## Stage 1 execution results — 2026-09-07
 
 Executed against checkout `63691aade2aa165b16864a80272f2a55eadcee00` with its

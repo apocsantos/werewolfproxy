@@ -109,6 +109,14 @@ pub(super) struct DaemonState {
     pub(super) rpc_limiter: std::sync::Arc<crate::discovery::RpcLimiter>,
     /// Serializes operator refresh/find so cache writes never interleave.
     pub(super) discovery: std::sync::Arc<tokio::sync::Mutex<()>>,
+    /// Stage30: DYING, from the lock step of death or retirement until the
+    /// process exits. Every control command but `status` and `governance
+    /// status` is refused.
+    pub(super) dying: bool,
+    /// Stage30: a terminal transition finished; the process exits with 67
+    /// once its reply is written (or after a short grace).
+    pub(super) terminal_exit_requested: bool,
+    pub(super) terminal_exit: std::sync::Arc<tokio::sync::Notify>,
 }
 
 impl DaemonState {

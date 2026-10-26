@@ -73,5 +73,15 @@ follows.
   not root on that host from rewriting its own Den. `governance sync`
   fetches statements from Pack peers on operator command only; nothing
   propagates automatically, and an unadmitted node still receives its
-  admission as a file. Death and the Tombstone are not implemented.
+  admission as a file.
+- **Death and retirement (Stage30).** On death or retirement, Werewolf
+  commits the decision, locks the node, destroys the node's identity key
+  first and then every file in the Den, overwriting each regular file it
+  owns once before removing it, and leaves only a minimal Tombstone. It
+  makes no claim about storage media (journals, copy-on-write snapshots,
+  SSD wear-levelling), logs, swap, backups or copies outside the Den, nor
+  that any governance private key was destroyed. Death travels only as a
+  file (`governance sync` cannot deliver it). Destruction under a full disk
+  has not been exercised, and the media residue measurement is a separate
+  root-run script.
 

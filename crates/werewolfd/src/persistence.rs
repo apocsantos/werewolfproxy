@@ -125,10 +125,10 @@ pub(super) fn load_startup_state(
         initial_state.status.pelt_ready = true;
     }
     if let Some(head) = &initial_state.governance {
-        // Stage30 step 1: a DEAD head needs the destruction this build does
-        // not have. Fail closed rather than run on it.
+        // Stage30: a DEAD head is handed to destruction by the caller
+        // before anything starts; nothing else is checked or published.
         if head.dead_at.is_some() {
-            return Err(invalid());
+            return Ok(());
         }
         // Stage29: a Pack member the head excludes (revoked, or not on the
         // roster after activation) means the Pack was changed outside
@@ -454,10 +454,10 @@ mod tests {
         assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
     }
 
-    /// Stage30 step 1: this build cannot destroy, so a DEAD head (which only
-    /// a later build could commit) makes startup fail closed.
+    /// Stage30: a DEAD head loads without the Pack or admission checks, and
+    /// is handed to destruction by the caller (section 6, step 2).
     #[test]
-    fn a_dead_head_fails_startup_closed() {
+    fn a_dead_head_loads_for_destruction() {
         let fixture = Fixture::new();
         fixture.write(
             "pelt.json",
@@ -476,7 +476,9 @@ mod tests {
             crate::protected_state::commit(&fixture.1, 1, &state),
             crate::protected_state::Transaction::DurablyCommitted(_)
         ));
-        assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+        let mut loaded = DaemonState::default();
+        load_startup_state(&fixture.1, &mut loaded).unwrap();
+        assert_eq!(loaded.governance.unwrap().dead_at, Some(0));
     }
 
     #[test]

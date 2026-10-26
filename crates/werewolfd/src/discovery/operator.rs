@@ -371,6 +371,9 @@ pub(crate) async fn resolve_sync(
     req: ControlRequest,
     state: &Arc<Mutex<DaemonState>>,
 ) -> Result<ControlRequest, ControlResponse> {
+    if let Some(refusal) = crate::control::dying_refusal(&req, state).await {
+        return Err(refusal);
+    }
     use werewolf_core::governance::{self, Outcome, Statement};
     const ROUNDS: usize = 16;
     let transport = transport_arg(&req)?;
@@ -594,6 +597,9 @@ pub(crate) async fn resolve_add_from(
     req: ControlRequest,
     state: &Arc<Mutex<DaemonState>>,
 ) -> Result<ControlRequest, ControlResponse> {
+    if let Some(refusal) = crate::control::dying_refusal(&req, state).await {
+        return Err(refusal);
+    }
     let transport = transport_arg(&req)?;
     let name = req.args["name"].as_str().unwrap_or("").to_owned();
     let peer_name = req.args["peer"].as_str().unwrap_or("").trim().to_owned();
