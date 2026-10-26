@@ -2,7 +2,8 @@
 
 **Status: specification approved 2026-10-26 (L1–L6 as recommended, the
 Tombstone-before-destruction rule, and invariants I1–I3; see
-[Decisions](#decisions-for-this-spec)).** No code exists yet. This implements the
+[Decisions](#decisions-for-this-spec)). Implemented in steps 1–3; the
+real-host check is [below](#real-host-check-2026-10-26).** This implements the
 accepted decisions of the [Stage30 survey](STAGE30_LIFECYCLE_SURVEY.md)
 (1a, 2a, 3a + 3a-ii, 4a, 5a, 6a, 7a, 8 and the two owner additions). It
 extends the [Stage28 statement spec](STAGE28_GOVERNANCE_STATEMENT_SPEC.md)
@@ -544,7 +545,7 @@ The ARCHITECTURE amendments of section 9 are applied.
 |---|---|---|
 | 1 | Core: kind 5, `Terminal`, `dead_at`, the key check, the Tombstone type; vectors and negative tests; offline `draft death` and `check new/sign/verify` | Done |
 | 2 | Daemon: death apply, the destruction procedure, startup, `den retire`, the error codes, exit 67, the systemd unit; lab gate `death_gate.py` with crash, storage-fault and residue checks | Done (residue: script for the owner to run) |
-| 3 | Real-host check on disposable daemons only | |
+| 3 | Real-host check on disposable daemons only | Done, [below](#real-host-check-2026-10-26) |
 
 Step 1 notes:
 
@@ -600,3 +601,64 @@ Step 2 notes:
   - **the media residue measurement**, which needs root.
     `tests/integration/death_residue.py` is provided for the owner to run
     with sudo; its counts are recorded as measurements, never as erasure.
+
+## Real-host check (2026-10-26)
+
+Build `73b8276` (main after #70), release, `--locked`: `werewolfd`
+`5dbb6e90…b5a9`, `werewolfctl` `76405cbe…36e3`, hash-checked on both hosts.
+Only disposable daemons ever held governance state or died:
+
+| Node | Host | Role |
+|---|---|---|
+| D | DarkSide, user systemd unit (`systemd-run --user`, `Restart=on-failure`, `RestartSec=5s`, the packaged `RestartPreventExitStatus=64 65 66 67 69`), loopback, fresh Den and Pelt (`wwp1:4F-39-97-69-D4-9A-52-75`) | syncs; dies from the file |
+| C | VPS, user mode, loopback only (`127.0.0.1:18463`), fresh Den and Pelt (`wwp1:D7-3A-1C-0F-97-B4-F5-86`) | serves; dies from the file |
+| E | VPS, user mode, loopback only, fresh Den and Pelt (`wwp1:9E-06-D4-27-DB-6A-43-17`), no Pack, no governance | `den retire` |
+| `node-b` | VPS `werewolfd.service` | Stage26 relay only, unchanged |
+
+D reached C only through `node-b` (route `node-c --via node-b`, QUIC hop
+`:9560`). The owner's Stage29 conditions for the production relay were
+applied again: `pack list` and `target list` recorded before; `node-d`
+added with D's exact key; one grant, `127.0.0.1:18463`; nothing else on
+`node-b` changed; cleanup removed the grant, then `node-d`, and both lists
+were diffed `IDENTICAL` against the record. On the VPS, the
+production `werewolfd` and the existing `werewolf-c` node
+(`127.0.0.1:18443`) were running before and after, untouched.
+
+Ten fresh governance keys stayed on DarkSide and were deleted afterwards;
+only signed statement files went to the VPS. The chain, verified offline
+with `inspect --chain --expect-genesis` before use (network
+`26562f80…628b`):
+
+| Seq | Statement | Hash | C got it | D got it |
+|---|---|---|---|---|
+| 0 | genesis | `9e3c63bb…9e51` | file, `--expect-hash` | file, `--expect-hash` |
+| 1 | admit C, D, `node-b` | `fa80d35c…f64b` | file | sync, QUIC hop |
+| 2 | activate | `e1396667…1dc3` | file | sync, QUIC hop |
+| 3 | death | `4b154e50…f70c` | file | file |
+
+| Check (UTC) | Result |
+|---|---|
+| A, 20:41:42 | PASS: D synced from C through `node-b`: applied 1 and 2 with the files' hashes, `node-c` `ok` offering `[2]`; D `activated_at: 2`, `admitted: true`, roster C, D, `node-b`; archive entries 1 and 2 byte-identical to the files; a resync applied nothing (`[0]`) |
+| B, 20:45 | PASS: C applied the death from the file: `status: applied`, `lifecycle: dead`, `destruction: complete`, `werewolfctl` exit 0, then C exited 67. C's Den went from 22 entries (Pelt, both security-state slots, archive 0–2) to `.den.lock` (0 bytes, 0600) and `tombstone.json` (1030 bytes, `death`, `complete`, sequence 3). No listener remained. A restart on the dead Den exited 67 during validation, before any listener; `den init` refused (`LIFECYCLE_TOMBSTONE`, exit 70) |
+| Sync after B, 20:48:09 | D's `governance sync --peer node-c` over the QUIC hop and then the TCP hop: `node-c` `rejected`, nothing offered, nothing applied; D stayed at sequence 2, `chain: active`. D reached `node-b`; the relay's hop to C's address failed (`rejected` is the relay-hop failure class, not a refusal by C). The death did not travel over the network |
+| C, 20:48:29 | PASS: D, offline from the death since B, applied it from the file (`applied`, `destruction: complete`) and exited 67. systemd: `ActiveState=failed`, `Result=exit-code`, `ExecMainStatus=67`, `NRestarts=0`, still 0 after `RestartSec` passed. D's Den: `.den.lock` (0 bytes) and `tombstone.json`, byte-identical text to C's; its `death_statement` decodes to the death file byte for byte. A restart through systemd exited 67 during validation, no listener, `NRestarts=0`; `den init` refused (exit 70) |
+| D, 20:53 | PASS: on E, `den retire --confirm` with C's fingerprint was refused (exit 70, "--confirm must be this node's own Pelt fingerprint") and E kept running; with E's own fingerprint: `status: retired`, `destruction: complete`, exit 0, then E exited 67. E's Den: `.den.lock` (0 bytes) and `tombstone.json` (117 bytes, `retirement`, `complete`). A restart exited 67, no listener |
+
+Notes:
+
+- E's status after the refused retirement showed
+  `inbound_authority.locked: true`. That is E's Silver lock (E never ran
+  `silver off`); the confirmation is checked before anything is locked.
+- systemd prints exit 67 as `67/NOUSER` (the sysexits name); here it
+  means `TOMBSTONE`.
+- The CLI's refusals print the message and exit class, not the daemon's
+  error code, so the codes are not claimed here.
+
+Not shown on real hosts:
+
+- crash points, a storage fault and the I2/I3 cases (covered by
+  `death_gate.py` and the unit tests);
+- the media residue measurement and a full disk (both need root).
+
+wolf-a, wolf-b and DarkSide's Stage22R daemon were not touched, and no
+governance statement reached a real node.
