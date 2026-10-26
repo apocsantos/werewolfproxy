@@ -1,5 +1,6 @@
 //! Stage24 FindNode/Ping RPC messages (`docs/STAGE24_FINDNODE_RPC_WIRE_SPEC.md`)
-//! and the Stage25 `services` op (`docs/STAGE25_SERVICES_RPC_WIRE_SPEC.md`).
+//! the Stage25 `services` op (`docs/STAGE25_SERVICES_RPC_WIRE_SPEC.md`) and
+//! the Stage29 `governance` op (`docs/STAGE29_GOVERNANCE_RPC_WIRE_SPEC.md`).
 //! These share the OPEN position on each transport but use their own `/v1`
 //! transcript domains, so no RPC signature verifies as an OPEN or ACK.
 use super::{
@@ -11,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use werewolf_core::{
     contact::ContactRecord,
+    governance::Statement,
     nodeid::NodeId,
     pelt::PeltIdentity,
     published::{self, PublishedService},
@@ -23,6 +25,9 @@ const TCP_RESULT: &str = "fang.tcp.rpc.result";
 const PING: &str = "ping";
 const FIND_NODE: &str = "find_node";
 const SERVICES: &str = "services";
+const GOVERNANCE: &str = "governance";
+/// Stage29 G2: at most four statements per result, never truncated.
+pub(crate) const MAX_GOVERNANCE_K: u8 = 4;
 /// Largest RPC result line; responders drop the farthest records to fit.
 pub(crate) const RESULT_LIMIT: usize = 32 * 1024;
 const MAX_K: u8 = werewolf_core::lookup::MAX_K as u8;
@@ -36,6 +41,11 @@ pub(crate) enum RpcRequest {
     },
     /// The responder's own published services visible to the requester.
     Services,
+    /// Stage29: the statements after the requester's governance head (G1).
+    Governance {
+        head: [u8; 32],
+        k: u8,
+    },
 }
 
 /// What a result's `records` carry: contact records for `ping` and
@@ -56,12 +66,19 @@ impl RpcEntry for PublishedService {
     }
 }
 
+impl RpcEntry for Statement {
+    fn encode(&self) -> Vec<u8> {
+        Statement::encode(self)
+    }
+}
+
 impl RpcRequest {
     fn fields(&self) -> (String, String, u8) {
         match self {
             Self::Ping => (PING.into(), String::new(), 0),
             Self::FindNode { target, k } => (FIND_NODE.into(), target.to_hex(), *k),
             Self::Services => (SERVICES.into(), String::new(), 0),
+            Self::Governance { head, k } => (GOVERNANCE.into(), hex(head), *k),
         }
     }
 
@@ -82,6 +99,13 @@ impl RpcRequest {
                 require(target.is_empty() && k == 0)?;
                 Ok(Self::Services)
             }
+            GOVERNANCE => {
+                require((1..=MAX_GOVERNANCE_K).contains(&k))?;
+                Ok(Self::Governance {
+                    head: unhex::<32>(target)?,
+                    k,
+                })
+            }
             _ => Err(rejected()),
         }
     }
@@ -92,6 +116,7 @@ impl RpcRequest {
             Self::Ping => 1,
             Self::FindNode { k, .. } => *k as usize,
             Self::Services => published::MAX_PUBLISHED,
+            Self::Governance { k, .. } => *k as usize,
         }
     }
 
@@ -99,6 +124,7 @@ impl RpcRequest {
         match self {
             Self::Ping | Self::Services => Vec::new(),
             Self::FindNode { target, .. } => target.0.to_vec(),
+            Self::Governance { head, .. } => head.to_vec(),
         }
     }
 
@@ -212,7 +238,10 @@ fn accepted_records(
     receiver_pubkey: &[u8; 32],
     now: u64,
 ) -> io::Result<Vec<ContactRecord>> {
-    require(*request != RpcRequest::Services)?;
+    require(matches!(
+        request,
+        RpcRequest::Ping | RpcRequest::FindNode { .. }
+    ))?;
     Ok(raw
         .iter()
         .filter_map(|bytes| ContactRecord::decode(bytes).ok())
@@ -232,6 +261,31 @@ fn accepted_services(raw: Vec<Vec<u8>>, request: &RpcRequest) -> io::Result<Vec<
         .collect::<io::Result<Vec<_>>>()?;
     published::validate_published(&entries).map_err(|_| rejected())?;
     Ok(entries)
+}
+
+/// Decodes statements from a verified `governance` result. They must form a
+/// chain from the requested head: the first names it as `previous`, each
+/// next names the one before, sequences consecutive. A malformed entry or a
+/// break rejects the whole result; no statement is applied here.
+fn accepted_governance(raw: Vec<Vec<u8>>, request: &RpcRequest) -> io::Result<Vec<Statement>> {
+    let RpcRequest::Governance { head, .. } = request else {
+        return Err(rejected());
+    };
+    let statements = raw
+        .iter()
+        .map(|bytes| Statement::decode(bytes).map_err(|_| rejected()))
+        .collect::<io::Result<Vec<_>>>()?;
+    let mut previous = *head;
+    let mut sequence = None;
+    for statement in &statements {
+        require(statement.core.previous == previous)?;
+        if let Some(last) = sequence {
+            require(statement.core.sequence == u64::checked_add(last, 1).ok_or_else(rejected)?)?;
+        }
+        previous = statement.core.hash();
+        sequence = Some(statement.core.sequence);
+    }
+    Ok(statements)
 }
 
 impl QuicRpc {
@@ -349,6 +403,18 @@ impl QuicRpcResult {
         let (transcript, (raw, _)) = self.transcript(rpc, retained)?;
         super::verify(&self.receiver_pubkey, &transcript, &self.signature)?;
         accepted_services(raw, &rpc.request()?)
+    }
+
+    /// As `verify`, for a `governance` request: the statements, chained from
+    /// the requested head.
+    pub(crate) fn verify_governance(
+        &self,
+        rpc: &QuicRpc,
+        retained: &[u8],
+    ) -> io::Result<Vec<Statement>> {
+        let (transcript, (raw, _)) = self.transcript(rpc, retained)?;
+        super::verify(&self.receiver_pubkey, &transcript, &self.signature)?;
+        accepted_governance(raw, &rpc.request()?)
     }
 }
 
@@ -470,6 +536,17 @@ impl TcpRpcResult {
         let (transcript, (raw, _)) = self.transcript(rpc, retained)?;
         super::verify(&self.receiver_pubkey, &transcript, &self.signature)?;
         accepted_services(raw, &rpc.request()?)
+    }
+
+    /// As `verify`, for a `governance` request (see `QuicRpcResult`).
+    pub(crate) fn verify_governance(
+        &self,
+        rpc: &TcpRpc,
+        retained: &[u8],
+    ) -> io::Result<Vec<Statement>> {
+        let (transcript, (raw, _)) = self.transcript(rpc, retained)?;
+        super::verify(&self.receiver_pubkey, &transcript, &self.signature)?;
+        accepted_governance(raw, &rpc.request()?)
     }
 }
 

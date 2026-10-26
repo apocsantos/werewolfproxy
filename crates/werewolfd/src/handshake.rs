@@ -578,8 +578,8 @@ impl QuicAck {
 
 mod rpc;
 pub(super) use rpc::{
-    tcp_sender_key, QuicRpc, QuicRpcResult, RpcRequest, TcpRpc, TcpRpcResult, QUIC_RPC,
-    RESULT_LIMIT, TCP_RPC,
+    tcp_sender_key, QuicRpc, QuicRpcResult, RpcRequest, TcpRpc, TcpRpcResult, MAX_GOVERNANCE_K,
+    QUIC_RPC, RESULT_LIMIT, TCP_RPC,
 };
 
 #[cfg(test)]

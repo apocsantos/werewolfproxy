@@ -19,6 +19,14 @@ pub(crate) enum GovernanceCommands {
     },
     /// This node's governance head (asked from the daemon).
     Status,
+    /// Fetch and apply the statements after this node's head from its Pack
+    /// members (sent to the daemon).
+    Sync {
+        #[arg(long)]
+        peer: Option<String>,
+        #[arg(long, default_value = "quic", value_parser = ["quic", "tcp"])]
+        transport: String,
+    },
     /// Create one key holder's governance key file (mode 0600).
     Keygen { out: PathBuf },
     /// Create an unsigned statement for the key holders to sign.
@@ -134,13 +142,19 @@ pub(crate) fn run(
             Ok(Some(("governance.apply".into(), args)))
         }
         GovernanceCommands::Status => Ok(Some(("governance.status".into(), json!({})))),
+        GovernanceCommands::Sync { peer, transport } => Ok(Some((
+            "governance.sync".into(),
+            json!({"peer": peer.unwrap_or_default(), "transport": transport}),
+        ))),
         local => run_local(json_output, local).map(|()| None),
     }
 }
 
 fn run_local(json_output: bool, command: GovernanceCommands) -> Result<(), CliError> {
     match command {
-        GovernanceCommands::Apply { .. } | GovernanceCommands::Status => {
+        GovernanceCommands::Apply { .. }
+        | GovernanceCommands::Status
+        | GovernanceCommands::Sync { .. } => {
             unreachable!("daemon commands")
         }
         GovernanceCommands::Keygen { out } => {

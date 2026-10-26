@@ -127,6 +127,30 @@ async fn handle_control_client(
         };
         // `service add --from` queries the peer first, outside mutation
         // admission, then saves through the ordinary `service.add` path.
+        // Internal mutations are produced by the daemon, never accepted from
+        // a client.
+        if req.cmd == "governance.sync_apply" {
+            limits::write_response(
+                &mut writer,
+                &ControlResponse::err(&req.id, "BAD_REQUEST", "invalid control request"),
+                end,
+            )
+            .await?;
+            continue;
+        }
+        // `governance sync` asks peers first, outside mutation admission,
+        // then applies through the internal `governance.sync_apply`.
+        let req = if req.cmd == "governance.sync" {
+            match crate::discovery::operator::resolve_sync(req, &state).await {
+                Ok(apply) => apply,
+                Err(response) => {
+                    limits::write_response(&mut writer, &response, end).await?;
+                    continue;
+                }
+            }
+        } else {
+            req
+        };
         let req = if matches!(
             req.cmd.as_str(),
             "service.add_from" | "service.provider.add_from"

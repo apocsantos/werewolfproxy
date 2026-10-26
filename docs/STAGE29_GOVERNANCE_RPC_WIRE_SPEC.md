@@ -201,3 +201,24 @@ any point.
   detection and manual convergence come first; automatic sync would make
   governance propagation a permanent property of the system rather than a
   deliberate action, and stays a follow-up.
+
+## Implementation
+
+Done in step 3:
+
+- the `governance` op in the RPC layer (`RpcRequest::Governance`, results
+  verified to chain from `TG`);
+- the responder serving from the archive, checked against the head's
+  recorded hashes;
+- `governance sync`, resolved outside mutation admission like `service add
+  --from` and applied through the internal `governance.sync_apply`
+  mutation, which re-verifies every statement, and any conflict, against
+  the live head;
+- the archive written before the commit, through the Den's atomic replace.
+
+Tests:
+
+- RPC unit tests for the op, its fields, chaining and cross-op results;
+- a unit test that a statement which cannot be archived has no effect;
+- the lab gate `tests/integration/sync_gate.py`.
+
