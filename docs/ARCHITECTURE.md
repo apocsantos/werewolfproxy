@@ -1469,33 +1469,44 @@ This distinction must remain explicit in the lifecycle state machine.
 
 # 36. Lifecycle model
 
-A future lifecycle may conceptually resemble:
+Amended by Stage30 ([survey](STAGE30_LIFECYCLE_SURVEY.md) decision 1a,
+[spec](STAGE30_LIFECYCLE_SPEC.md)). The lifecycle is three independent
+axes rather than one state machine. One machine cannot express that a node
+in Silver can sit on a degraded network, or that an unadmitted node lives on
+an active one.
+
+**Chain lifecycle.** This is derived from the governance head, so it is the
+same on every node that applied the same statements. Statements are its
+only transitions.
 
 ```text
-BOOTSTRAP
-    │
-    ▼
-CEREMONY
-    │
-    ▼
-ACTIVE
-    │
-    ├────────► SILVER
-    │             │
-    │             └────► ACTIVE
-    │
-    ├────────► DEGRADED
-    │
-    └────────► UNRECOVERABLE
-                    │
-                    ▼
-                  DEATH
-                    │
-                    ▼
-                TOMBSTONE
+NONE ──genesis──► CEREMONY ──activation──► ACTIVE
+                      │                       │
+                      └────────death──────────┴──► DEAD   (terminal)
 ```
 
-The exact state machine is not final, but this illustrates the intended separation.
+Nothing follows DEAD: no statement chains after a death statement.
+
+**Node condition.** This is local to one node.
+
+```text
+NORMAL ⇄ SILVER          (operator emergency lock, recoverable)
+NORMAL ⇄ UNADMITTED      (derived from the head and the node's Pelt)
+FORK-FENCED              (governance statements refused; durable)
+DYING ──► TOMBSTONE      (after death or local retirement; terminal)
+```
+
+**Governance capability.** This is an observation about the key holders,
+and it **never changes a node's behaviour**:
+
+```text
+HEALTHY   all 10 governance keys usable
+DEGRADED  7–9 usable; recoverable by key rotation
+UNRECOVERABLE  fewer than 7 in legitimate custody; a legitimate-custody
+               determination, not proof that the keys no longer exist
+```
+
+UNRECOVERABLE never leads to DEATH by itself.
 
 ---
 
@@ -2200,31 +2211,40 @@ No individual key holder should possess unilateral network sovereignty.
 
 # 62. Final death objective
 
-If the network becomes legitimately unrecoverable:
+Amended by Stage30 ([survey](STAGE30_LIFECYCLE_SURVEY.md) decision 3,
+[spec](STAGE30_LIFECYCLE_SPEC.md)). Nodes cannot detect that a network is
+unrecoverable: a signature proves that a quorum exists, and nothing proves
+that one does not. Death is therefore a decision, never a detection:
 
 ```text
-detect unrecoverable condition
+key holders determine the condition
+(a legitimate-custody determination)
           │
-          ▼
-enter terminal lifecycle
+          ├── seven keys remain ──► sign a death statement (7 of 10)
+          │                                  │
+          │                                  ▼
+          │                     every node commits the terminal decision
           │
-          ▼
-destroy secrets
-          │
-          ▼
-anti-forensic cleanup
-          │
-          ▼
-destroy reconstructable network state
-          │
-          ▼
-write Tombstone
-          │
-          ▼
-network is dead
+          └── fewer remain ───────► each node retires locally
+                                             │
+                                             ▼
+                          lock ──► destroy the identity key first
+                                             │
+                                             ▼
+                          destroy the Den (best-effort overwrite, then unlink)
+                                             │
+                                             ▼
+                                     write the Tombstone
+                                             │
+                                             ▼
+                             the network, or the node, is dead
 ```
 
 Nothing should remain that effectively recreates the old root problem.
+"Anti-forensic cleanup" is bounded by what software can do. Werewolf
+destroys its identity key and every file in its Den. It makes no claim
+about storage media, logs, swap, backups or copies outside the Den, nor
+that any governance private key was destroyed.
 
 ---
 

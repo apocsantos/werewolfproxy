@@ -1,12 +1,13 @@
 # Stage30 death, retirement and the Tombstone — format and behaviour spec
 
-**Status: specification for review.** No code exists. This implements the
+**Status: specification approved 2026-10-26 (L1–L6 as recommended, the
+Tombstone-before-destruction rule, and invariants I1–I3; see
+[Decisions](#decisions-for-this-spec)).** No code exists yet. This implements the
 accepted decisions of the [Stage30 survey](STAGE30_LIFECYCLE_SURVEY.md)
 (1a, 2a, 3a + 3a-ii, 4a, 5a, 6a, 7a, 8 and the two owner additions). It
 extends the [Stage28 statement spec](STAGE28_GOVERNANCE_STATEMENT_SPEC.md)
 and the [Stage29 addendum](STAGE29_GOVERNANCE_ADDENDUM_SPEC.md); anything
-not stated here is unchanged. The open choices are L1–L6 under
-[Decisions for this spec](#decisions-for-this-spec).
+not stated here is unchanged.
 
 ## Terms
 
@@ -49,10 +50,18 @@ text, reason or comment.
 - **Forks are unchanged** for a node that has not applied death: another
   valid statement at the same sequence as a death statement is a fork,
   exactly as in Stage28.
-- **On a forked node** (L1, recommended): the only statement a forked node
-  accepts is a death statement that chains to its own head. Death only
-  narrows, and a forked node is otherwise stuck with live secrets forever.
-  Any other statement is still `GOVERNANCE_FORKED`.
+- **On a forked node** (L1): the only statement a forked node accepts is a
+  death statement that chains to its own head. Death only narrows, and a
+  forked node is otherwise stuck with live secrets forever. Any other
+  statement is still `GOVERNANCE_FORKED`.
+- **Death on a fork never resolves that fork (invariant I1).** Applying it:
+  - keeps `forked` set in the committed DEAD head;
+  - chooses no branch, and never clears, rewrites or reinterprets the fork
+    record;
+  - makes no other statement acceptable.
+
+  The death statement is accepted only because it chains to the node's own
+  head. It says nothing about which history was legitimate.
 
 The head gains `dead_at: sequence`. It is omitted while absent, so Stage29
 head documents keep their exact bytes. The document check adds:
@@ -253,23 +262,47 @@ a target that is already gone counts as done.
    4. empty subdirectories, deepest first.
 
    **The target is everything in the Den directory except
-   `tombstone.json` and its temporary files.** It is not a list of known
+   `tombstone.json` itself**, including a leftover temporary file from an
+   interrupted Tombstone write. The daemon is the only writer, and no write
+   is in progress during this step. It is not a list of known
    names, so files from older or future versions are covered. The Den is
    Werewolf's directory; the operator keeps nothing else in it.
 4. **Destroying one entry** uses the Den's directory handle
    (`local_fs::PrivateDirectory`; every operation relative to the Den,
    never following a symlink):
-   - **A regular file with exactly one link, owned by the daemon's uid** is
-     opened with no-follow, overwritten once with zeros over its full
-     length, synced, then unlinked.
-   - **Anything else** (a symlink, a file with more than one hard link, a
-     file owned by another uid, a socket, a FIFO) is unlinked without being
-     opened or written, so destruction never follows a link out of the Den
-     or overwrites data that is also reachable elsewhere (L3).
-   - After the last unlink, the Den directory is synced.
-5. **Rewrite the Tombstone** with `destruction: "complete"` (atomic
-   replace), remove the control socket, and exit with exit code **67
+   1. A `statat` with `SYMLINK_NOFOLLOW` acts as a pre-filter that **may
+      only exclude**. A symlink, socket, FIFO, device or directory is never
+      opened; it is unlinked (or, for a directory, removed when empty in
+      step 3.4).
+   2. A candidate regular file is opened relative to the Den with
+      `WRONLY | NOFOLLOW | NONBLOCK | CLOEXEC`. A failed open makes it
+      ineligible: it is unlinked only.
+   3. **Overwrite eligibility is decided from `fstat` on that opened file
+      descriptor, never from the pre-open `statat` (invariant I2).** Only a
+      descriptor that is a regular file with `st_nlink == 1` and
+      `st_uid` equal to the daemon's effective uid is overwritten. The
+      overwrite is one pass of zeros over the full `st_size`, through that
+      same descriptor, then synced. Any other result closes the descriptor
+      unwritten.
+   4. The entry is then unlinked by name.
+
+   A file swapped between the pre-filter and the open is therefore judged
+   by what was actually opened. Destruction never follows a link out of
+   the Den or overwrites data that is reachable elsewhere (L3). After the
+   last unlink, the Den directory is synced.
+5. **Verify the Den against the exact allowlist**: the directory, read
+   again from the start, contains `tombstone.json` and nothing else.
+   - Only if it does is the Tombstone rewritten with
+     `destruction: "complete"` (atomic replace).
+   - Otherwise the Tombstone stays `incomplete`.
+
+   Then remove the control socket and exit with exit code **67
    (`TOMBSTONE`)**.
+
+**A Tombstone may only be, or remain, `complete` if the Den exact-allowlist
+verification succeeds (invariant I3).** This holds at step 5 and at every
+startup (section 6). A `complete` Tombstone found next to any other entry is
+first durably rewritten as `incomplete`, and destruction then runs again.
 
 **In memory:** the Pelt secret is already held in zeroizing containers
 (`werewolf_core::pelt`). The process exits after step 5, which ends every
@@ -345,8 +378,11 @@ order:
      startup fails with `SECURITY_STATE`, exit 65, and the operator
      inspects.
    - If `incomplete`, run section 4, steps 3–5 (destruction resumes).
-   - If `complete`, re-verify that the Den holds nothing else, destroying
-     any stray entry the same way.
+   - If `complete`, run the exact-allowlist verification (I3). If any other
+     entry exists, or the directory cannot be read, durably rewrite the
+     Tombstone as `incomplete` before anything else, then run section 4,
+     steps 3–5. It becomes `complete` again only through step 5's
+     verification.
    - Then exit with 67, never READY, never binding a listener. The log says
      `TOMBSTONE` and the kind.
 2. **No Tombstone, and the committed head is DEAD.** This is a crash
@@ -383,7 +419,7 @@ This text goes, verbatim, into KNOWN_LIMITATIONS and the operator docs:
 
 ## 9. ARCHITECTURE amendments (decision 3)
 
-These are applied to ARCHITECTURE.md in the PR that approves this spec.
+These are applied to ARCHITECTURE.md with this spec's approval.
 
 - **§36 Lifecycle model.** The single machine is replaced by the three axes
   of survey 1a:
@@ -422,6 +458,14 @@ These are applied to ARCHITECTURE.md in the PR that approves this spec.
 - the destruction order (the Pelt first);
 - the no-follow and link rules: a symlink to a file outside the Den, and a
   hard-linked file, are unlinked and the outside file is unchanged;
+- I2: a regular file replaced by a symlink or a hard link between the
+  pre-filter and the open is never overwritten (the eligibility comes from
+  the descriptor's `fstat`); a FIFO is never opened;
+- I3: a stray file placed next to a `complete` Tombstone downgrades it to
+  `incomplete` and is destroyed at the next start; an unreadable Den never
+  yields `complete`;
+- I1: death on a forked node keeps `forked` set and leaves the recorded
+  conflict unchanged;
 - each `CommitOutcome` at the DEAD commit and at both Tombstone writes,
   using the `local_fs` fault points;
 - startup in each state of section 6;
@@ -452,26 +496,40 @@ scanned for the Pelt secret and the Pack keys. The finding is recorded as
 
 ## Decisions for this spec
 
-- **L1. Death on a forked node.** Recommended: accept a death statement
+**Approved 2026-10-26:**
+- L1–L6, exactly as recommended below;
+- the additional rule that no destruction begins before the incomplete
+  Tombstone is durably committed, for death as well as retirement
+  (section 4, step 2);
+- three implementation invariants pinned by the owner:
+  - **I1.** Death on a fork never resolves that fork (section 1).
+  - **I2.** Overwrite eligibility is determined from the safely opened file
+    descriptor (section 4, step 4).
+  - **I3.** A complete Tombstone may only remain complete if the Den
+    exact-allowlist verification succeeds (section 4, step 5; section 6).
+
+The ARCHITECTURE amendments of section 9 are applied.
+
+- **L1. Death on a forked node.** Approved: accept a death statement
   that chains to the node's own head; every other statement stays refused.
   It only narrows, and the alternative leaves a compromised-governance node
   holding live secrets until its operator retires it. The alternative is to
   refuse it and rely on retirement.
-- **L2. No node-side confirmation for death.** Recommended: none. Death is
+- **L2. No node-side confirmation for death.** Approved: none. Death is
   a 7-of-10 decision applied like activation. The alternative is a
   `--confirm-death` flag on `apply`, and sync stopping before a death
   statement, which would make propagation depend on every operator acting.
-- **L3. Overwrite policy.** Recommended: one pass of zeros, only for
+- **L3. Overwrite policy.** Approved: one pass of zeros, only for
   regular files with one link owned by the daemon's uid; everything else is
   unlinked only. Multiple passes buy nothing on modern media, and the claim
   is bounded anyway.
-- **L4. Retirement confirmation.** Recommended: `--confirm FINGERPRINT`
+- **L4. Retirement confirmation.** Approved: `--confirm FINGERPRINT`
   through the running daemon only. An offline retirement (the daemon
   stopped) can come later if needed.
-- **L5. Tombstone encoding.** Recommended: strict JSON, readable by the
+- **L5. Tombstone encoding.** Approved: strict JSON, readable by the
   operator with no tool. The alternative is a binary format: smaller, but
   it buys nothing at under 8 KiB.
-- **L6. What a Tombstone start does.** Recommended: finish or verify
+- **L6. What a Tombstone start does.** Approved: finish or verify
   destruction, then exit 67 without binding anything. The alternative is
   to stay running and answer `status`, which keeps a process and a control
   socket alive for no benefit.
