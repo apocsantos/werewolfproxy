@@ -1,9 +1,11 @@
 # Stage29 admission and activation — design proposal
 
 **Status: decisions accepted 2026-10-23 (1a, 2a, 3a, 4a, 5a, 6a) with owner
-additions A–D; see [Decisions](#decisions-accepted-2026-10-23).** Nothing is
-implemented. The format and rules go into a spec addendum for review before
-any code.
+additions A–D; see [Decisions](#decisions-accepted-2026-10-23). Implemented
+in steps 1–3 and checked over the real WAN in step 4; see
+[Real-WAN check](#real-wan-check-2026-10-26).** The format and rules are in
+the [statement addendum](STAGE29_GOVERNANCE_ADDENDUM_SPEC.md) and the
+[`governance` RPC spec](STAGE29_GOVERNANCE_RPC_WIRE_SPEC.md).
 
 Stage28 built the governance chain: 7-of-10 statements for genesis, key
 rotation and network revocation, verified by every node and stored in its
@@ -142,7 +144,7 @@ needs upgraded nodes before those statements are delivered.
 | 1 | Spec addendum (kinds 3 and 4, roster, activation rules) for review, then core: encoding, verification, vectors and negative tests |
 | 2 | Daemon: roster and activation in the head, the activation sweep (3a), `PACK_NOT_ON_ROSTER`, the startup check; lab gate |
 | 3 | `governance` RPC op: wire spec and review, then `governance sync`; lab gate with a revocation reaching a node through a peer |
-| 4 | A real-host check on disposable daemons only (genesis is irreversible) |
+| 4 | A real-host check on disposable daemons only (genesis is irreversible); done, [below](#real-wan-check-2026-10-26) |
 
 ## Decisions (accepted 2026-10-23)
 
@@ -172,3 +174,65 @@ Owner additions, part of the Stage29 specification:
 - **D.** `governance sync` queries multiple Pack peers, verifies every
   candidate independently, and fences if it observes conflicting valid
   successors, before applying either.
+
+## Real-WAN check (2026-10-26)
+
+Build `c08bcd3` (main after #64), release, `--locked`: `werewolfd`
+`613106ac…baef4`, `werewolfctl` `3c654992…8234`, hash-checked on both hosts.
+Only disposable daemons ever held governance state:
+
+| Node | Host | Role | Build |
+|---|---|---|---|
+| D | DarkSide, user mode, loopback listeners, fresh Den and Pelt (`wwp1:32-80-64-63-01-48-8A-E0`) | syncs | `c08bcd3` |
+| C | VPS, user mode, loopback only (`127.0.0.1:18463`), fresh Den and Pelt (`wwp1:56-8C-B5-D2-07-A4-A3-41`) | serves | `c08bcd3` |
+| `node-b` | VPS `werewolfd.service` | Stage26 relay only | `bcf7bbd`, unchanged |
+
+D reached C only through `node-b` (route `node-c --via node-b`); the relay
+saw an ordinary OPEN for `127.0.0.1:18463` and was never asked for
+statements (`sync --peer node-c`). The relay code it needs is unchanged
+since `bcf7bbd`. Owner conditions for the production relay, all met:
+
+- `pack list` and `target list` recorded before;
+- D added as `node-d` with its exact key;
+- one grant, `127.0.0.1:18463`, and nothing else on `node-b` changed;
+- cleanup removed the grant, then `node-d`;
+- both lists then diffed `IDENTICAL` against the record.
+
+Ten fresh governance keys stayed on DarkSide and were deleted afterwards;
+only signed statement files went to the VPS. The chain, verified offline
+with `inspect --chain` before use (network `7814b490…a588`):
+
+| Seq | Statement | Hash | C got it | D got it |
+|---|---|---|---|---|
+| 0 | genesis | `e7b0c820…c1ee` | file, `--expect-hash` | file, `--expect-hash` |
+| 1 | admit C, D, `node-b` | `0cbb90f3…b771` | file | sync, QUIC hop |
+| 2 | revoke `ghost` (a dummy key in D's Pack) | `22bb1455…fbec` | file | sync, QUIC hop |
+| 3 | activate | `6c37d8a5…90ae` | file | sync, TCP hop |
+
+`node-b`'s key is on this disposable roster only so that D's activation
+sweep keeps its relay; `node-b` never saw the chain. D's Pack also held
+`stranger`, a dummy key not on the roster.
+
+| Check (UTC) | Path | Result |
+|---|---|---|
+| A, 14:39:52 | D → `node-b` QUIC `:9560` → C | PASS: applied 1 and 2 with the files' hashes, `node-c` `ok` offering `[2]`; `revoked_members: ["ghost"]`, ghost gone from D's Pack, re-adding it refused (exit 70, "this key was revoked by a governance statement"); D's archive entries 1 and 2 byte-identical to the files; a resync applied nothing (`[0]`) |
+| B, 14:48:58 | D → `node-b` TCP `:8443` → C | PASS: applied 3, offering `[1]`; `revoked_members: ["stranger"]`; D `activated_at: 3`, `admitted: true`, roster 3, Pack `node-b`, `node-c`; re-adding stranger refused (exit 70, "this key is not on the activated network's roster"); archive 3 byte-identical; a resync applied nothing |
+| C, after B | restart D by its exact PID | PASS: D started `READY` (the activated-node startup check passed), `governance status` byte-identical before and after, a resync through the relay over QUIC applied nothing |
+
+Notes:
+
+- The output of C's first application of the activation was not captured.
+  Its replay reported `already_applied`, and C's status showed sequence 3,
+  `activated_at: 3`, `admitted: true` and the unchanged roster.
+- The CLI's refusals print the message and exit class, not the daemon's
+  error code, so the codes are not claimed here.
+
+Not shown over the WAN:
+
+- conflicting successors from two peers, a tampered archive entry, and an
+  uncommitted artefact (all covered by `sync_gate.py`);
+- an unadmitted node being refused by its activated peers (covered by
+  `activation_gate.py`).
+
+wolf-a, wolf-b and DarkSide's Stage22R daemon were not touched, and no
+governance statement reached a real node.
