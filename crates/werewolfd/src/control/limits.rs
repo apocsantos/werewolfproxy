@@ -184,6 +184,7 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
         "discover.services" => &["peer", "transport"],
         "route.set" => &["peer", "via", "hop"],
         "governance.apply" => &["statement", "expect_hash"],
+        "governance.sync" => &["peer", "transport"],
         "route.remove" => &["peer"],
         "pack.remove"
         | "pack.revoke"
@@ -305,6 +306,7 @@ pub(super) fn mutates(cmd: &str) -> bool {
             | "service.provider.add"
             | "service.provider.remove"
             | "governance.apply"
+            | "governance.sync_apply"
             | "route.set"
             | "route.remove"
             | "discover.advertise"
@@ -458,6 +460,14 @@ mod tests {
             assert!(parse(bad).is_err());
         }
         assert!(mutates("governance.apply") && !mutates("governance.status"));
+        // Stage29 sync: only a peer and a transport; it is resolved outside
+        // admission and applied through the internal sync_apply mutation.
+        assert!(parse(
+            br#"{"id":"1","cmd":"governance.sync","args":{"peer":"","transport":"quic"}}"#
+        )
+        .is_ok());
+        assert!(parse(br#"{"id":"1","cmd":"governance.sync","args":{"statements":"x"}}"#).is_err());
+        assert!(!mutates("governance.sync") && mutates("governance.sync_apply"));
     }
 
     #[test]

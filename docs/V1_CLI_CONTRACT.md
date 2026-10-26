@@ -348,3 +348,34 @@ the fence automatically. `silver off` does not lift it.
 head excludes refuses to start. The disposable gate
 `tests/integration/activation_gate.py` exercises this contract.
 
+- governance sync [--peer NAME] [--transport quic|tcp]
+
+`sync` (Stage29, [RPC spec](STAGE29_GOVERNANCE_RPC_WIRE_SPEC.md)) asks every
+Pack member, or only `--peer`, for the statements after this node's head
+with the read-only `governance` RPC. A routed member is asked through its
+relay. For each next sequence it verifies every offered candidate
+independently:
+
+- one valid candidate: applied exactly as by `governance apply`, with all
+  its effects, then the next sequence;
+- two different valid candidates: the fork is recorded and nothing more is
+  applied (`stopped` with `GOVERNANCE_FORK`);
+- no valid candidate: it stops.
+
+It runs up to 16 rounds of 4 statements and reports, per peer, its status
+and how many statements it offered in each round, and the statements
+applied. Each applied statement is archived before its head is committed; a
+responder serves only archive entries matching its committed head.
+
+Refusals:
+
+- under Silver (`SILVER_ACTIVE`);
+- without a Pelt (`NO_PELT`);
+- without a governance head (`GOVERNANCE_NO_GENESIS`; a genesis is only
+  ever applied from a file);
+- after a fork (`GOVERNANCE_FORKED`);
+- while another discovery runs (`DISCOVER_BUSY`).
+
+It is manual only; nothing syncs automatically. The disposable gate
+`tests/integration/sync_gate.py` exercises it.
+

@@ -70,7 +70,8 @@ follows.
   on a host still controls that host's node. Stage29 adds admission and
   activation: after activation the roster bounds every node's Pack, which
   stops one compromised host from widening trust on any other host, but
-  not root on that host from rewriting its own Den. Statement delivery
-  between nodes (`governance sync`), death and the Tombstone are not
-  implemented.
+  not root on that host from rewriting its own Den. `governance sync`
+  fetches statements from Pack peers on operator command only; nothing
+  propagates automatically, and an unadmitted node still receives its
+  admission as a file. Death and the Tombstone are not implemented.
 

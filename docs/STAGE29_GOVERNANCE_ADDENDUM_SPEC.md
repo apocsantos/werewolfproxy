@@ -177,6 +177,7 @@ Pelt, admitted as a new key.
 |---|---|---|
 | 1 | Core: kinds 3 and 4, roster, `activated_at`, `Head::admits`, rules, vectors (admission `6604b37e…cdf6`, activation `a4cef971…0d2f`), both owner scenarios; head document fields; offline `draft admit` and `draft activate` | Done (PR #61) |
 | 2 | Daemon: activation sweep, local admission fence, `PACK_NOT_ON_ROSTER`, startup check; lab gate `tests/integration/activation_gate.py` | Done |
+| 3 | `governance` RPC op and `governance sync` ([wire spec](STAGE29_GOVERNANCE_RPC_WIRE_SPEC.md)); archive before commit; lab gate `tests/integration/sync_gate.py` | Done |
 
 The local fence reuses Silver's inbound authority lock: it is locked while
 Silver is active **or** the node is unadmitted. Becoming unadmitted locks it

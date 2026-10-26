@@ -493,3 +493,198 @@ fn one_bad_entry_rejects_the_whole_services_result() {
     )
     .is_ok());
 }
+
+// Stage29 `governance` op (docs/STAGE29_GOVERNANCE_RPC_WIRE_SPEC.md).
+
+/// A genesis and `n` admissions after it, signed by seven fixed keys.
+fn chain(n: usize) -> (werewolf_core::governance::Hash, Vec<Statement>) {
+    use ed25519_dalek::SigningKey;
+    use werewolf_core::governance::{sign, Body, Core};
+    let key = |i: u8| SigningKey::from_bytes(&[i + 1; 32]);
+    let signed = |core: Core| Statement {
+        signatures: (0..7u8).map(|i| (i, sign(&core, &key(i)))).collect(),
+        core,
+    };
+    let genesis = signed(Core {
+        network_id: [0x77; 32],
+        sequence: 0,
+        previous: [0; 32],
+        body: Body::Genesis {
+            threshold: 7,
+            keys: (0..10).map(|i| key(i).verifying_key().to_bytes()).collect(),
+        },
+    });
+    let mut previous = genesis.core.hash();
+    let mut statements = Vec::new();
+    for i in 0..n {
+        let member = SigningKey::from_bytes(&[0xC0 + i as u8; 32])
+            .verifying_key()
+            .to_bytes();
+        let statement = signed(Core {
+            network_id: [0x77; 32],
+            sequence: i as u64 + 1,
+            previous,
+            body: Body::Admission(vec![member]),
+        });
+        previous = statement.core.hash();
+        statements.push(statement);
+    }
+    (genesis.core.hash(), statements)
+}
+
+fn governance(head: werewolf_core::governance::Hash, k: u8) -> RpcRequest {
+    RpcRequest::Governance { head, k }
+}
+
+#[test]
+fn governance_round_trips_and_signs_the_head_hash() {
+    let (sender, receiver) = (generate_identity(), generate_identity());
+    let (genesis, statements) = chain(3);
+    let request = governance(genesis, 4);
+    let quic = QuicRpc::new(&sender, &receiver.fingerprint, &request, &BINDING).unwrap();
+    assert_eq!(quic.op, "governance");
+    assert_eq!(quic.target, hex(&genesis));
+    assert_eq!(
+        parse::<QuicRpc>(&line(&quic)).unwrap().request().unwrap(),
+        request
+    );
+    let retained = quic.transcript(&BINDING).unwrap();
+    verify(&sender.public_key_b64, &retained, &quic.signature).unwrap();
+    // The head hash is signed: another TG breaks the request signature.
+    let mut moved = quic.clone();
+    moved.target = hex(&[0x11; 32]);
+    assert!(verify(
+        &sender.public_key_b64,
+        &moved.transcript(&BINDING).unwrap(),
+        &quic.signature
+    )
+    .is_err());
+
+    let result = QuicRpcResult::new(&quic, &retained, &receiver, &statements).unwrap();
+    let parsed: QuicRpcResult = parse(&line(&result)).unwrap();
+    assert_eq!(
+        parsed.verify_governance(&quic, &retained).unwrap(),
+        statements
+    );
+
+    let tcp = TcpRpc::new(&sender, &challenge(&receiver), &request).unwrap();
+    let retained = tcp.transcript().unwrap();
+    let result = TcpRpcResult::new(&tcp, &retained, &receiver, &statements).unwrap();
+    let parsed: TcpRpcResult = parse(&line(&result)).unwrap();
+    assert_eq!(
+        parsed.verify_governance(&tcp, &retained).unwrap(),
+        statements
+    );
+    // Zero records is a valid answer (unknown head, other network).
+    let empty = TcpRpcResult::new::<Statement>(&tcp, &retained, &receiver, &[]).unwrap();
+    assert!(empty.verify_governance(&tcp, &retained).unwrap().is_empty());
+}
+
+#[test]
+fn governance_request_fields_are_checked() {
+    let sender = generate_identity();
+    let valid = QuicRpc::new(
+        &sender,
+        &generate_identity().fingerprint,
+        &governance([5; 32], 4),
+        &BINDING,
+    )
+    .unwrap();
+    let mut no_k = valid.clone();
+    no_k.k = 0;
+    let mut big_k = valid.clone();
+    big_k.k = 5;
+    let mut short_target = valid.clone();
+    short_target.target = "ab".into();
+    let mut empty_target = valid.clone();
+    empty_target.target = String::new();
+    for bad in [no_k, big_k, short_target, empty_target] {
+        assert!(bad.transcript(&BINDING).is_err(), "{bad:?}");
+    }
+    assert_eq!(governance([5; 32], 3).max_records(), 3);
+}
+
+#[test]
+fn governance_results_must_chain_from_the_head() {
+    let (sender, receiver) = (generate_identity(), generate_identity());
+    let (genesis, statements) = chain(4);
+    let rpc = QuicRpc::new(
+        &sender,
+        &receiver.fingerprint,
+        &governance(genesis, 4),
+        &BINDING,
+    )
+    .unwrap();
+    let retained = rpc.transcript(&BINDING).unwrap();
+    let answer = |records: &[Statement]| {
+        QuicRpcResult::new(&rpc, &retained, &receiver, records)
+            .unwrap()
+            .verify_governance(&rpc, &retained)
+    };
+    assert_eq!(answer(&statements).unwrap(), statements);
+    // Not starting at the head, with a gap, or reordered: rejected whole.
+    for bad in [
+        statements[1..].to_vec(),
+        vec![statements[0].clone(), statements[2].clone()],
+        vec![statements[1].clone(), statements[0].clone()],
+    ] {
+        assert!(answer(&bad).is_err());
+    }
+    // More than K records is rejected.
+    let k2 = QuicRpc::new(
+        &sender,
+        &receiver.fingerprint,
+        &governance(genesis, 2),
+        &BINDING,
+    )
+    .unwrap();
+    let k2_retained = k2.transcript(&BINDING).unwrap();
+    // A responder cannot even build one: the same bound applies.
+    assert!(QuicRpcResult::new(&k2, &k2_retained, &receiver, &statements[..3]).is_err());
+    let two = QuicRpcResult::new(&k2, &k2_retained, &receiver, &statements[..2]).unwrap();
+    assert_eq!(two.verify_governance(&k2, &k2_retained).unwrap().len(), 2);
+    // A malformed entry rejects the whole result.
+    let mut garbled = statements[..2]
+        .to_vec()
+        .iter()
+        .map(|s| Raw(s.encode()))
+        .collect::<Vec<_>>();
+    garbled[1].0.push(0);
+    let result = QuicRpcResult::new(&rpc, &retained, &receiver, &garbled).unwrap();
+    assert!(result.verify_governance(&rpc, &retained).is_err());
+}
+
+#[test]
+fn governance_and_other_results_never_cross() {
+    let (sender, receiver) = (generate_identity(), generate_identity());
+    let (genesis, statements) = chain(1);
+    let rpc = QuicRpc::new(
+        &sender,
+        &receiver.fingerprint,
+        &governance(genesis, 4),
+        &BINDING,
+    )
+    .unwrap();
+    let retained = rpc.transcript(&BINDING).unwrap();
+    let result = QuicRpcResult::new(&rpc, &retained, &receiver, &statements).unwrap();
+    assert!(result.verify(&rpc, &retained, NOW).is_err());
+    assert!(result.verify_services(&rpc, &retained).is_err());
+    let services = QuicRpc::new(
+        &sender,
+        &receiver.fingerprint,
+        &RpcRequest::Services,
+        &BINDING,
+    )
+    .unwrap();
+    let services_retained = services.transcript(&BINDING).unwrap();
+    let services_result =
+        QuicRpcResult::new(&services, &services_retained, &receiver, &entries()).unwrap();
+    assert!(services_result
+        .verify_governance(&services, &services_retained)
+        .is_err());
+    let mut relabelled = result.clone();
+    relabelled.op = "services".into();
+    assert!(relabelled
+        .verify_governance(&services, &services_retained)
+        .is_err());
+}

@@ -47,6 +47,7 @@ pub(super) fn handles(command: &str) -> bool {
             | "service.provider.add"
             | "service.provider.remove"
             | "governance.apply"
+            | "governance.sync_apply"
             | "route.set"
             | "route.remove"
             | "discover.advertise"
@@ -682,6 +683,9 @@ pub(super) async fn handle(
     if req.cmd == "governance.apply" {
         return apply_governance(req, home, state).await;
     }
+    if req.cmd == "governance.sync_apply" {
+        return apply_sync(req, state).await;
+    }
 
     if req.cmd.starts_with("pack.") {
         let (mut candidate, protected_generation) = {
@@ -1054,19 +1058,15 @@ async fn apply_pack_address_change(
     Ok(closed)
 }
 
-/// Stage28 `governance.apply`: verify a statement against the head and, if
-/// it is the next one, commit the new head (and, for a revocation, the Pack
-/// without the revoked members) in one protected generation. A revocation
-/// follows `pack revoke`: runtime authority is denied and every Fang that
-/// depends on the member is closed before the commit, and the denial stays
-/// in force if the commit fails.
+/// Stage28 `governance.apply`: decode the statement and apply it with
+/// `apply_statement`.
 async fn apply_governance(
     req: ControlRequest,
     _home: PathBuf,
     state: Arc<Mutex<DaemonState>>,
 ) -> ControlResponse {
     use base64::{engine::general_purpose::STANDARD, Engine};
-    use werewolf_core::governance::{self, tool, GovError, Outcome, Statement};
+    use werewolf_core::governance::{tool, Statement};
     let reject = |code: &str, message: String| ControlResponse::err(&req.id, code, message);
     let Ok(bytes) = STANDARD.decode(arg(&req, "statement")) else {
         return reject("GOVERNANCE_INVALID", "statement is not base64".into());
@@ -1075,7 +1075,6 @@ async fn apply_governance(
         Ok(statement) => statement,
         Err(error) => return reject("GOVERNANCE_INVALID", error.to_string()),
     };
-
     let expect = match arg(&req, "expect_hash").as_str() {
         "" => None,
         hex => match tool::unhex::<32>(hex) {
@@ -1088,6 +1087,115 @@ async fn apply_governance(
             }
         },
     };
+    match apply_statement(&statement, expect.as_ref(), &state).await {
+        Ok(result) => ControlResponse::ok(req.id, result),
+        Err((code, message)) => reject(code, message),
+    }
+}
+
+/// Stage29 `governance.sync_apply`, the mutation half of `governance sync`:
+/// the statements the network phase found, in order, each re-verified and
+/// applied against the live head exactly as `governance apply`, stopping at
+/// the first that does not apply; or a conflict of two valid successors,
+/// recorded as a fork before either is applied (addition D). Internal: the
+/// control socket refuses it from clients.
+async fn apply_sync(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> ControlResponse {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use werewolf_core::governance::Statement;
+    let decode = |value: &serde_json::Value| {
+        value
+            .as_str()
+            .and_then(|text| STANDARD.decode(text).ok())
+            .and_then(|bytes| Statement::decode(&bytes).ok())
+    };
+    let peers = req.args["peers"].clone();
+    let conflict: Option<Vec<Statement>> = req.args["conflict"]
+        .as_array()
+        .map(|pair| pair.iter().filter_map(decode).collect());
+    let Some(statements) = req.args["statements"]
+        .as_array()
+        .map(|list| list.iter().map(decode).collect::<Option<Vec<_>>>())
+        .unwrap_or(Some(Vec::new()))
+    else {
+        return ControlResponse::err(&req.id, "GOVERNANCE_INVALID", "malformed sync request");
+    };
+    let mut applied = Vec::new();
+    for statement in &statements {
+        match apply_statement(statement, None, &state).await {
+            Ok(result) => applied.push(result),
+            Err((code, message)) => {
+                return ControlResponse::ok(
+                    req.id,
+                    json!({"peers": peers, "applied": applied, "stopped": {"code": code, "message": message}}),
+                )
+            }
+        }
+    }
+    if let Some(pair) = conflict {
+        let (code, message) = record_conflict(&pair, &state).await;
+        return ControlResponse::ok(
+            req.id,
+            json!({"peers": peers, "applied": applied, "stopped": {"code": code, "message": message}}),
+        );
+    }
+    ControlResponse::ok(req.id, json!({"peers": peers, "applied": applied}))
+}
+
+/// Two different statements, both valid successors of the live head: the
+/// threshold signed two histories. Record the fork durably before applying
+/// either (addition D). If they are no longer both valid successors (the
+/// head moved), nothing is recorded.
+async fn record_conflict(
+    pair: &[werewolf_core::governance::Statement],
+    state: &Arc<Mutex<DaemonState>>,
+) -> (&'static str, String) {
+    use werewolf_core::governance::{self, Outcome};
+    let (head, generation) = {
+        let live = state.lock().await;
+        (live.governance.clone(), live.protected_state_generation)
+    };
+    let (Some(head), Some(generation), [a, b]) = (head, generation, pair) else {
+        return ("GOVERNANCE_REJECTED", "conflict no longer applies".into());
+    };
+    let valid = |s| {
+        matches!(
+            governance::apply(Some(&head), s, None),
+            Ok(Outcome::Applied(_))
+        )
+    };
+    if a.core.hash() == b.core.hash() || !valid(a) || !valid(b) {
+        return ("GOVERNANCE_REJECTED", "conflict no longer applies".into());
+    }
+    let mut fenced = head.clone();
+    fenced.forked = true;
+    let mut protected = protected_from_live(&*state.lock().await);
+    protected.governance = Some(fenced.clone());
+    if commit_protected(generation, protected, state).await.is_ok() {
+        state.lock().await.governance = Some(fenced);
+    }
+    (
+        "GOVERNANCE_FORK",
+        format!(
+            "peers offered two different valid statements for sequence {}; governance is fenced",
+            a.core.sequence
+        ),
+    )
+}
+
+/// Verify `statement` against the head and, if it is the next one, commit
+/// the new head (and, for a revocation or activation, the Pack without the
+/// members it excludes) in one protected generation. The statement is
+/// archived first (G3): the archive is part of the apply, a failed archive
+/// write fails it with no effect, and the Den's atomic replace reuses or
+/// replaces any uncommitted artefact for that sequence. Members are removed
+/// as by `pack revoke`: runtime authority is denied and their Fangs closed
+/// before the commit, and the denial stays if the commit fails.
+async fn apply_statement(
+    statement: &werewolf_core::governance::Statement,
+    expect: Option<&werewolf_core::governance::Hash>,
+    state: &Arc<Mutex<DaemonState>>,
+) -> Result<serde_json::Value, (&'static str, String)> {
+    use werewolf_core::governance::{self, tool, GovError, Outcome};
     let (head, generation, peers) = {
         let live = state.lock().await;
         (
@@ -1097,17 +1205,14 @@ async fn apply_governance(
         )
     };
     let Some(generation) = generation else {
-        return reject(
+        return Err((
             "GOVERNANCE_NEEDS_MANIFEST",
             "governance requires the protected manifest; run state manifest-migrate".into(),
-        );
+        ));
     };
-    let next = match governance::apply(head.as_ref(), &statement, expect.as_ref()) {
+    let next = match governance::apply(head.as_ref(), statement, expect) {
         Ok(Outcome::AlreadyApplied) => {
-            return ControlResponse::ok(
-                req.id,
-                json!({"status": "already_applied", "sequence": statement.core.sequence}),
-            )
+            return Ok(json!({"status": "already_applied", "sequence": statement.core.sequence}))
         }
         Ok(Outcome::Applied(next)) => next,
         Ok(Outcome::Fork(fenced)) => {
@@ -1115,25 +1220,40 @@ async fn apply_governance(
             // until an operator intervenes (spec S3).
             let mut protected = protected_from_live(&*state.lock().await);
             protected.governance = Some(fenced.clone());
-            if commit_protected(generation, protected, &state)
-                .await
-                .is_ok()
-            {
+            if commit_protected(generation, protected, state).await.is_ok() {
                 state.lock().await.governance = Some(fenced);
             }
-            return reject(
+            return Err((
                 "GOVERNANCE_FORK",
                 format!(
                     "a validly signed statement conflicts with applied sequence {}; governance is fenced",
                     statement.core.sequence
                 ),
-            );
+            ));
         }
-        Err(GovError::Forked) => {
-            return reject("GOVERNANCE_FORKED", GovError::Forked.to_string());
-        }
-        Err(error) => return reject("GOVERNANCE_REJECTED", error.to_string()),
+        Err(GovError::Forked) => return Err(("GOVERNANCE_FORKED", GovError::Forked.to_string())),
+        Err(error) => return Err(("GOVERNANCE_REJECTED", error.to_string())),
     };
+
+    // G3: archive before anything changes; a failure leaves no effect.
+    let den = state.lock().await.den.clone();
+    let archived = match den {
+        Some(den) => matches!(
+            den.replace(
+                std::ffi::OsStr::new(&crate::discovery::governance_archive_name(next.sequence)),
+                &statement.encode(),
+                false,
+            ),
+            CommitOutcome::DurablyCommitted
+        ),
+        None => false,
+    };
+    if !archived {
+        return Err((
+            "GOVERNANCE_SAVE_FAILED",
+            "the statement could not be archived".into(),
+        ));
+    }
 
     // Pack members the new head excludes: a revoked key, or after activation
     // a key not on the roster (Stage29 sweep). The Pack held none before,
@@ -1167,10 +1287,10 @@ async fn apply_governance(
         // saved: no inbound session or RPC, and every Fang closed.
         if was_admitted && !now_admitted {
             if authority.lock().is_err() {
-                return reject(
+                return Err((
                     "AUTHORITY_UNAVAILABLE",
                     "runtime authority unavailable".into(),
-                );
+                ));
             }
             closed += live.fang_registry.len();
             live.fang_registry.abort_all();
@@ -1179,10 +1299,10 @@ async fn apply_governance(
         }
         for peer in &revoked {
             if authority.deny_peer(&peer.fingerprint).is_err() {
-                return reject(
+                return Err((
                     "AUTHORITY_UNAVAILABLE",
                     "runtime authority unavailable".into(),
-                );
+                ));
             }
             closed += live.fang_registry.terminate_peer(&peer.name);
         }
@@ -1194,19 +1314,20 @@ async fn apply_governance(
     let mut protected = protected_from_live(&*state.lock().await);
     protected.peers = candidate.clone();
     protected.governance = Some(next.clone());
-    if commit_protected(generation, protected, &state)
+    if commit_protected(generation, protected, state)
         .await
         .is_err()
     {
-        // Runtime denial is never restored on a failed save.
-        return reject(
+        // Runtime denial is never restored on a failed save; the archive
+        // entry stays an uncommitted artefact, never served (G3).
+        return Err((
             if revoked.is_empty() {
                 "GOVERNANCE_SAVE_FAILED"
             } else {
                 "GOVERNANCE_SAVE_FAILED_RUNTIME_DENIED"
             },
             "the governance head was not saved".into(),
-        );
+        ));
     }
     {
         let mut live = state.lock().await;
@@ -1215,19 +1336,19 @@ async fn apply_governance(
         for peer in &revoked {
             if authority.removed(&peer.fingerprint).is_err() {
                 live.storage_degraded = true;
-                return reject(
+                return Err((
                     "AUTHORITY_PUBLICATION_FAILED",
                     "saved, but runtime authority could not be published".into(),
-                );
+                ));
             }
         }
     }
     for peer in &revoked {
         if authority.cleanup(Some(&peer.fingerprint)).await.is_err() {
-            return reject(
+            return Err((
                 "AUTHORITY_CLEANUP_TIMEOUT",
                 "saved; authority cleanup timed out".into(),
-            );
+            ));
         }
     }
     // Admitted again (or for the first time after activation): the fence
@@ -1240,29 +1361,14 @@ async fn apply_governance(
             }
         }
     }
-    // Audit copy of the statement, outside the manifest; best effort.
-    let archived = state.lock().await.den.clone().is_some_and(|den| {
-        matches!(
-            den.replace(
-                std::ffi::OsStr::new(&format!("governance_{:08}.wwgov", next.sequence)),
-                &statement.encode(),
-                false,
-            ),
-            CommitOutcome::DurablyCommitted
-        )
-    });
-    ControlResponse::ok(
-        req.id,
-        json!({
-            "status": "applied",
-            "sequence": next.sequence,
-            "hash": tool::hex(&next.hash),
-                        "revoked_members": revoked.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
-            "closed_fangs": closed,
-            "admitted": now_admitted,
-            "archived": archived,
-        }),
-    )
+    Ok(json!({
+        "status": "applied",
+        "sequence": next.sequence,
+        "hash": tool::hex(&next.hash),
+        "revoked_members": revoked.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+        "closed_fangs": closed,
+        "admitted": now_admitted,
+    }))
 }
 
 fn publish_invalidated_runtime(
@@ -2209,5 +2315,68 @@ mod tests {
         .await;
         assert_eq!(response.error.unwrap().code, "SERVICE_INVALID");
         assert_eq!(state.lock().await.services.len(), 1);
+    }
+
+    /// Stage29 G3: the archive is part of applying. A statement that cannot
+    /// be archived fails with no effect: head, Pack and manifest generation
+    /// unchanged.
+    #[tokio::test]
+    async fn a_statement_that_cannot_be_archived_has_no_effect() {
+        use ed25519_dalek::SigningKey;
+        use werewolf_core::governance::{sign, Body, Core, Statement};
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        let den = state.lock().await.den.clone().unwrap();
+        let protected_state::Transaction::DurablyCommitted(generation) =
+            protected_state::migrate(&den)
+        else {
+            panic!("migration failed");
+        };
+        state.lock().await.protected_state_generation = Some(generation.number);
+        let key = |i: u8| SigningKey::from_bytes(&[i + 1; 32]);
+        let signed = |core: Core| Statement {
+            signatures: (0..7u8).map(|i| (i, sign(&core, &key(i)))).collect(),
+            core,
+        };
+        let genesis = signed(Core {
+            network_id: [0x77; 32],
+            sequence: 0,
+            previous: [0; 32],
+            body: Body::Genesis {
+                threshold: 7,
+                keys: (0..10).map(|i| key(i).verifying_key().to_bytes()).collect(),
+            },
+        });
+        apply_statement(&genesis, Some(&genesis.core.hash()), &state)
+            .await
+            .unwrap();
+        let before = state.lock().await.protected_state_generation;
+        let member = SigningKey::from_bytes(&[0xD0; 32])
+            .verifying_key()
+            .to_bytes();
+        let admission = signed(Core {
+            network_id: [0x77; 32],
+            sequence: 1,
+            previous: genesis.core.hash(),
+            body: Body::Admission(vec![member]),
+        });
+        // A directory where the archive file must go: the write fails.
+        std::fs::create_dir(fixture.0.join("governance_00000001.wwgov")).unwrap();
+        let error = apply_statement(&admission, None, &state).await.unwrap_err();
+        assert_eq!(error.0, "GOVERNANCE_SAVE_FAILED");
+        let live = state.lock().await;
+        assert_eq!(live.governance.as_ref().unwrap().sequence, 0);
+        assert!(live.governance.as_ref().unwrap().roster.is_empty());
+        assert_eq!(live.protected_state_generation, before);
+        drop(live);
+        // Once the archive can be written, the same statement applies, and
+        // its archive entry is the statement.
+        std::fs::remove_dir(fixture.0.join("governance_00000001.wwgov")).unwrap();
+        apply_statement(&admission, None, &state).await.unwrap();
+        assert_eq!(state.lock().await.governance.as_ref().unwrap().sequence, 1);
+        assert_eq!(
+            std::fs::read(fixture.0.join("governance_00000001.wwgov")).unwrap(),
+            admission.encode()
+        );
     }
 }

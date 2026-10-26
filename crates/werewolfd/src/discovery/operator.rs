@@ -359,6 +359,232 @@ async fn services(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> Contro
     )
 }
 
+/// Stage29 `governance sync`, network phase (addition D). Asks Pack members
+/// for the statements after the head, verifies every candidate for each next
+/// sequence independently against a simulated head, and turns the outcome
+/// into one internal `governance.sync_apply` request: the statements to
+/// apply in order, and, if two different valid successors were seen, the
+/// conflicting pair to record as a fork before either is applied. The
+/// control loop calls this before mutation admission; the mutation re-checks
+/// everything against the live head.
+pub(crate) async fn resolve_sync(
+    req: ControlRequest,
+    state: &Arc<Mutex<DaemonState>>,
+) -> Result<ControlRequest, ControlResponse> {
+    use werewolf_core::governance::{self, Outcome, Statement};
+    const ROUNDS: usize = 16;
+    let transport = transport_arg(&req)?;
+    let (identity, peers, routes, head, guard) = {
+        let st = state.lock().await;
+        if matches!(st.status.mode, WolfMode::Silver) {
+            return Err(ControlResponse::err(
+                &req.id,
+                "SILVER_ACTIVE",
+                "Silver mode is active. Discovery rejected.",
+            ));
+        }
+        let Some(identity) = st.pelt.clone() else {
+            return Err(ControlResponse::err(
+                &req.id,
+                "NO_PELT",
+                "No local Pelt identity exists",
+            ));
+        };
+        let Some(head) = st.governance.clone() else {
+            return Err(ControlResponse::err(
+                &req.id,
+                "GOVERNANCE_NO_GENESIS",
+                "no governance head: apply the genesis from a file with --expect-hash",
+            ));
+        };
+        if head.forked {
+            return Err(ControlResponse::err(
+                &req.id,
+                "GOVERNANCE_FORKED",
+                "governance is fenced after a fork",
+            ));
+        }
+        let Ok(guard) = st.discovery.clone().try_lock_owned() else {
+            return Err(ControlResponse::err(
+                &req.id,
+                "DISCOVER_BUSY",
+                "another discovery is running",
+            ));
+        };
+        (identity, st.peers.clone(), st.routes.clone(), head, guard)
+    };
+    let only = req.args["peer"].as_str().unwrap_or("").trim().to_owned();
+    if !only.is_empty() && !peers.iter().any(|peer| peer.name == only) {
+        return Err(ControlResponse::err(
+            &req.id,
+            "DISCOVER_INVALID",
+            "peer is not a Pack member",
+        ));
+    }
+    let seeds: Vec<Seed> = peers
+        .iter()
+        .filter(|peer| only.is_empty() || peer.name == only)
+        .filter_map(|peer| Seed::from_peer(peer, &routes, &peers))
+        .collect();
+
+    let mut simulated = head;
+    let mut chosen: Vec<Statement> = Vec::new();
+    let mut conflict: Option<(Statement, Statement)> = None;
+    let mut statuses: Vec<(String, Value)> = seeds
+        .iter()
+        .map(|seed| {
+            (
+                seed.name.clone(),
+                json!({"peer": seed.name, "status": "not_queried"}),
+            )
+        })
+        .collect();
+    'rounds: for _ in 0..ROUNDS {
+        // Ask every seed for the statements after the simulated head.
+        let deadline = Instant::now() + LOOKUP_BUDGET;
+        let mut offers: Vec<Vec<Statement>> = Vec::new();
+        let mut pending = seeds.clone().into_iter();
+        let mut running = JoinSet::new();
+        loop {
+            while running.len() < ALPHA {
+                let Some(seed) = pending.next() else { break };
+                let identity = identity.clone();
+                let tg = simulated.hash;
+                running.spawn(async move {
+                    let result = query_governance(&seed, &identity, transport, tg).await;
+                    (seed.name, result)
+                });
+            }
+            let Ok(Some(joined)) = timeout_at(deadline, running.join_next()).await else {
+                break;
+            };
+            let Ok((name, result)) = joined else { continue };
+            // Each peer's status, with what it offered in every round.
+            let mut rounds = statuses
+                .iter()
+                .find(|(peer, _)| *peer == name)
+                .and_then(|(_, status)| status["offered"].as_array().cloned())
+                .unwrap_or_default();
+            let status = match &result {
+                Ok(statements) => {
+                    rounds.push(json!(statements.len()));
+                    json!({"peer": name, "status": "ok", "offered": rounds})
+                }
+                Err(reason) => json!({"peer": name, "status": reason, "offered": rounds}),
+            };
+            set_status(&mut statuses, &name, status);
+            if let Ok(statements) = result {
+                if !statements.is_empty() {
+                    offers.push(statements);
+                }
+            }
+        }
+        running.abort_all();
+        let full_offer = offers
+            .iter()
+            .any(|offer| offer.len() == crate::handshake::MAX_GOVERNANCE_K as usize);
+        // Walk the next sequences across all offers: each offer is a chain
+        // from the simulated head, so position i is sequence head+1+i.
+        let mut position = 0;
+        let mut progressed = false;
+        loop {
+            let mut candidates: Vec<&Statement> = Vec::new();
+            for offer in &offers {
+                if let Some(statement) = offer.get(position) {
+                    // Only offers that agree with what was chosen so far.
+                    if offer[..position]
+                        .iter()
+                        .zip(&chosen[chosen.len() - position..])
+                        .all(|(a, b)| a.core.hash() == b.core.hash())
+                        && !candidates
+                            .iter()
+                            .any(|c| c.core.hash() == statement.core.hash())
+                    {
+                        candidates.push(statement);
+                    }
+                }
+            }
+            // Verify every candidate independently against the simulated head.
+            let valid: Vec<(&Statement, governance::Head)> = candidates
+                .into_iter()
+                .filter_map(|statement| {
+                    match governance::apply(Some(&simulated), statement, None) {
+                        Ok(Outcome::Applied(next)) => Some((statement, next)),
+                        _ => None,
+                    }
+                })
+                .collect();
+            match valid.as_slice() {
+                [] => break,
+                [(statement, next)] => {
+                    chosen.push((*statement).clone());
+                    simulated = next.clone();
+                    position += 1;
+                    progressed = true;
+                }
+                [(a, _), (b, _), ..] => {
+                    conflict = Some(((*a).clone(), (*b).clone()));
+                    break 'rounds;
+                }
+            }
+        }
+        if !progressed || !full_offer {
+            break;
+        }
+    }
+    drop(guard);
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let b64 = |statement: &Statement| STANDARD.encode(statement.encode());
+    Ok(ControlRequest {
+        id: req.id,
+        cmd: "governance.sync_apply".into(),
+        args: json!({
+            "statements": chosen.iter().map(b64).collect::<Vec<_>>(),
+            "conflict": conflict.as_ref().map(|(a, b)| vec![b64(a), b64(b)]),
+            "peers": statuses.into_iter().map(|(_, status)| status).collect::<Vec<_>>(),
+        }),
+    })
+}
+
+/// One `governance` query, dialled like `query_services`.
+async fn query_governance(
+    seed: &Seed,
+    identity: &PeltIdentity,
+    transport: &str,
+    head: [u8; 32],
+) -> Result<Vec<werewolf_core::governance::Statement>, &'static str> {
+    match &seed.path {
+        Path::Direct => {}
+        Path::BadRoute => return Err("bad_route"),
+        Path::Relay(routed) => {
+            let ip = routed.destination.ip();
+            return crate::transport::relay::over_relay(routed, identity, |stream| {
+                super::query_governance_tcp_over(stream, ip, identity, &seed.expected, head)
+            })
+            .await
+            .map_err(failure_status);
+        }
+    }
+    match select_peer_transport(transport, &seed.address) {
+        Ok(FangTransport::Quic(address)) => {
+            let address = tokio::net::lookup_host(address.as_str())
+                .await
+                .ok()
+                .and_then(|mut addresses| addresses.next())
+                .ok_or("bad_address")?;
+            super::query_governance_quic(address, identity, &seed.expected, head)
+                .await
+                .map_err(failure_status)
+        }
+        Ok(FangTransport::Tcp(address)) => {
+            super::query_governance_tcp(&address, identity, &seed.expected, head)
+                .await
+                .map_err(failure_status)
+        }
+        Err(_) => Err("bad_address"),
+    }
+}
+
 /// `service add NAME --from PEER`: asks PEER now for the services it shows
 /// this node and turns NAME's entry into an ordinary `service.add` request,
 /// so saving goes through the normal mutation path. The control loop calls

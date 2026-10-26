@@ -1,8 +1,8 @@
 # Stage29 step 3: `governance` RPC wire specification
 
 **Status: approved 2026-10-26 (G1–G4, with the owner's G3 condition on the
-crash window; see [Decisions](#decisions-approved-2026-10-26)).** No code
-exists yet. This extends the [Stage24 RPC](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)
+crash window; see [Decisions](#decisions-approved-2026-10-26)); implemented in
+step 3, see [Implementation](#implementation).** This extends the [Stage24 RPC](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)
 as decided in the [Stage29 design](STAGE29_ACTIVATION_DESIGN.md) (decision
 5a, addition D). It adds one `op` value. Commands, message fields,
 transcript domains, signatures, OPEN, ACK, challenge, KDF and framing are
@@ -201,3 +201,24 @@ any point.
   detection and manual convergence come first; automatic sync would make
   governance propagation a permanent property of the system rather than a
   deliberate action, and stays a follow-up.
+
+## Implementation
+
+Done in step 3:
+
+- the `governance` op in the RPC layer (`RpcRequest::Governance`, results
+  verified to chain from `TG`);
+- the responder serving from the archive, checked against the head's
+  recorded hashes;
+- `governance sync`, resolved outside mutation admission like `service add
+  --from` and applied through the internal `governance.sync_apply`
+  mutation, which re-verifies every statement, and any conflict, against
+  the live head;
+- the archive written before the commit, through the Den's atomic replace.
+
+Tests:
+
+- RPC unit tests for the op, its fields, chaining and cross-op results;
+- a unit test that a statement which cannot be archived has no effect;
+- the lab gate `tests/integration/sync_gate.py`.
+

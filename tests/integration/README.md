@@ -233,6 +233,22 @@ echo target to A.
 | Admitted later | An admission of X lifts the fence: X unlocked and admitted at sequence 3, its discovery works, and A re-adds X and reaches the echo target through it again |
 | Permanent revocation | Revoking X fences it again and removes it on A; an admission of X exits 70 on every node with no head moving, and A's `pack add` of X exits 70 |
 
+```bash
+python3 -B tests/integration/sync_gate.py [--keep-temp]
+```
+
+`sync_gate.py` (Stage29 step 3) runs three wolves on one governance network.
+A and B receive statements as files; C only runs `governance sync`. C trusts
+A, B and an unreachable "ghost" member; A and B trust C.
+
+| Assertion | Required evidence |
+|---|---|
+| Catch-up | After five admissions on A and B, one sync applies sequences 1–5 on C, each once, over two rounds; a second sync applies nothing |
+| Artefact replaced (G3) | A garbage `governance_00000001.wwgov` in C's Den beyond its head is replaced by the real statement on apply |
+| Tampered entry never served | B's archive entry 3 replaced by another valid statement: B offers `[2, 1]` (stops before 3), A offers `[4, 1]`; the ghost is `unreachable` |
+| Revocation through a peer | A and B revoke the ghost; C's sync removes `ghost` from its Pack and re-adding it exits 70 |
+| Conflict (addition D) | A and B apply different valid admissions as sequence 7: C's sync applies nothing, stops with `GOVERNANCE_FORK`, C is forked at 6, and a further sync or apply exits 70 |
+
 ## Stage 1 execution results — 2026-09-07
 
 Executed against checkout `63691aade2aa165b16864a80272f2a55eadcee00` with its

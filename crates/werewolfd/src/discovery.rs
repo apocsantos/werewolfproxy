@@ -83,8 +83,9 @@ impl Contacts {
                     .cloned()
                     .collect()
             }
-            // Answered from published services, never from contact records.
-            RpcRequest::Services => Vec::new(),
+            // Answered from published services or the governance archive,
+            // never from contact records.
+            RpcRequest::Services | RpcRequest::Governance { .. } => Vec::new(),
         }
     }
 
@@ -227,6 +228,8 @@ struct Responder {
     policy: TargetPolicy,
     limiter: Arc<RpcLimiter>,
     locked: bool,
+    governance: Option<werewolf_core::governance::Head>,
+    den: Option<Arc<werewolf_core::local_fs::PrivateDirectory>>,
 }
 
 fn responder(st: &mut DaemonState) -> io::Result<Responder> {
@@ -240,7 +243,58 @@ fn responder(st: &mut DaemonState) -> io::Result<Responder> {
         policy: st.target_policy.clone(),
         limiter: st.rpc_limiter.clone(),
         locked: st.inbound_authority.is_locked(),
+        governance: st.governance.clone(),
+        den: st.den.clone(),
     })
+}
+
+/// The archive name of an applied statement (Stage28/29).
+pub(crate) fn governance_archive_name(sequence: u64) -> String {
+    format!("governance_{sequence:08}.wwgov")
+}
+
+/// Stage29 `governance` answer: the applied statements after `head_hash`,
+/// up to `k`, read from the archive. Nothing for no governance or an
+/// unknown hash (another network, branch or ancestry, G1). An archive entry
+/// is served only if its hash equals the head's recorded hash for that
+/// sequence, so an uncommitted artefact beyond the head is never served;
+/// the first missing or mismatching entry ends the answer.
+async fn governance_records(
+    head: Option<werewolf_core::governance::Head>,
+    den: Option<Arc<werewolf_core::local_fs::PrivateDirectory>>,
+    head_hash: [u8; 32],
+    k: u8,
+) -> Vec<werewolf_core::governance::Statement> {
+    let (Some(head), Some(den)) = (head, den) else {
+        return Vec::new();
+    };
+    let Some(position) = head.applied.iter().position(|hash| *hash == head_hash) else {
+        return Vec::new();
+    };
+    tokio::task::spawn_blocking(move || {
+        let mut statements = Vec::new();
+        for sequence in (position as u64 + 1)..=head.sequence {
+            if statements.len() == k as usize {
+                break;
+            }
+            let Ok(Some(bytes)) = den.read(
+                std::ffi::OsStr::new(&governance_archive_name(sequence)),
+                werewolf_core::governance::MAX_STATEMENT_LEN,
+            ) else {
+                break;
+            };
+            let Ok(statement) = werewolf_core::governance::Statement::decode(&bytes) else {
+                break;
+            };
+            if statement.core.hash() != head.applied[sequence as usize] {
+                break;
+            }
+            statements.push(statement);
+        }
+        statements
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// Published services this requester could open right now: the same Target
@@ -296,7 +350,10 @@ pub(crate) async fn answer_quic<W: AsyncWrite + Unpin>(
     replay.reserve(&rpc.sender_fingerprint, &rpc.nonce)?;
     hs::require(responder.limiter.allow(&rpc.sender_fingerprint))?;
     let request = rpc.request()?;
-    let result = if request == RpcRequest::Services {
+    let result = if let RpcRequest::Governance { head, k } = request {
+        let statements = governance_records(responder.governance, responder.den, head, k).await;
+        hs::QuicRpcResult::new(rpc, &retained, &responder.receiver, &statements)?
+    } else if request == RpcRequest::Services {
         let entries = visible_services(
             &responder.published,
             &responder.policy,
@@ -346,7 +403,10 @@ pub(crate) async fn answer_tcp<S: AsyncRead + AsyncWrite + Unpin>(
     context.consume_binding(&rpc.challenge, &rpc.receiver_fingerprint)?;
     hs::require(responder.limiter.allow(&rpc.sender_fingerprint))?;
     let request = rpc.request()?;
-    let result = if request == RpcRequest::Services {
+    let result = if let RpcRequest::Governance { head, k } = request {
+        let statements = governance_records(responder.governance, responder.den, head, k).await;
+        hs::TcpRpcResult::new(rpc, &retained, &context.receiver, &statements)?
+    } else if request == RpcRequest::Services {
         let entries = visible_services(
             &responder.published,
             &responder.policy,
@@ -477,6 +537,74 @@ pub(crate) async fn query_services_tcp(
         expected,
         &RpcRequest::Services,
         |result, rpc, retained| result.verify_services(rpc, retained),
+    )
+    .await
+}
+
+/// Stage29 `governance` over QUIC: the statements after `head`, chained
+/// from it; nothing here applies them.
+pub(crate) async fn query_governance_quic(
+    address: SocketAddr,
+    identity: &PeltIdentity,
+    expected: &ExpectedPeerIdentity,
+    head: [u8; 32],
+) -> io::Result<Vec<werewolf_core::governance::Statement>> {
+    rpc_quic(
+        address,
+        identity,
+        expected,
+        &RpcRequest::Governance {
+            head,
+            k: hs::MAX_GOVERNANCE_K,
+        },
+        |result, rpc, retained| result.verify_governance(rpc, retained),
+    )
+    .await
+}
+
+/// Stage29 `governance` over encrypted TCP (see `query_governance_quic`).
+pub(crate) async fn query_governance_tcp(
+    peer_addr: &str,
+    identity: &PeltIdentity,
+    expected: &ExpectedPeerIdentity,
+    head: [u8; 32],
+) -> io::Result<Vec<werewolf_core::governance::Statement>> {
+    rpc_tcp(
+        peer_addr,
+        identity,
+        expected,
+        &RpcRequest::Governance {
+            head,
+            k: hs::MAX_GOVERNANCE_K,
+        },
+        |result, rpc, retained| result.verify_governance(rpc, retained),
+    )
+    .await
+}
+
+/// Stage29 `governance` to a routed peer, as `query_tcp_over`.
+pub(crate) async fn query_governance_tcp_over<S>(
+    stream: S,
+    server_ip: std::net::IpAddr,
+    identity: &PeltIdentity,
+    expected: &ExpectedPeerIdentity,
+    head: [u8; 32],
+) -> io::Result<Vec<werewolf_core::governance::Statement>>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let stream =
+        crate::transport::tcp_encrypted::connect_authenticated_over(stream, server_ip, expected)
+            .await?;
+    rpc_on(
+        stream,
+        identity,
+        expected,
+        &RpcRequest::Governance {
+            head,
+            k: hs::MAX_GOVERNANCE_K,
+        },
+        |result, rpc, retained| result.verify_governance(rpc, retained),
     )
     .await
 }
