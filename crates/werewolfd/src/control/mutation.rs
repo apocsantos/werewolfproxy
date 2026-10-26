@@ -1214,6 +1214,17 @@ async fn apply_statement(
         Ok(Outcome::AlreadyApplied) => {
             return Ok(json!({"status": "already_applied", "sequence": statement.core.sequence}))
         }
+        // Stage30 step 1: the core knows the death statement, but this
+        // daemon cannot yet destroy anything (spec section 4). It refuses
+        // death before any effect, archive included, so a node never runs
+        // on a DEAD head.
+        Ok(Outcome::Applied(next)) if next.dead_at.is_some() => {
+            return Err((
+                "GOVERNANCE_REJECTED",
+                "this build cannot apply a death statement: destruction is not implemented yet"
+                    .into(),
+            ))
+        }
         Ok(Outcome::Applied(next)) => next,
         Ok(Outcome::Fork(fenced)) => {
             // Record the fork durably, then refuse: governance is fenced
@@ -2378,5 +2389,54 @@ mod tests {
             std::fs::read(fixture.0.join("governance_00000001.wwgov")).unwrap(),
             admission.encode()
         );
+    }
+
+    /// Stage30 step 1: a valid death statement is refused before any effect,
+    /// archive included: this build cannot destroy, so it must never commit
+    /// a DEAD head.
+    #[tokio::test]
+    async fn this_build_refuses_a_death_statement_with_no_effect() {
+        use ed25519_dalek::SigningKey;
+        use werewolf_core::governance::{sign, Body, Core, Statement};
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        let den = state.lock().await.den.clone().unwrap();
+        let protected_state::Transaction::DurablyCommitted(generation) =
+            protected_state::migrate(&den)
+        else {
+            panic!("migration failed");
+        };
+        state.lock().await.protected_state_generation = Some(generation.number);
+        let key = |i: u8| SigningKey::from_bytes(&[i + 1; 32]);
+        let signed = |core: Core| Statement {
+            signatures: (0..7u8).map(|i| (i, sign(&core, &key(i)))).collect(),
+            core,
+        };
+        let genesis = signed(Core {
+            network_id: [0x77; 32],
+            sequence: 0,
+            previous: [0; 32],
+            body: Body::Genesis {
+                threshold: 7,
+                keys: (0..10).map(|i| key(i).verifying_key().to_bytes()).collect(),
+            },
+        });
+        apply_statement(&genesis, Some(&genesis.core.hash()), &state)
+            .await
+            .unwrap();
+        let before = state.lock().await.protected_state_generation;
+        let death = signed(Core {
+            network_id: [0x77; 32],
+            sequence: 1,
+            previous: genesis.core.hash(),
+            body: Body::Death,
+        });
+        let error = apply_statement(&death, None, &state).await.unwrap_err();
+        assert_eq!(error.0, "GOVERNANCE_REJECTED");
+        let live = state.lock().await;
+        let head = live.governance.as_ref().unwrap();
+        assert_eq!((head.sequence, head.dead_at), (0, None));
+        assert_eq!(live.protected_state_generation, before);
+        assert!(!fixture.0.join("governance_00000001.wwgov").exists());
     }
 }

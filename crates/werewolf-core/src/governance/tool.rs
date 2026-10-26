@@ -79,7 +79,7 @@ pub fn public_key(b64: &str) -> io::Result<Key> {
 }
 
 /// Writes `bytes` to a new file; never replaces an existing one.
-fn create(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
+pub(super) fn create(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -115,7 +115,7 @@ fn invalid_json(error: serde_json::Error) -> io::Error {
     invalid(error.to_string())
 }
 
-fn read_key(path: &Path) -> io::Result<SigningKey> {
+pub(super) fn read_key(path: &Path) -> io::Result<SigningKey> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -294,6 +294,7 @@ pub fn describe(statement: &Statement) -> Value {
             "members": keys.iter().map(b64).collect::<Vec<_>>(),
         }),
         Body::Activation => json!({"kind": "activation"}),
+        Body::Death => json!({"kind": "death"}),
     };
     json!({
         "network_id": hex(&core.network_id),

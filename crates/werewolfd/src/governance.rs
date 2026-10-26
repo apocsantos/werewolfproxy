@@ -61,6 +61,9 @@ struct Document {
     roster: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     activated_at: Option<u64>,
+    /// Stage30, omitted while absent so a Stage29 head keeps its bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dead_at: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -94,6 +97,7 @@ fn document(head: &Head) -> Document {
         forked: head.forked,
         roster: head.roster.iter().map(|k| tool::hex(k)).collect(),
         activated_at: head.activated_at,
+        dead_at: head.dead_at,
     }
 }
 
@@ -134,6 +138,7 @@ pub(crate) fn parse(bytes: &[u8]) -> io::Result<Head> {
         forked: doc.forked,
         roster: doc.roster.iter().map(hex32).collect::<io::Result<_>>()?,
         activated_at: doc.activated_at,
+        dead_at: doc.dead_at,
     };
     if canonical(&head)? != bytes {
         return Err(invalid());
@@ -169,7 +174,9 @@ fn check(head: &Head) -> io::Result<()> {
             .roster
             .iter()
             .all(|key| head.revoked.binary_search(key).is_err())
-        && head.activated_at.is_none_or(|at| at <= head.sequence);
+        && head.activated_at.is_none_or(|at| at <= head.sequence)
+        // Stage30: nothing chains after death.
+        && head.dead_at.is_none_or(|at| at == head.sequence);
     if ok {
         Ok(())
     } else {
@@ -326,5 +333,34 @@ pub(crate) mod tests {
         ] {
             assert!(canonical(&broken).is_err());
         }
+    }
+
+    #[test]
+    fn stage29_heads_keep_their_bytes_and_dead_at_is_checked() {
+        let head = Head {
+            activated_at: Some(0),
+            ..sample_head()
+        };
+        let stage29 = canonical(&head).unwrap();
+        assert!(!String::from_utf8(stage29.clone())
+            .unwrap()
+            .contains("dead_at"));
+        assert_eq!(parse(&stage29).unwrap(), head);
+        let dead = Head {
+            dead_at: Some(0),
+            ..head.clone()
+        };
+        let bytes = canonical(&dead).unwrap();
+        assert!(String::from_utf8(bytes.clone())
+            .unwrap()
+            .ends_with(",\"dead_at\":0}"));
+        assert_eq!(parse(&bytes).unwrap(), dead);
+        // Nothing chains after death: `dead_at` is always the head sequence.
+        let later = revoked_head(&head);
+        assert!(canonical(&Head {
+            dead_at: Some(0),
+            ..later
+        })
+        .is_err());
     }
 }

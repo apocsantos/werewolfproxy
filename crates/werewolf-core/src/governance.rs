@@ -25,6 +25,7 @@ const KIND_ROTATION: u8 = 1;
 const KIND_REVOCATION: u8 = 2;
 const KIND_ADMISSION: u8 = 3;
 const KIND_ACTIVATION: u8 = 4;
+const KIND_DEATH: u8 = 5;
 
 pub type Key = [u8; 32];
 pub type Hash = [u8; 32];
@@ -44,6 +45,8 @@ pub enum Body {
     Admission(Vec<Key>),
     /// Stage29: the network is active from this statement on.
     Activation,
+    /// Stage30: the network's terminal decision. Nothing chains after it.
+    Death,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +92,8 @@ pub enum GovError {
     Fork,
     #[error("governance is fenced after a fork")]
     Forked,
+    #[error("the network is dead: nothing follows a death statement")]
+    Terminal,
 }
 
 impl Body {
@@ -99,6 +104,7 @@ impl Body {
             Body::Revocation(_) => KIND_REVOCATION,
             Body::Admission(_) => KIND_ADMISSION,
             Body::Activation => KIND_ACTIVATION,
+            Body::Death => KIND_DEATH,
         }
     }
 
@@ -121,7 +127,7 @@ impl Body {
                 out.extend_from_slice(&(keys.len() as u16).to_be_bytes());
                 keys.iter().for_each(|key| out.extend_from_slice(key));
             }
-            Body::Activation => {}
+            Body::Activation | Body::Death => {}
         }
         out
     }
@@ -152,6 +158,7 @@ impl Body {
                 }
             }
             KIND_ACTIVATION => Body::Activation,
+            KIND_DEATH => Body::Death,
             _ => return Err(GovError::UnknownKind),
         };
         r.end()?;
@@ -255,6 +262,9 @@ pub struct Head {
     pub roster: Vec<Key>,
     /// Stage29: the sequence of the activation statement, once applied.
     pub activated_at: Option<u64>,
+    /// Stage30: the sequence of the death statement, once applied. It is
+    /// always the head sequence: nothing chains after it.
+    pub dead_at: Option<u64>,
 }
 
 impl Head {
@@ -322,9 +332,28 @@ pub fn apply(
             forked: false,
             roster: Vec::new(),
             activated_at: None,
+            dead_at: None,
         }));
     };
-    if head.forked {
+    // Stage30: nothing follows death. Re-presenting an applied statement,
+    // the death included, is still `already_applied`.
+    if head.dead_at.is_some() {
+        if core.sequence <= head.sequence
+            && head.applied[core.sequence as usize] == core.hash()
+            && core.network_id == head.network_id
+        {
+            return Ok(Outcome::AlreadyApplied);
+        }
+        return Err(GovError::Terminal);
+    }
+    // A forked node accepts exactly one statement: a death that chains to
+    // its own head (spec L1). It never resolves the fork (I1): `forked`
+    // stays set and no branch is chosen.
+    if head.forked
+        && !(matches!(core.body, Body::Death)
+            && core.sequence == head.sequence + 1
+            && core.previous == head.hash)
+    {
         return Err(GovError::Forked);
     }
     if core.network_id != head.network_id {
@@ -392,6 +421,8 @@ pub fn apply(
             }
             next.activated_at = Some(core.sequence);
         }
+        // Valid after any head; the chain ends here (spec section 1).
+        Body::Death => next.dead_at = Some(core.sequence),
     }
     next.sequence = core.sequence;
     next.hash = core.hash();
@@ -535,6 +566,7 @@ impl<'a> Reader<'a> {
     }
 }
 
+pub mod check;
 pub mod tool;
 
 #[cfg(test)]

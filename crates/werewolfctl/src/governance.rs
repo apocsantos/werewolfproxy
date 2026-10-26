@@ -6,7 +6,7 @@ use crate::{print_local, CliError, ExitClass};
 use clap::Subcommand;
 use serde_json::{json, Value};
 use std::path::PathBuf;
-use werewolf_core::governance::{tool, Body, Key};
+use werewolf_core::governance::{check, tool, Body, Head, Key};
 
 #[derive(Subcommand)]
 pub(crate) enum GovernanceCommands {
@@ -61,6 +61,48 @@ pub(crate) enum GovernanceCommands {
         #[arg(long)]
         expect_genesis: Option<String>,
     },
+    /// Stage30 key check: a lower bound on how many governance keys are
+    /// usable now. Offline; nothing in the network acts on it.
+    Check {
+        #[command(subcommand)]
+        action: CheckAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum CheckAction {
+    /// A fresh challenge for the network of the given chain.
+    New {
+        /// The chain, genesis first.
+        #[arg(long, num_args = 1.., required = true)]
+        chain: Vec<PathBuf>,
+        /// Expected genesis hash (hex); defaults to the genesis's own hash.
+        #[arg(long)]
+        expect_genesis: Option<String>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Answer a challenge with governance key INDEX.
+    Sign {
+        challenge: PathBuf,
+        key: PathBuf,
+        #[arg(long)]
+        index: u8,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Verify answers against the keys in force at the chain's head.
+    Verify {
+        challenge: PathBuf,
+        #[arg(required = true)]
+        answers: Vec<PathBuf>,
+        /// The chain, genesis first.
+        #[arg(long, num_args = 1.., required = true)]
+        chain: Vec<PathBuf>,
+        /// Expected genesis hash (hex); defaults to the genesis's own hash.
+        #[arg(long)]
+        expect_genesis: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -95,6 +137,13 @@ pub(crate) enum DraftKind {
     },
     /// Activate the network: one-way, from this statement on.
     Activate {
+        #[arg(long)]
+        after: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// The network's terminal decision (Stage30): nothing follows it.
+    Death {
         #[arg(long)]
         after: PathBuf,
         #[arg(long)]
@@ -211,6 +260,10 @@ fn run_local(json_output: bool, command: GovernanceCommands) -> Result<(), CliEr
                     let previous = tool::read_statement(&after).map_err(fail)?;
                     (tool::draft_after(&previous, Body::Activation), out)
                 }
+                DraftKind::Death { after, out } => {
+                    let previous = tool::read_statement(&after).map_err(fail)?;
+                    (tool::draft_after(&previous, Body::Death), out)
+                }
                 DraftKind::Revoke {
                     after,
                     members,
@@ -282,9 +335,82 @@ fn run_local(json_output: bool, command: GovernanceCommands) -> Result<(), CliEr
                     "head_sequence": head.sequence,
                     "head_hash": tool::hex(&head.hash),
                     "revoked": head.revoked.len(),
+                    "dead_at": head.dead_at,
                 });
             }
             print_local(json_output, "governance.inspect", result)
+        }
+        GovernanceCommands::Check { action } => run_check(json_output, action),
+    }
+}
+
+/// Replays `chain` (genesis first) as a node would, pinned to
+/// `expect_genesis` or the genesis's own hash.
+fn chain_head(chain: &[PathBuf], expect_genesis: Option<String>) -> Result<Head, CliError> {
+    let statements = chain
+        .iter()
+        .map(|p| tool::read_statement(p).map_err(fail))
+        .collect::<Result<Vec<_>, _>>()?;
+    let genesis_hash = match expect_genesis {
+        Some(hex) => tool::unhex::<32>(&hex).map_err(fail)?,
+        None => statements[0].core.hash(),
+    };
+    tool::replay(&statements, &genesis_hash).map_err(fail)
+}
+
+fn run_check(json_output: bool, action: CheckAction) -> Result<(), CliError> {
+    match action {
+        CheckAction::New {
+            chain,
+            expect_genesis,
+            out,
+        } => {
+            let head = chain_head(&chain, expect_genesis)?;
+            let challenge = check::Challenge::new(&head);
+            check::write(&out, &challenge).map_err(fail)?;
+            print_local(
+                json_output,
+                "governance.check.new",
+                json!({"challenge": out, "network_id": challenge.network_id}),
+            )
+        }
+        CheckAction::Sign {
+            challenge,
+            key,
+            index,
+            out,
+        } => {
+            let answer = check::sign_file(&challenge, &key, index).map_err(fail)?;
+            check::write(&out, &answer).map_err(fail)?;
+            print_local(
+                json_output,
+                "governance.check.sign",
+                json!({"answer": out, "index": index}),
+            )
+        }
+        CheckAction::Verify {
+            challenge,
+            answers,
+            chain,
+            expect_genesis,
+        } => {
+            let head = chain_head(&chain, expect_genesis)?;
+            let challenge =
+                check::Challenge::parse(&std::fs::read(&challenge).map_err(fail)?).map_err(fail)?;
+            let answers = answers
+                .iter()
+                .map(|p| check::Answer::parse(&std::fs::read(p).map_err(fail)?).map_err(fail))
+                .collect::<Result<Vec<_>, _>>()?;
+            let (indices, verdict) = challenge.verify(&head, &answers).map_err(fail)?;
+            print_local(
+                json_output,
+                "governance.check.verify",
+                json!({
+                    "valid_indices": indices,
+                    "count": indices.len(),
+                    "verdict": verdict.label(),
+                }),
+            )
         }
     }
 }

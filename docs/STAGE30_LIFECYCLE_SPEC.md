@@ -536,8 +536,28 @@ The ARCHITECTURE amendments of section 9 are applied.
 
 ## Implementation (after approval)
 
-| Step | Scope |
-|---|---|
-| 1 | Core: kind 5, `Terminal`, `dead_at`, the key check, the Tombstone type; vectors and negative tests; offline `draft death` and `check new/sign/verify` |
-| 2 | Daemon: death apply, the destruction procedure, startup, `den retire`, the error codes, exit 67, the systemd unit; lab gate `death_gate.py` with crash, storage-fault and residue checks |
-| 3 | Real-host check on disposable daemons only |
+| Step | Scope | State |
+|---|---|---|
+| 1 | Core: kind 5, `Terminal`, `dead_at`, the key check, the Tombstone type; vectors and negative tests; offline `draft death` and `check new/sign/verify` | Done |
+| 2 | Daemon: death apply, the destruction procedure, startup, `den retire`, the error codes, exit 67, the systemd unit; lab gate `death_gate.py` with crash, storage-fault and residue checks | Next |
+| 3 | Real-host check on disposable daemons only | |
+
+Step 1 notes:
+
+- **Vectors:**
+  - the death core after the Stage29 admission and activation vectors:
+    `15a604c4…cbb2`;
+  - key-check answer by key 0 on network `77…77`, challenge `33…33`:
+    `0f375609…3706`.
+- **Daemon guard until step 2.** The daemon applies statements through
+  the core, so the step-1 daemon refuses a death statement before any
+  effect (`GOVERNANCE_REJECTED`, no archive entry), whether from a file or
+  through sync. Startup fails closed on a DEAD head. Step 2 replaces both
+  guards with section 4.
+- **Key check, whole-check rejection.** `verify` rejects the whole check,
+  rather than dropping the answer, when any answer is for another
+  challenge or network, has a bad signature or repeats an index, so a
+  measurement is never silently smaller than what was presented.
+- **The Tombstone type** (`werewolf_core::tombstone`) accepts only its
+  canonical bytes. A death Tombstone is checked to contain no governance
+  public key in raw, hex or base64 form.

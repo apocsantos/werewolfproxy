@@ -277,9 +277,13 @@ governance statements signed by at least 7 of 10 governance keys.
 - governance draft revoke --after PREVIOUS --member PUB_B64 ... --out FILE
 - governance draft admit --after PREVIOUS --member PUB_B64 ... --out FILE (Stage29)
 - governance draft activate --after PREVIOUS --out FILE (Stage29)
+- governance draft death --after PREVIOUS --out FILE (Stage30)
 - governance sign DRAFT KEYFILE --index N --out PART
 - governance combine DRAFT PART... --out FILE
 - governance inspect FILE [--chain FILE...] [--expect-genesis HEX]
+- governance check new --chain FILE... [--expect-genesis HEX] --out CHALLENGE (Stage30)
+- governance check sign CHALLENGE KEYFILE --index N --out ANSWER (Stage30)
+- governance check verify CHALLENGE ANSWER... --chain FILE... [--expect-genesis HEX] (Stage30)
 
 These run locally and never contact a daemon or the network, so a key
 holder can use them on an offline machine. `keygen` creates a key file with
@@ -378,4 +382,25 @@ Refusals:
 
 It is manual only; nothing syncs automatically. The disposable gate
 `tests/integration/sync_gate.py` exercises it.
+
+Stage30 ([survey](STAGE30_LIFECYCLE_SURVEY.md),
+[spec](STAGE30_LIFECYCLE_SPEC.md)), step 1 (offline only):
+
+- `draft death` creates the network's terminal statement (kind 5, empty
+  body). Nothing chains after it: every later statement fails as
+  `Terminal`. `inspect --chain` reports `dead_at`.
+- **Applying a death on a node is refused in this build**
+  (`GOVERNANCE_REJECTED`, with no effect, archive included). The
+  destruction it requires comes in step 2, and a node holding a DEAD head
+  refuses to start.
+- `check new/sign/verify` is the key check: holders answer a fresh random
+  challenge with their governance keys, under a signature domain of its
+  own. `verify` checks every answer against the keys in force at the
+  chain's head, and rejects the whole check on any answer for another
+  challenge or network, a bad signature or a repeated index. It reports
+  the valid indices and a verdict that is only `at_least_7_usable` (7 or
+  more) or `unverified`, never "unrecoverable": that is a
+  legitimate-custody determination made by the holders.
+
+Challenge and answer files are strict JSON and never overwritten.
 
