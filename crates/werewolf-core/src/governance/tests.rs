@@ -139,7 +139,7 @@ fn encoding_is_strict() {
     bad[0] = 2;
     assert_eq!(Statement::decode(&bad), Err(GovError::UnknownVersion));
     let mut bad = bytes.clone();
-    bad[73] = 5; // kinds 0-4 are defined (Stage28 and Stage29)
+    bad[73] = 6; // kinds 0-5 are defined (Stage28, Stage29 and Stage30)
     assert_eq!(Statement::decode(&bad), Err(GovError::UnknownKind));
     let mut bad = bytes.clone();
     bad.push(0);
@@ -682,4 +682,282 @@ fn scenario_revocation_is_permanent() {
         GovError::BodyRule
     );
     assert!(!h.admits(&x));
+}
+
+// Stage30: death, the terminal rule and death on a forked node.
+
+#[test]
+fn stage30_vectors_are_stable() {
+    let h = head();
+    let admitted = step(&h, Body::Admission(sorted(vec![member(0), member(1)])));
+    let active = step(&admitted, Body::Activation);
+    let death = next(&active, Body::Death);
+    // kind 5, body length 0, nothing else.
+    assert!(hex(&death.encode()).ends_with("050000"));
+    assert_eq!(
+        hex(&death.hash()),
+        "15a604c4347110f1caeea4576143bf24ee70ad6d7569ce084170d95a5194cbb2"
+    );
+    let statement = signed(death, &SIGNERS);
+    assert_eq!(Statement::decode(&statement.encode()), Ok(statement));
+}
+
+#[test]
+fn a_death_body_must_be_empty() {
+    let h = head();
+    let mut bytes = signed(next(&h, Body::Death), &SIGNERS).encode();
+    // body_len sits after version, network ID, sequence, previous and kind.
+    let at = 1 + 32 + 8 + 32 + 1;
+    assert_eq!(&bytes[at..at + 2], &[0, 0]);
+    bytes[at + 1] = 1;
+    bytes.insert(at + 2, 0x42);
+    assert_eq!(Statement::decode(&bytes), Err(GovError::Malformed));
+}
+
+#[test]
+fn death_follows_ceremony_or_activation_and_nothing_follows_death() {
+    let h = head();
+    // From CEREMONY (genesis only) and from ACTIVE.
+    let dead = step(&h, Body::Death);
+    assert_eq!(dead.dead_at, Some(1));
+    let active = step(
+        &step(&h, Body::Admission(vec![member(0)])),
+        Body::Activation,
+    );
+    let dead_active = step(&active, Body::Death);
+    assert_eq!(dead_active.dead_at, Some(dead_active.sequence));
+
+    // Every kind after death is Terminal, a second death included.
+    for body in [
+        Body::Death,
+        Body::Activation,
+        Body::Admission(vec![member(3)]),
+        Body::Revocation(vec![member(3)]),
+        Body::Rotation(vec![(0, member(4))]),
+    ] {
+        assert_eq!(refused(&dead, body), GovError::Terminal);
+    }
+    // Re-presenting the death, or an earlier statement, is already applied.
+    let death = signed(next(&h, Body::Death), &SIGNERS);
+    assert_eq!(
+        apply(Some(&dead), &death, None),
+        Ok(Outcome::AlreadyApplied)
+    );
+    assert_eq!(
+        apply(Some(&dead), &genesis(), None),
+        Ok(Outcome::AlreadyApplied)
+    );
+    // A conflicting statement at the death's sequence is refused, not
+    // recorded: the chain has ended.
+    let conflict = signed(next(&h, Body::Revocation(vec![member(5)])), &SIGNERS);
+    assert_eq!(apply(Some(&dead), &conflict, None), Err(GovError::Terminal));
+    // A death signed by six keys is no death.
+    let short = signed(next(&h, Body::Death), &[0, 1, 2, 3, 4, 5]);
+    assert_eq!(apply(Some(&h), &short, None), Err(GovError::Signatures));
+}
+
+#[test]
+fn a_node_that_has_not_died_sees_a_conflicting_death_as_a_fork() {
+    let h = head();
+    let applied_first = step(&h, Body::Revocation(vec![member(5)]));
+    let death = signed(next(&h, Body::Death), &SIGNERS);
+    assert!(matches!(
+        apply(Some(&applied_first), &death, None),
+        Ok(Outcome::Fork(_))
+    ));
+}
+
+#[test]
+fn death_on_a_forked_node_never_resolves_the_fork() {
+    let h = head();
+    let first = step(&h, Body::Revocation(vec![member(5)]));
+    let conflict = signed(next(&h, Body::Revocation(vec![member(6)])), &SIGNERS);
+    let fenced = match apply(Some(&first), &conflict, None) {
+        Ok(Outcome::Fork(head)) => head,
+        other => panic!("{other:?}"),
+    };
+    // L1: only a death that chains to the node's own head is accepted.
+    assert_eq!(
+        refused(&fenced, Body::Revocation(vec![member(7)])),
+        GovError::Forked
+    );
+    assert_eq!(refused(&fenced, Body::Activation), GovError::Forked);
+    let off_head = signed(
+        Core {
+            previous: [0x11; 32],
+            ..next(&fenced, Body::Death)
+        },
+        &SIGNERS,
+    );
+    assert_eq!(apply(Some(&fenced), &off_head, None), Err(GovError::Forked));
+    let gap = signed(
+        Core {
+            sequence: fenced.sequence + 2,
+            ..next(&fenced, Body::Death)
+        },
+        &SIGNERS,
+    );
+    assert_eq!(apply(Some(&fenced), &gap, None), Err(GovError::Forked));
+    let short = signed(next(&fenced, Body::Death), &[0, 1, 2, 3, 4, 5]);
+    assert_eq!(
+        apply(Some(&fenced), &short, None),
+        Err(GovError::Signatures)
+    );
+
+    let dead = step(&fenced, Body::Death);
+    // I1: the fork stays recorded, no branch is chosen, and the history
+    // before the death is exactly the forked node's own.
+    assert!(dead.forked);
+    assert_eq!(dead.dead_at, Some(dead.sequence));
+    assert_eq!(
+        &dead.applied[..fenced.applied.len()],
+        fenced.applied.as_slice()
+    );
+    assert_eq!(
+        (
+            dead.revoked.clone(),
+            dead.roster.clone(),
+            dead.key_epochs.clone()
+        ),
+        (
+            fenced.revoked.clone(),
+            fenced.roster.clone(),
+            fenced.key_epochs.clone()
+        )
+    );
+    // And nothing follows it, on a forked node as anywhere.
+    assert_eq!(
+        refused(&dead, Body::Revocation(vec![member(7)])),
+        GovError::Terminal
+    );
+}
+
+// Stage30 key check (spec section 2).
+
+fn challenge_for(head: &Head, bytes: [u8; 32]) -> check::Challenge {
+    check::Challenge {
+        format: "werewolf-key-check".into(),
+        version: 1,
+        network_id: hex(&head.network_id),
+        challenge: hex(&bytes),
+    }
+}
+
+fn answers(challenge: &check::Challenge, indices: &[u8]) -> Vec<check::Answer> {
+    indices
+        .iter()
+        .map(|&i| challenge.answer(&gov(i), i).unwrap())
+        .collect()
+}
+
+#[test]
+fn key_check_vectors_are_stable() {
+    let h = head();
+    let challenge = challenge_for(&h, [0x33; 32]);
+    let input = check::input_for_tests(&NETWORK, &[0x33; 32]);
+    assert!(input.starts_with(b"werewolfproxy/governance/v1/key-check\0"));
+    assert_eq!(input.len(), 38 + 32 + 32);
+    let answer = challenge.answer(&gov(0), 0).unwrap();
+    assert_eq!(
+        answer.signature,
+        "0f375609ab7e10bca4cd9f612f170ff0ad6506b8a443a9fa0561876feebe7789\
+         ed6bb329b095bc71812dbad65377ed8e31e6246684163d7cd5c8e5406f723706"
+    );
+    let json = serde_json::to_vec(&answer).unwrap();
+    assert_eq!(check::Answer::parse(&json).unwrap(), answer);
+}
+
+#[test]
+fn key_check_signatures_never_cross_with_statement_signatures() {
+    let h = head();
+    let challenge = challenge_for(&h, [0x44; 32]);
+    // A statement signature presented as a check answer fails...
+    let statement = signed(next(&h, Body::Death), &[0]);
+    let mut answer = challenge.answer(&gov(0), 0).unwrap();
+    answer.signature = hex(&statement.signatures[0].1);
+    assert!(challenge.verify(&h, &[answer]).is_err());
+    // ...and a check signature presented as a statement signature fails.
+    let answers = answers(&challenge, &SIGNERS);
+    let mut death = signed(next(&h, Body::Death), &SIGNERS);
+    let forged: [u8; 64] = (0..64)
+        .map(|i| u8::from_str_radix(&answers[0].signature[2 * i..2 * i + 2], 16).unwrap())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+    death.signatures[0].1 = forged;
+    assert_eq!(apply(Some(&h), &death, None), Err(GovError::Signatures));
+}
+
+#[test]
+fn key_check_gives_a_lower_bound_only() {
+    let h = head();
+    let challenge = challenge_for(&h, [0x55; 32]);
+    let (indices, verdict) = challenge
+        .verify(&h, &answers(&challenge, &[9, 0, 4, 1, 2, 3]))
+        .unwrap();
+    assert_eq!(indices, vec![0, 1, 2, 3, 4, 9]);
+    assert_eq!(verdict, check::Verdict::Unverified);
+    let (indices, verdict) = challenge
+        .verify(&h, &answers(&challenge, &SIGNERS))
+        .unwrap();
+    assert_eq!(indices.len(), 7);
+    assert_eq!(verdict, check::Verdict::AtLeast7Usable);
+    assert_eq!(verdict.label(), "at_least_7_usable");
+    assert_eq!(check::Verdict::Unverified.label(), "unverified");
+    // No answers is unverified, never "unrecoverable".
+    assert_eq!(
+        challenge.verify(&h, &[]).unwrap().1,
+        check::Verdict::Unverified
+    );
+}
+
+#[test]
+fn key_check_answers_are_bound_and_distinct() {
+    let h = head();
+    let challenge = challenge_for(&h, [0x66; 32]);
+    let other = challenge_for(&h, [0x67; 32]);
+    // An answer to another challenge.
+    let stray = other.answer(&gov(1), 1).unwrap();
+    let mut mixed = answers(&challenge, &[0]);
+    mixed.push(stray);
+    assert!(challenge.verify(&h, &mixed).is_err());
+    // A duplicate index.
+    let twice = answers(&challenge, &[2, 2]);
+    assert!(challenge.verify(&h, &twice).is_err());
+    // An answer signed by the wrong key for its index.
+    let mut wrong = challenge.answer(&gov(3), 3).unwrap();
+    wrong.index = 4;
+    assert!(challenge.verify(&h, &[wrong]).is_err());
+    // Index out of range.
+    assert!(challenge.answer(&gov(0), 10).is_err());
+    // Another network.
+    let mut elsewhere = challenge.clone();
+    elsewhere.network_id = hex(&[0x78; 32]);
+    assert!(elsewhere.verify(&h, &[]).is_err());
+    // After a rotation, the replaced key no longer answers for its index.
+    let rotated = step(&h, Body::Rotation(vec![(0, member(9))]));
+    assert!(challenge
+        .verify(&rotated, &answers(&challenge, &[0]))
+        .is_err());
+}
+
+#[test]
+fn key_check_files_are_strict() {
+    let h = head();
+    let challenge = challenge_for(&h, [0x77; 32]);
+    let json = serde_json::to_value(&challenge).unwrap();
+    assert!(check::Challenge::parse(json.to_string().as_bytes()).is_ok());
+    let mut extra = json.clone();
+    extra["note"] = "x".into();
+    assert!(check::Challenge::parse(extra.to_string().as_bytes()).is_err());
+    let mut upper = json.clone();
+    upper["challenge"] = hex(&[0xAB; 32]).to_uppercase().into();
+    assert!(check::Challenge::parse(upper.to_string().as_bytes()).is_err());
+    let mut short = json.clone();
+    short["network_id"] = "77".into();
+    assert!(check::Challenge::parse(short.to_string().as_bytes()).is_err());
+    let answer = serde_json::to_value(challenge.answer(&gov(0), 0).unwrap()).unwrap();
+    let mut format = answer.clone();
+    format["format"] = "werewolf-key-check".into();
+    assert!(check::Answer::parse(format.to_string().as_bytes()).is_err());
 }

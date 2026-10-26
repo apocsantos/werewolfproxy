@@ -125,6 +125,11 @@ pub(super) fn load_startup_state(
         initial_state.status.pelt_ready = true;
     }
     if let Some(head) = &initial_state.governance {
+        // Stage30 step 1: a DEAD head needs the destruction this build does
+        // not have. Fail closed rather than run on it.
+        if head.dead_at.is_some() {
+            return Err(invalid());
+        }
         // Stage29: a Pack member the head excludes (revoked, or not on the
         // roster after activation) means the Pack was changed outside
         // governance; fail closed rather than trust it.
@@ -446,6 +451,31 @@ mod tests {
         assert!(fixture.startup().inbound_authority.is_locked());
         // A Pack member the roster excludes: refuses to start.
         commit(3, vec![own_key], vec![peer]);
+        assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
+    }
+
+    /// Stage30 step 1: this build cannot destroy, so a DEAD head (which only
+    /// a later build could commit) makes startup fail closed.
+    #[test]
+    fn a_dead_head_fails_startup_closed() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "pelt.json",
+            &serde_json::to_vec(&generate_identity()).unwrap(),
+        );
+        assert!(matches!(
+            crate::protected_state::migrate(&fixture.1),
+            crate::protected_state::Transaction::DurablyCommitted(_)
+        ));
+        let mut state = crate::protected_state::legacy_state(&fixture.1).unwrap();
+        state.governance = Some(werewolf_core::governance::Head {
+            dead_at: Some(0),
+            ..crate::governance::tests::sample_head()
+        });
+        assert!(matches!(
+            crate::protected_state::commit(&fixture.1, 1, &state),
+            crate::protected_state::Transaction::DurablyCommitted(_)
+        ));
         assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
     }
 

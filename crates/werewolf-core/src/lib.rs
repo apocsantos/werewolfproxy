@@ -35,3 +35,4 @@ pub mod service;
 pub mod governance;
 pub mod published;
 pub mod route;
+pub mod tombstone;
