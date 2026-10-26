@@ -1,8 +1,8 @@
 # Stage29 step 3: `governance` RPC wire specification
 
 **Status: approved 2026-10-26 (G1–G4, with the owner's G3 condition on the
-crash window; see [Decisions](#decisions-approved-2026-10-26)).** No code
-exists yet. This extends the [Stage24 RPC](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)
+crash window; see [Decisions](#decisions-approved-2026-10-26)); implemented in
+step 3, see [Implementation](#implementation).** This extends the [Stage24 RPC](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)
 as decided in the [Stage29 design](STAGE29_ACTIVATION_DESIGN.md) (decision
 5a, addition D). It adds one `op` value. Commands, message fields,
 transcript domains, signatures, OPEN, ACK, challenge, KDF and framing are
