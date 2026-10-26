@@ -432,9 +432,11 @@ owner's bias).**
     nothing with them.
   - Its operator retires it locally (3a-ii). The death runbook lists every
     node and requires a confirmation from each.
-- **Later work:** automatic sync (next on the owner's order) will
-  propagate death like any other statement. This survey fixes now that
-  death **is** an ordinary chain statement for sync purposes.
+- **Later work:** ~~automatic sync (next on the owner's order) will
+  propagate death like any other statement.~~ *Corrected in Stage30 step
+  2:* death **is** an ordinary chain statement, but no node can serve it,
+  so automatic sync cannot deliver it either (see the
+  [Stage31 survey](STAGE31_AUTO_SYNC_SURVEY.md#7-death)).
 
 **6b. Two-phase death.** A DYING node keeps its Pelt and answers only the
 `governance` RPC for a bounded window, measured on the monotonic clock, so
@@ -591,8 +593,9 @@ for a corrupt node or try to repair.
 
 Then, in the owner's order:
 
-1. automatic governance sync, which will propagate death as an ordinary
-   statement;
+1. automatic governance sync, ~~which will propagate death as an ordinary
+   statement~~ (*corrected in Stage30 step 2:* sync can never deliver a
+   death; see the [Stage31 survey](STAGE31_AUTO_SYNC_SURVEY.md#7-death));
 2. robustness and chaos certification: netem loss, jitter and reordering,
    and clock shifts;
 3. the CLI architecture-complete candidate.
