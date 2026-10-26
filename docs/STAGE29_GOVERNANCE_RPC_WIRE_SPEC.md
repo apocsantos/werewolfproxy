@@ -1,7 +1,8 @@
 # Stage29 step 3: `governance` RPC wire specification
 
-**Status: specification for review, awaiting owner decisions G1–G4.** No
-code exists. This extends the [Stage24 RPC](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)
+**Status: approved 2026-10-26 (G1–G4, with the owner's G3 condition on the
+crash window; see [Decisions](#decisions-approved-2026-10-26)).** No code
+exists yet. This extends the [Stage24 RPC](STAGE24_FINDNODE_RPC_WIRE_SPEC.md)
 as decided in the [Stage29 design](STAGE29_ACTIVATION_DESIGN.md) (decision
 5a, addition D). It adds one `op` value. Commands, message fields,
 transcript domains, signatures, OPEN, ACK, challenge, KDF and framing are
@@ -122,12 +123,29 @@ discovery runs (`DISCOVER_BUSY`).
 ## Responder storage
 
 The responder serves statements from its archive `governance_NNNNNNNN.wwgov`
-(Stage28). Step 3 makes the archive part of applying: the statement is
-written before the head is committed, so every applied statement is
-archived; an archive write failure fails the apply (`GOVERNANCE_SAVE_FAILED`)
-with no effect. When serving, the archived file must decode, and its hash
-must equal the head's recorded hash for that sequence, or the responder
-stops there.
+(Stage28). Step 3 makes the archive part of the logical apply transaction:
+the statement is written before the head is committed, so every applied
+statement is archived; an archive write failure fails the apply
+(`GOVERNANCE_SAVE_FAILED`) with no effect. When serving, the archived file
+must decode, and its hash must equal the head's recorded hash for that
+sequence, or the responder stops there.
+
+**Crash window (owner condition on G3).** `archive persisted → crash → head
+not committed` leaves an archive entry beyond the committed head. The rule:
+
+- Archive entries beyond the committed head are **uncommitted artefacts**,
+  never applied history. They are never served (serving checks the head's
+  recorded hash) and never consulted by `apply`.
+- On apply of sequence `n`, an existing archive entry for `n` is reused if
+  it is byte-identical to the statement being applied; otherwise it is
+  atomically replaced, before the head is committed. An orphan therefore
+  never blocks a legitimate apply and is never mistaken for history.
+- Replacement uses the Den's atomic replace (write a temporary file, then
+  rename it), so the entry for `n` is always either the old artefact or the
+  new statement, never a mixture.
+
+This makes the state recoverable and the apply idempotent across a crash at
+any point.
 
 ## Limits
 
@@ -163,17 +181,23 @@ stops there.
   - a revocation reaches a node through a peer and removes the member;
   - a routed member is asked through its relay.
 - Archive: written before commit; a failed archive write fails the apply
-  with no effect.
+  with no effect; an orphan entry beyond the head is never served, is
+  reused when identical and replaced when different, and a crash between
+  archive and commit recovers on the next apply.
 
-## Decisions requested
+## Decisions (approved 2026-10-26)
 
-- **G1. Position by head hash (recommended).** `TG` is the requester's head
-  hash rather than a sequence number, so a responder on another network or
-  branch returns nothing instead of statements the requester would reject.
-- **G2. `K` at most 4 (recommended)**, which keeps every result far below
-  `RESULT_LIMIT` with no truncation rule.
-- **G3. Archive before commit (recommended).** The archive becomes part of
-  applying so that every node can serve what it applied; today it is
-  best-effort after commit.
-- **G4. Manual sync only for now (recommended).** `governance sync` on
-  operator command; automatic periodic sync (5c) stays a follow-up.
+- **G1. Position by head hash.** The hash identifies both position and
+  history: a peer on another network, another branch or without that
+  ancestry returns zero records. It reveals no unnecessary state and never
+  makes a sequence number a false sign of compatibility between chains.
+- **G2. `K` at most 4.** Four statements fit comfortably in `RESULT_LIMIT`
+  even at their maximum size, so there is no truncation rule: `count ≤ K`.
+- **G3. Archive before commit**, as part of the logical apply transaction,
+  with the crash-window rule above: archive entries beyond the committed
+  head are uncommitted artefacts, reused on apply if byte-identical and
+  otherwise atomically replaced before commit.
+- **G4. Manual sync only.** Wire protocol, archive semantics, fork
+  detection and manual convergence come first; automatic sync would make
+  governance propagation a permanent property of the system rather than a
+  deliberate action, and stays a follow-up.
