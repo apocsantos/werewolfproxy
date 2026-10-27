@@ -239,7 +239,7 @@ All five approved by the owner on 2026-10-27.
 |---|---|---|
 | 1 | This spec | Done |
 | 2 | Harness: sandbox, topology, netem and faketime control, sampling; dry run of P0 and P2 on S1 | Done (faketime control: step 4) |
-| 3 | Network campaigns; `STAGE32_NETWORK_CERTIFICATION.md` | |
+| 3 | Network campaigns; `STAGE32_NETWORK_CERTIFICATION.md` | **Paused** at S1-P5 by the owner, see [Step 3 notes](#step-3-notes-interim); F1 and F2 open |
 | 4 | Time campaigns; `STAGE32_TIME_CERTIFICATION.md` | |
 | 5 | KNOWN_LIMITATIONS and STATUS updated to what ran | |
 
@@ -285,3 +285,47 @@ descriptors (baseline 16), 5 threads (baseline 6) and at most about
   PASS on the client's own error. The client is now a single
   non-blocking loop whose only deadline is the outer bound. That first
   dry run is not evidence and is not recorded above.
+
+## Step 3 notes (interim)
+
+The network campaign ran on 2026-10-27 (`main` at `6b96e98`, harness as in
+this PR). Certification build `werewolfd` `266171be…cd7d`; lab build
+(`lab-faults`, S5 automatic sync only) `2f5d2df8…3a40`; kernel 6.12.111,
+iproute2 6.15.0. A P0 smoke test of every surface passed (21 of 21 runs)
+before it.
+
+**S1, encrypted TCP, direct, 32 MiB full duplex, A–R impaired** (evidence
+retained, owner decision):
+
+| Profile | Runs (seed: result, time) |
+|---|---|
+| P0 | 10, 20, 30: PASS, 1.2–1.4 s, hashes match |
+| P1 | 1010, 1020, 1030: PASS, 1.6–2.5 s, hashes match |
+| P2 | 2010: PASS 77.7 s; 2020: PASS 52.2 s (hashes match); 2030: PASS as a clean early end, reset at 8.06 s with nothing echoed (F1) |
+| P3 | 3010, 3020, 3030: PASS as clean early ends, reset after 76.2 s, 27.1 s and 30.6 s with 24–74 KB echoed (F2) |
+| P4 | 4010, 4020, 4030: PASS, 52.6–62.7 s, hashes match |
+| P5 | harness verdict FAIL (two runs at the 120 s bound with 7.1 MB and 3.5 MB echoed; one reset at 24.4 s). **Reclassified by the owner as EXCLUDED: an invalid workload and bound, not a product failure** |
+
+**A control on the same links and seeds** (raw kernel TCP from A to an echo
+server on B's address, no Werewolf; diagnostic, not certification):
+
+| Profile | Raw TCP |
+|---|---|
+| P2 | all three complete: 26.5 s, 29.2 s, 36.3 s; seed 2030 first echo after 3.07 s, then complete |
+| P3 | none completes within 120 s (0.4–5.1 MB echoed); every connection stays up and progresses |
+| P5 | none completes within 120 s (5.1–15.4 MB echoed): 32 MiB within 120 s is not attainable on this link, which is why S1-P5 is excluded |
+
+**Owner decisions (2026-10-27):**
+
+- S1 P0–P4: completed evidence retained.
+- S1 P5: EXCLUDED, invalid workload and bound, not a product FAIL.
+- **F1, OPEN:** an encrypted-TCP Fang fails to establish under P2 with
+  seed 2030 (reset at about 8 s), where raw TCP stalls about 3 s and
+  recovers. A setup robustness investigation.
+- **F2, OPEN:** established encrypted-TCP Fang sessions end under P3
+  (reset after about 24–76 s), where raw TCP stays connected and
+  progresses. An established-session robustness investigation.
+- The broad campaign is **paused**.
+
+Also observed, not a finding by itself: under P2 the Fang's completed
+transfers took about twice as long as raw TCP's.
