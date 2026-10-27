@@ -3,7 +3,7 @@
 **Status: decisions accepted 2026-10-26 (1a, 3a, 6a and 7a with owner
 corrections; 2a, 4a, 5a, 8a and 9 as proposed); see
 [Decisions](#decisions-accepted-2026-10-26).** Docs only. The rules go
-into a spec for review before any code, as in Stage28 and Stage30. Where
+into a [spec](STAGE31_AUTO_SYNC_SPEC.md) for review before any code, as in Stage28 and Stage30. Where
 the sections below differ from the decisions, the decisions apply.
 
 Stage29 decision G4 ([wire spec](STAGE29_GOVERNANCE_RPC_WIRE_SPEC.md#decisions-approved-2026-10-26))
