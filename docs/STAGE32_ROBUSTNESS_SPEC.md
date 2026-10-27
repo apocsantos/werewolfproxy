@@ -381,6 +381,9 @@ how much each seed echoes in 60 s, takes the largest power of two under
 the least, and confirms it, halving until all three complete
 (`chaos.py calibrate`). The bound stays 120 s.
 
+After the echo change, a P0 smoke test of S1, S2, S3, S4 and S6 passed
+(15 of 15 runs, `20261027T205030Z-network`; smoke, not evidence).
+
 **Calibration run** (`20261027T203757Z-calibrate`, harness as in this PR;
 raw TCP, so no Werewolf build is involved):
 
