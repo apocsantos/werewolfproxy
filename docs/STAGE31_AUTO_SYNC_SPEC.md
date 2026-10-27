@@ -1,7 +1,8 @@
 # Stage31 automatic governance sync — behaviour spec
 
 **Status: approved 2026-10-27 (S1–S5 as recommended; see
-[Spec decisions](#spec-decisions)); step 1 implemented, see
+[Spec decisions](#spec-decisions)); steps 1–2 done (real-host check
+[below](#real-host-check-2026-10-27)), see
 [Implementation](#implementation-after-approval).** Corrections found while
 implementing are marked *Corrected in step 1*. This implements the
 accepted decisions of the [Stage31 survey](STAGE31_AUTO_SYNC_SURVEY.md#decisions-accepted-2026-10-26)
@@ -283,7 +284,7 @@ All five approved by the owner on 2026-10-27 as recommended.
 | Step | Scope | State |
 |---|---|---|
 | 1 | Daemon: the switch and its file, the scheduler, operator precedence, status, logs; unit tests; lab gate `auto_sync_gate.py` | Done |
-| 2 | Real-host check on disposable daemons only | |
+| 2 | Real-host check on disposable daemons only | Done, [below](#real-host-check-2026-10-27) |
 
 Step 1 notes:
 
@@ -317,3 +318,66 @@ Step 1 notes:
 - **The control parser accepts only string arguments**, which is why the
   switch is `{"state": "on"|"off"}`; a parser test now pins it, since the
   unit test that calls the handler directly could not catch it.
+
+## Real-host check (2026-10-27)
+
+Build `3aa7f5c` (main after #74), release, `--locked`: `werewolfd`
+`266171be…cd7d`, `werewolfctl` `2c6b46c6…e914`, hash-checked on both hosts.
+No lab timing: D ran the release delays (U(5–30 s), then U(450–1350 s)).
+Only disposable daemons held governance state:
+
+| Node | Host | Role |
+|---|---|---|
+| D | DarkSide, user systemd unit, loopback, fresh Den and Pelt (`wwp1:1A-DB-D5-F4-75-93-D8-F7`) | the receiver: after its activation, only read-only `governance status` (one exception, below) |
+| C | VPS, user mode, loopback only (`127.0.0.1:18463`), fresh Den and Pelt (`wwp1:9F-2A-D0-22-58-18-33-37`) | serves; every statement by file |
+| `node-b` | VPS `werewolfd.service`, `bcf7bbd` | Stage26 relay only, unchanged |
+
+D reached C only through `node-b` (route `node-c --via node-b`, QUIC hop).
+The owner's conditions for the production relay were applied as in
+Stage29 and Stage30 (lists recorded before; `node-d` with D's exact key;
+one grant, `127.0.0.1:18463`; nothing else changed; cleanup removed the
+grant, then `node-d`; both lists diffed `IDENTICAL`), plus one the owner
+accepted for this check: automatic sync asks every Pack member, so each of
+D's runs also sent `node-b` one read-only `governance` request. `node-b`'s
+build has no such RPC and refused each one at field validation
+(`rejected`), changing nothing.
+
+Ten fresh governance keys stayed on DarkSide and were deleted afterwards;
+only signed statement files went to the VPS. The chain, verified offline
+with `inspect --chain --expect-genesis` (network `dc42d57b…cdff`):
+
+| Seq | Statement | Hash | C got it | D got it |
+|---|---|---|---|---|
+| 0 | genesis | `a5a72030…c1a2` | file, `--expect-hash` | file, `--expect-hash` |
+| 1 | admit C, D, `node-b`, `ghost` (a dummy key in D's Pack) | `798a937b…d7fe` | file | file (ceremony stays manual) |
+| 2 | activate | `79a7008d…5db3` | file | file |
+| 3 | revoke `ghost` | `951a90ee…cdfee` | file | **automatic sync** |
+
+| Check (UTC) | Result |
+|---|---|
+| A, 14:23:30 | PASS: D activated by file; its first automatic run started about 24 s later (scheduled 22 s): `nothing_new`; `node-c` `ok` through `node-b`; `node-b` `rejected`; `ghost` `bad_address` (a placeholder TCP address); next run due in 614 s |
+| B, 15:07:10 | PASS: the revocation applied on C by file at about 15:01; D's next scheduled run, with no command on D, fetched it through `node-b` (`node-c` `ok`, offering `[1]`) and applied it: journal `AUTO_SYNC_APPLIED` with `revoked_members: ["ghost"]`, sequence 3, hash `951a90ee…`; D's archive entry 3 byte-identical to the file; D's Pack `node-b`, `node-c` |
+| C, 15:07:40 | PASS: `systemctl --user restart`: D started (`NRestarts=0`) and ran again on its own about 8 s later: `nothing_new`, still sequence 3; `governance status` apart from `auto_sync` identical before and after |
+
+Notes:
+
+- **The first attempt at B** produced no change on D because the
+  revocation never reached C: the first apply was typed on DarkSide, where
+  no C exists, and C itself had stopped with the SSH session it ran in
+  (about 14:55, after D's 14:53 run had reached it). D's runs at about
+  14:34 and 14:53 both reported `node-c` `ok` offering `[0]`, which is how
+  the gap showed. C was restarted detached from its unchanged Den (still
+  at sequence 2), and the revocation was applied on it at about 15:01.
+- **One command besides `governance status` reached D after its
+  activation:** at about 14:54 a `pack add ghost`, sent in error while
+  checking, was refused (`ghost` was still a member) and changed nothing.
+  It preceded the revocation's arrival at 15:07 and has no bearing on B.
+- At cleanup, `kill 19580` (C's QUIC port, typed as a PID) was run twice
+  and answered "No such process"; C was then stopped by its exact PID.
+
+Not shown on real hosts (covered by `auto_sync_gate.py` and unit tests):
+operator precedence, the switch, Silver, a fork, an unadmitted node.
+
+wolf-a, wolf-b and DarkSide's Stage22R daemon were not touched; on the VPS
+the production `werewolfd` and `werewolf-c` were running before and after,
+untouched; no governance statement reached a real node.
