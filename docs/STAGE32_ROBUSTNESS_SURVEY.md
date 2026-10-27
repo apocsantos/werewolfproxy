@@ -1,8 +1,10 @@
 # Stage32 robustness and chaos certification — survey
 
-**Status: survey for owner decisions.** Docs only. No campaign runs and no
-code changes before the decisions below; the campaign plan and its pass
-criteria then go into a spec for review, as in Stage30 and Stage31.
+**Status: decisions accepted 2026-10-27 (1a, 2a, 3a, 5a, 6a, 7a as
+recommended; see [Decisions](#decisions-accepted-2026-10-27)).** Docs only.
+The PASS criteria (section 4) and defect handling (section 8) were not
+ruled on separately; they go into the spec for review with the exact
+matrix, bounds and margins, as in Stage30 and Stage31.
 
 This is the next item on the owner's order (after Stage31, before the CLI
 architecture-complete candidate). [KNOWN_LIMITATIONS](../KNOWN_LIMITATIONS.md)
@@ -215,3 +217,34 @@ change as part of a robustness fix without separate review.
 
 1a, 2a, 3a (with SIGSTOP stalls), PASS as in section 4, 5a, 6a, 7a, and
 section 8 as stated.
+
+## Decisions accepted 2026-10-27
+
+- **1a.** Disposable daemons in unprivileged network namespaces on
+  DarkSide; nothing on the host loopback.
+- **2a.** The full impairment matrix on both Fang transports, direct and
+  routed, plus establishment, the control plane, fences under impairment
+  and no downgrade.
+- **3a.** `libfaketime` for per-daemon wall-clock jumps, with SIGSTOP
+  stalls for the monotonic side. The owner installed it on DarkSide
+  (`libfaketime` 0.9.10+2024-06-05+gba9ed5b2-0.6).
+- **5a.** Each scenario 3 times, with fixed and recorded netem seeds.
+- **6a.** Lab only for Stage32.
+- **7a.** The D09 indeterminate commit stays unit-tested, and says so.
+
+### 3a acceptance check (2026-10-27)
+
+The owner's five-step check, run on the release build of `main`
+(`werewolfd` `266171be…cd7d`) with one disposable daemon:
+
+| Step | Result |
+|---|---|
+| 1. Start `werewolfd` under faketime at +1 day | Started under `LD_PRELOAD=libfaketime.so.1`, `FAKETIME_DONT_FAKE_MONOTONIC=1`, control file `+1d` |
+| 2. A Werewolf-visible wall-clock value moves | The own contact record was signed with `seq` (its signing time) = real time + 86400 s, `expires_at` = `seq` + 7 days |
+| 3. A monotonic deadline does not move | The Stage31 `next_due_in_secs` fell 600 → 595 over 5.0 real seconds |
+| 4. Change the control value while running | Control file rewritten to `+9d` |
+| 5. The running daemon observes the jump | The next `discover show` re-signed the record at real time + 777600 s (+9 days), `expires_at` moved by 8 days; the deadline fell 595 → 593 over 2.0 s across the jump and 593 → 588 over 5.0 s after it; the daemon kept running |
+
+PASS, 8 of 8 checks. libfaketime shifts the monotonic clock too unless
+`FAKETIME_DONT_FAKE_MONOTONIC=1` is set; step 3 is what shows the setting
+took effect, so every time campaign keeps that check.
