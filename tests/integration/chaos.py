@@ -4,6 +4,7 @@
     python3 -B tests/integration/chaos.py dry-run [--keep-temp]
     python3 -B tests/integration/chaos.py network [--only S1,S2] [--from S3:P0]
         [--cells S2:P0,S5:P0] [--keep-temp]
+    python3 -B tests/integration/chaos.py calibrate [--keep-temp]
 
 Builds the featureless release certification build (and, for `network`, the
 separate `lab-faults` build used only by S5's automatic-sync item), then runs
@@ -62,6 +63,13 @@ LEAK = {'fds': 4, 'threads': 2, 'rss_kib': 32 * 1024}
 MIB = 1 << 20
 OPEN_BOUND_S = 20
 FENCE_BOUND_S = 10
+# S1-S3 payloads (spec section 2): direct (S1, S2) and routed (S3). P9's are
+# set by its rate; P5's are calibrated against raw TCP on the same links
+# (spec, "P5 calibration"; calibrate run 20261027T203757Z).
+PAYLOAD = {'direct': 32 * MIB, 'routed': 16 * MIB}
+PAYLOAD_BY_PROFILE = {'P9': {'direct': 4 * MIB, 'routed': 2 * MIB},
+                      'P5': {'direct': 2 * MIB, 'routed': 8 * MIB}}
+CALIBRATION_SEEDS = (5010, 5020, 5030)
 LAB_ENV = {'WEREWOLF_LAB_AUTO_SYNC_FIRST_MS': '300', 'WEREWOLF_LAB_AUTO_SYNC_INTERVAL_MS': '1500'}
 
 
@@ -108,6 +116,8 @@ def host_facts():
 def cells(campaign, only, start, explicit=None):
     if campaign == 'dry-run':
         return [('S1', 'P0'), ('S1', 'P2')]
+    if campaign == 'calibrate':
+        return [('CAL', 'P5')]
     if explicit:
         return [tuple(c.split(':')) for c in explicit.split(',')]
     chosen = [(s, p) for s, profiles in MATRIX for p in profiles
@@ -352,19 +362,23 @@ class Sandbox:
         return {'fds': len(os.listdir(f'/proc/{pid}/fd')), 'threads': field('Threads'),
                 'rss_kib': field('VmRSS'), 'alive': process.poll() is None}
 
-    def targets(self, node):
-        directory = self.work / f'targets-{node}'
+    def targets(self, node, script='targets.py', *extra):
+        directory = self.work / f'{pathlib.Path(script).stem}-{node}'
         directory.mkdir()
-        handle = (self.work / f'targets-{node}.log').open('ab')
+        handle = (self.work / f'{directory.name}.log').open('ab')
         self.handles.append(handle)
         subprocess.Popen(['nsenter', f'--net=/run/netns/{node}', sys.executable, '-I', '-B',
-                          HERE / 'targets.py', directory], stdout=handle,
+                          HERE / script, directory, *extra], stdout=handle,
                          stderr=subprocess.STDOUT)
         deadline = time.monotonic() + 15
         while not (directory / 'ready.json').exists():
             require(time.monotonic() < deadline, 'targets not ready')
             time.sleep(.1)
         return json.loads((directory / 'ready.json').read_text())
+
+    def echo(self, node, host='127.0.0.1'):
+        """The echo target for data-carrying surfaces: no idle timeout."""
+        return self.targets(node, 'chaos_echo.py', host)['echo']
 
     def client_argv(self, node, address, size, label, limit):
         return ['nsenter', f'--net=/run/netns/{node}', sys.executable, '-I', '-B',
@@ -480,6 +494,12 @@ def bound_for(profile, surface, p0):
     return max(120, 10 * p0[surface])
 
 
+def payload(profile, kind):
+    size = PAYLOAD_BY_PROFILE.get(profile, PAYLOAD)[kind]
+    require(size is not None, f'{profile} {kind} payload is not calibrated')
+    return size
+
+
 def finish(run, excluded, reasons):
     if excluded:
         run['result'], run['reason'] = 'EXCLUDED', excluded
@@ -505,7 +525,7 @@ def transfers(box, surface, profile, p0):
     routed = surface == 'S3'
     nodes = ('a', 'b', 'y') if routed else ('a', 'b')
     box.build_network(nodes)
-    echo = box.targets('b')['echo']
+    echo = box.echo('b')
     if routed:
         ids = {n: box.start(n, n) for n in nodes}
         box.pack_add('a', 'wolf-b', ids['b'], 'b')
@@ -514,12 +534,12 @@ def transfers(box, surface, profile, p0):
         box.pack_add('y', 'wolf-a', ids['a'], 'a')
         box.ctl('y', 'target.allow', {'peer': 'wolf-a', 'target': f'{NODES["b"]}.2:{PORT}'})
         legs = [('quic hop', 'quic'), ('tcp hop', 'tcp')]
-        size = 2 * MIB if profile == 'P9' else 16 * MIB
+        size = payload(profile, 'routed')
         links = ('a', 'y')
     else:
         pair(box)
         legs = [('encrypted tcp', 'tcp')] if surface == 'S1' else [('quic', 'quic')]
-        size = 4 * MIB if profile == 'P9' else 32 * MIB
+        size = payload(profile, 'direct')
         links = ('a',)
     box.ctl('b', 'target.allow', {'peer': 'wolf-a', 'target': f'127.0.0.1:{echo}'})
     time.sleep(2)
@@ -563,7 +583,7 @@ def transfers(box, surface, profile, p0):
 def establishment(box, profile, p0):
     """S4: 50 sequential sessions of a 1 KiB echo, per transport."""
     box.build_network(('a', 'b'))
-    echo = box.targets('b')['echo']
+    echo = box.echo('b')
     pair(box)
     box.ctl('b', 'target.allow', {'peer': 'wolf-a', 'target': f'127.0.0.1:{echo}'})
     ports = {'quic': 17001, 'tcp': 17002}
@@ -749,7 +769,7 @@ def control_plane(box, profile, p0):
 def fences(box, profile, p0):
     """S6: Silver, then a Pack revoke of A, on B during transfers; timed at B."""
     box.build_network(('a', 'b'))
-    echo = box.targets('b')['echo']
+    echo = box.echo('b')
     ids = pair(box)
     box.ctl('b', 'target.allow', {'peer': 'wolf-a', 'target': f'127.0.0.1:{echo}'})
     ports = {'tcp': 17001, 'quic': 17002}
@@ -885,6 +905,59 @@ SURFACES = {'S1': transfers, 'S2': transfers, 'S3': transfers, 'S4': establishme
             'S5': control_plane, 'S6': fences, 'S7': selection}
 
 
+def calibration(box, profile, p0):
+    """The P5 workload rule (spec, "P5 calibration"): raw kernel TCP, no
+    Werewolf, on the S1/S2 path (A to B, the A-R link impaired) and the S3
+    path (A to Y, the A-R and Y-R links impaired), with the cell's seeds.
+    The payload is the largest power-of-two MiB that all three seeds
+    complete within half the 120 s bound: probe how much each seed echoes
+    in that time, then confirm the candidate, halving until all complete."""
+    half = 120 / 2
+    box.build_network(('a', 'b', 'y'))
+    paths = {'direct': ('b', ('a',)), 'routed': ('y', ('a', 'y'))}
+    runs = []
+    for kind, (node, links) in paths.items():
+        address = f'{NODES[node]}.2:{box.echo(node, f"{NODES[node]}.2")}'
+
+        def batch(size, stage):
+            out = []
+            for seed in CALIBRATION_SEEDS:
+                netem = {link: box.impair(link, profile, seed + 100 * i)
+                         for i, link in enumerate(links)}
+                t = box.client('a', address, size, f'CAL-{profile}-{kind}-{seed}-{size}', half)
+                for link in links:
+                    box.clear(link)
+                out.append({'path': kind, 'stage': stage, 'seed': seed, 'netem': netem,
+                            'bytes': size, **{k: t.get(k) for k in (
+                                'elapsed_s', 'received', 'complete', 'match', 'error')}})
+                log(f'  {kind} {stage} seed {seed}: {t.get("received")} B in '
+                    f'{t.get("elapsed_s")} s complete={t.get("complete")}')
+            return out
+
+        probe = batch(PAYLOAD[kind], 'probe')
+        least = min(r['received'] for r in probe)
+        size = MIB
+        while size * 2 <= least:
+            size *= 2
+        require(least >= MIB, f'{kind}: under 1 MiB echoed within {half:.0f} s')
+        confirmations = []
+        while True:
+            confirm = batch(size, 'confirm')
+            confirmations += confirm
+            if all(r['complete'] and r['match'] for r in confirm) or size == MIB:
+                break
+            size //= 2
+        chosen = size if all(r['complete'] and r['match'] for r in confirm) else None
+        runs.append({'path': kind, 'result': 'PASS' if chosen else 'EXCLUDED',
+                     'reason': None if chosen else f'{kind}: 1 MiB not confirmed',
+                     'payload_bytes': chosen, 'probe': probe, 'confirm': confirmations})
+        log(f'  {kind}: payload {chosen} B')
+    return {'runs': runs}
+
+
+SURFACES['CAL'] = calibration
+
+
 def inside(work, cert, lab, surface, profile, p0_json):
     box = Sandbox(pathlib.Path(work), pathlib.Path(cert),
                   pathlib.Path(lab) if lab else None)
@@ -912,7 +985,7 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == '--inside':
         return inside(*sys.argv[2:8])
     parser = argparse.ArgumentParser()
-    parser.add_argument('campaign', choices=['dry-run', 'network'])
+    parser.add_argument('campaign', choices=['dry-run', 'network', 'calibrate'])
     parser.add_argument('--only', help='comma-separated surfaces, e.g. S1,S2')
     parser.add_argument('--from', dest='start', help='resume at a cell, e.g. S3:P0')
     parser.add_argument('--cells', help='exactly these cells, e.g. S2:P0,S5:P0 (smoke tests)')

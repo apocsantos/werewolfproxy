@@ -239,7 +239,7 @@ All five approved by the owner on 2026-10-27.
 |---|---|---|
 | 1 | This spec | Done |
 | 2 | Harness: sandbox, topology, netem and faketime control, sampling; dry run of P0 and P2 on S1 | Done (faketime control: step 4) |
-| 3 | Network campaigns; `STAGE32_NETWORK_CERTIFICATION.md` | **Paused** at S1-P5 by the owner, see [Step 3 notes](#step-3-notes-interim); F1 and F2 open |
+| 3 | Network campaigns; `STAGE32_NETWORK_CERTIFICATION.md` | **Paused** at S1-P5 by the owner, see [Step 3 notes](#step-3-notes-interim). F1: fix in a separate PR; F2: documented limit; harness echo fixed; P5 payloads calibrated. Resumes when the owner says |
 | 4 | Time campaigns; `STAGE32_TIME_CERTIFICATION.md` | |
 | 5 | KNOWN_LIMITATIONS and STATUS updated to what ran | |
 
@@ -329,3 +329,79 @@ server on B's address, no Werewolf; diagnostic, not certification):
 
 Also observed, not a finding by itself: under P2 the Fang's completed
 transfers took about twice as long as raw TCP's.
+
+### Diagnoses (2026-10-27)
+
+Packet captures on A's link and loopback, with the same sandbox, profiles
+and seeds (diagnostic, not certification). Evidence:
+`target/stage32-chaos/results/20261027T165530Z-network/diagnostics/`.
+
+- **F1.** A's SYN was lost and resent after 1 s; then A's 6-byte TLS
+  ChangeCipherSpec was lost, and its retransmission, held back by the
+  3 s minimum retransmission timeout that follows a lost SYN, came too
+  late. A's own TLS had completed (under TLS 1.3 the initiator finishes
+  first), so A was waiting for B's challenge. B closed the connection
+  exactly 5.0 s after accepting it: the receiver bounds TLS accept, the
+  challenge and the OPEN read by 5 s from TCP accept (`hs::READ_WINDOW`).
+  Raw TCP has no such bound and recovered. With static neighbour entries
+  the result was the same, so ARP is not the cause.
+- **F2, two causes.** (1) A harness defect: the `targets.py` echo closes
+  a connection after 10 s without data, and some campaign P3 resets were
+  that target ending a stalled transfer. (2) With an echo that has no
+  idle timeout, two of three P3 runs still reset, each 60 s after A's data
+  last advanced (11.96 s → 72.17 s; 35.9 s → about 103 s): the
+  encrypted-TCP `TCP_USER_TIMEOUT` of 60 s, the dead-peer bound. Under
+  burst loss, retransmission backoff can leave data unacknowledged that
+  long; raw kernel TCP keeps retrying for about 15 minutes.
+
+### Owner decisions (2026-10-27, second)
+
+- **F1: a robustness defect. Fix:** one setup retry from the initiator,
+  TCP/TLS only, up to the first byte of the receiver's challenge; for the
+  direct encrypted-TCP Fang and the encrypted-TCP leg of failover. The
+  receiver's 5 s defence is unchanged. (Separate PR.)
+- **F2: a documented architectural limit.** `TCP_USER_TIMEOUT` stays
+  60 s; no product change. An encrypted-TCP session whose data stays
+  unacknowledged for 60 s ends.
+- **Harness: defect confirmed.** The data-carrying surfaces (S1–S4, S6)
+  use `chaos_echo.py`, an echo with no idle timeout; S5 and S7 keep
+  `targets.py` (no stalled data). The S1-P3 certification runs above are
+  **EXCLUDED** (harness-affected).
+- **P5: a spec and workload issue.** The S1-P5 evidence above is
+  retained; S1–S3 under P5 are rerun with a calibrated workload (below).
+
+### P5 calibration
+
+The P5 payload for S1–S3 is the largest power-of-two MiB that raw kernel
+TCP (no Werewolf) completes, full duplex, within half the 120 s bound for
+all three of the cell's seeds (5010, 5020, 5030), on the same path: A to
+B with the A–R link impaired (S1, S2) and A to Y with the A–R and Y–R
+links impaired (S3, as the routed path crosses both). The harness probes
+how much each seed echoes in 60 s, takes the largest power of two under
+the least, and confirms it, halving until all three complete
+(`chaos.py calibrate`). The bound stays 120 s.
+
+**Calibration run** (`20261027T203757Z-calibrate`, harness as in this PR;
+raw TCP, so no Werewolf build is involved):
+
+| Path | Probe: echoed in 60 s (5010, 5020, 5030) | Confirmed | Payload |
+|---|---|---|---|
+| S1, S2 (A–B) | 6.09 MB, 2.92 MB, 2.43 MB | 2 MiB: 44.5 s, 39.8 s, 36.9 s | **2 MiB** |
+| S3 (A–Y) | 16 MiB in 38.0 s and 44.7 s; 10.9 MB | 8 MiB: 23.9 s, 52.4 s, 32.2 s | **8 MiB** |
+
+Observed, not explained: the two-link path moved more than the one-link
+path under the same profile. The rule takes each path as measured.
+
+### F1 fix, validation (diagnostic)
+
+200 sequential 1 KiB sessions through one encrypted-TCP Fang under P2
+(seed 2030), three batches per build, with A's link captured:
+
+| Build | Failed sessions | Of which | B's 5 s window expired |
+|---|---|---|---|
+| Before the fix (`266171be…cd7d`) | 6 of 600 | 3 first sessions at about 3.05 s, with no TCP packet captured (consistent with A's neighbour resolution failing under loss; not diagnosed further); 3 at about 6 s | 3, all before the challenge |
+| With the fix (separate PR) | 1 of 600 | 1 at 6.03 s | 4: 3 before the challenge, each retried once and completed; 1 after the challenge, when A's OPEN was lost, which the fix does not retry |
+
+The remaining failure is outside the retry boundary the owner set: the
+receiver's 5 s window also bounds the OPEN read, and an OPEN lost after
+the challenge ends the session.
