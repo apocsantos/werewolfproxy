@@ -305,6 +305,23 @@ Every sampled run is also checked for a `rejected` status from a real
 peer, which would show a responder refusing it (for example its token
 bucket). DYING is covered by unit tests and the death gate.
 
+```bash
+python3 -B tests/integration/chaos.py dry-run [--keep-temp]
+```
+
+`chaos.py` (Stage32, [spec](../../docs/STAGE32_ROBUSTNESS_SPEC.md)) builds the
+featureless release certification build into `target/stage32-chaos`, then
+runs everything inside an unprivileged sandbox (`unshare -rmnp`: user,
+mount, network and PID namespaces; no root). Inside, a private root
+(read-only binds of the system directories, `chroot`) lets the Den check
+run unchanged, and one network namespace per node is joined through a
+router namespace, with seeded netem on the impaired link. Nothing in the
+sandbox can see or reach the host's other processes or network; ending the
+sandbox ends everything in it. `dry-run` runs S1 (encrypted TCP, 32 MiB
+full duplex) under P0 and P2, three seeded runs each, and judges them by
+the spec's section 4. The network and time campaigns are added in steps 3
+and 4.
+
 ## Stage 1 execution results — 2026-09-07
 
 Executed against checkout `63691aade2aa165b16864a80272f2a55eadcee00` with its

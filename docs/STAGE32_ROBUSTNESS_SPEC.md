@@ -1,10 +1,8 @@
 # Stage32 robustness and chaos certification — campaign spec
 
-**Status: draft for review.** No campaign has run. This implements the
-accepted decisions of the [Stage32 survey](STAGE32_ROBUSTNESS_SURVEY.md#decisions-accepted-2026-10-27)
-(1a, 2a, 3a, 5a, 6a, 7a) and puts the PASS criteria (survey section 4) and
-defect handling (survey section 8), which were not ruled on separately,
-up for approval here with exact numbers.
+**Status: approved 2026-10-27 (X1–X5 as recommended, with the owner's
+edits); step 2 (harness and dry run) done, see
+[Step 2 notes](#step-2-notes).**
 
 Stage32 changes no product behaviour. It adds a lab harness and
 certification records; any defect it finds is fixed separately (section 7).
@@ -220,6 +218,8 @@ A scenario passes only if all 3 of its runs pass.
 
 ## Spec decisions
 
+All five approved by the owner on 2026-10-27.
+
 - **X1. The outer bounds** of section 4 item 2: 10 × P0 or 120 s; P9
   900 s; opens 20 s. Recommended as written.
 - **X2. The leak margins:** fds + 4, threads + 2, RSS + 32 MiB after a
@@ -237,8 +237,51 @@ A scenario passes only if all 3 of its runs pass.
 
 | Step | Scope | State |
 |---|---|---|
-| 1 | This spec | |
-| 2 | Harness: sandbox, topology, netem and faketime control, sampling; dry run of P0 and P2 on S1 | |
+| 1 | This spec | Done |
+| 2 | Harness: sandbox, topology, netem and faketime control, sampling; dry run of P0 and P2 on S1 | Done (faketime control: step 4) |
 | 3 | Network campaigns; `STAGE32_NETWORK_CERTIFICATION.md` | |
 | 4 | Time campaigns; `STAGE32_TIME_CERTIFICATION.md` | |
 | 5 | KNOWN_LIMITATIONS and STATUS updated to what ran | |
+
+## Step 2 notes
+
+The harness is `tests/integration/chaos.py`, with the transfer client
+`tests/integration/chaos_client.py`. The dry run (S1, encrypted TCP direct,
+32 MiB full duplex, the A–R link impaired on both ends) ran on the
+certification build (`werewolfd` `266171be…cd7d`, no features), kernel
+6.12.111, iproute2 6.15.0:
+
+- **The sandbox:** the private root and `/work` are owned by the
+  sandbox's root (uid 0), and writes to `/usr`, `/etc` and `/bins` fail
+  as read-only. The daemons ran with the Den check unchanged.
+
+| Profile | Run (seed) | Result | Time | Detail |
+|---|---|---|---|---|
+| P0 | 1 (10) | PASS | 1.31 s | 32 MiB both ways, hashes match |
+| P0 | 2 (20) | PASS | 1.23 s | as above |
+| P0 | 3 (30) | PASS | 1.30 s | as above |
+| P2 | 1 (2010) | PASS | 82.9 s | hashes match (bound 120 s) |
+| P2 | 2 (2020) | PASS | 59.7 s | hashes match |
+| P2 | 3 (2030) | PASS | 8.07 s | **reset by the connection** after 1.9 MB sent, nothing echoed: a clean early end within the bound, which section 4 counts as PASS |
+
+After every run and the 35 s settle, both daemons had 16 file
+descriptors (baseline 16), 5 threads (baseline 6) and at most about
+1 MiB more resident memory than at baseline.
+
+- **Seeds reproduce runs.** P2 run 3 (seed 2030) ended the same way, at
+  the same 8.07 s, in two separate dry runs.
+- **Open question for step 3, not yet diagnosed:** why that connection
+  was reset. The client no longer has any deadline but the outer bound,
+  so the reset came from the Fang's side. One hypothesis, not a finding:
+  the Fang's encrypted connection to `B` failed to establish, because
+  TCP's retransmission backoff under 10% loss outlasted the 5 s handshake
+  read window (`READ_WINDOW`). S4 (establishment under P2) is the
+  campaign that measures this; the record will state the cause only if it
+  is shown.
+- **A harness defect, found and fixed before any evidence was kept.** In
+  the first dry run, the client's receive loop set a 5 s timeout on the
+  socket, which in Python also applied to the sender thread's `sendall`;
+  under loss the send timed out and that run (P2, seed 2030) was judged
+  PASS on the client's own error. The client is now a single
+  non-blocking loop whose only deadline is the outer bound. That first
+  dry run is not evidence and is not recorded above.
