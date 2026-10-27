@@ -12,7 +12,7 @@
 //! provider fails, or the window ends, the local connection is reset.
 
 use super::relay::{self, Routed};
-use super::tcp_encrypted::{client_handshake, connect_authenticated_tcp, secure_copy_client_side};
+use super::tcp_encrypted::{connect_tcp_session, secure_copy_client_side};
 use crate::{
     handshake as hs,
     policy::{select_peer_transport, ExpectedPeerIdentity},
@@ -232,14 +232,9 @@ async fn attempt(
     let provider = &ready.provider;
     match (&provider.path, ready.endpoint.as_ref()) {
         (Path::Tcp(address), _) => {
-            let mut outbound = connect_authenticated_tcp(address, &provider.expected).await?;
-            let key = client_handshake(
-                &mut outbound,
-                &provider.remote,
-                identity,
-                &provider.expected,
-            )
-            .await?;
+            let (outbound, key) =
+                connect_tcp_session(address, &provider.remote, identity, &provider.expected)
+                    .await?;
             let _ = established.send(());
             secure_copy_client_side(inbound, outbound, key).await
         }
