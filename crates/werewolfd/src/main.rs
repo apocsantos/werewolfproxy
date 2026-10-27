@@ -1,6 +1,7 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("secure local control currently requires Linux");
 mod admission;
+mod auto_sync;
 mod control;
 mod discovery;
 mod fang_registry;

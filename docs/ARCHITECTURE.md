@@ -1327,7 +1327,10 @@ Normal operations should include:
 - policy-controlled updates;
 - peer revocation;
 - Silver activation;
-- controlled lifecycle changes.
+- controlled lifecycle changes;
+- governance propagation (Stage31: an active, admitted node fetches the
+  statements its Pack members have applied; the ceremony stays manual, and
+  death still travels only as a file).
 
 None should require a central root login.
 

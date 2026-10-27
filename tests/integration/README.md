@@ -279,6 +279,32 @@ is on it, unmounts, and counts occurrences of the Pelt secret and a Pack key
 in the raw image. Counts are reported as a measurement of that filesystem,
 never as erasure.
 
+```bash
+python3 -B tests/integration/auto_sync_gate.py [--keep-temp]
+```
+
+`auto_sync_gate.py` (Stage31 step 1) uses the same `lab-faults` build, which
+lets it set exact automatic-sync delays (first run 300 ms after a node
+becomes eligible, then every 1.5 s). Five disposable daemons: A, B, C and D
+admitted; U not, at first. A UDP sink stands in for one Pack member of B
+(`wolf-trap`, its key admitted) and counts the datagrams B sends it.
+
+| Assertion | Required evidence |
+|---|---|
+| Ceremony stays manual | Admission applied by file on A only; after three intervals B, C and D are still at sequence 0, and every node reports `not_activated` with no run |
+| Runs after activation | Activation applied by file everywhere: A, B, C and D each start a run on their own (`nothing_new`); U reports `unadmitted` and has no run |
+| Revocation propagates | D revoked by file on A only: B and C reach sequence 3 with no command; B's automatic apply reports `revoked_members: ["wolf-d"]` and `closed_fangs: 1`, and B's Fang to D is gone; B's and C's archive entry 3 is byte-identical to the file; D's own runs are `rejected` by every former peer, it stays at sequence 2, and the file makes it `unadmitted` |
+| Unadmitted node starts | U's Admission by file (with the revocation before it): U runs on its own, `nothing_new` from `wolf-a`; B and C pull the Admission |
+| Switch at the responder's side | With the switch on, the sink receives datagrams; `auto-sync off`, then a restart of every daemon: B reports `switched_off`, and the sink receives none over three intervals plus a lookup budget |
+| Operator first | While B's run is resolving (held by the sink), `governance sync --peer wolf-a` succeeds at once and B's run ends `cancelled` |
+| Silver | Silver on C: `silver`, `ineligible`; Silver off: a new run follows |
+| Fork | A and C apply different valid statements by file (C and B switched off first); B switched on: its run ends `fork`, B is forked and `ineligible`, and it does not run again |
+| Applied once | B's and C's logs show each automatic apply (sequences 3 and 4) exactly once |
+
+Every sampled run is also checked for a `rejected` status from a real
+peer, which would show a responder refusing it (for example its token
+bucket). DYING is covered by unit tests and the death gate.
+
 ## Stage 1 execution results — 2026-09-07
 
 Executed against checkout `63691aade2aa165b16864a80272f2a55eadcee00` with its

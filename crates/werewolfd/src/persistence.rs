@@ -117,6 +117,12 @@ pub(super) fn load_startup_state(
         Some(data) => crate::discovery::operator::parse_cache(&data, crate::discovery::unix_now()),
     };
 
+    // Stage31: absent means on; anything but the canonical bytes fails the
+    // start closed.
+    initial_state.auto_sync.enabled = match den.read(OsStr::new(crate::auto_sync::FILE), 64)? {
+        None => true,
+        Some(data) => crate::auto_sync::parse(&data)?,
+    };
     if let Some(data) = den.read(OsStr::new("pelt.json"), 4096)? {
         let data = Zeroizing::new(data);
         let pelt = serde_json::from_slice(&data).map_err(|_| invalid())?;
@@ -238,6 +244,18 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn the_auto_sync_switch_loads_strictly_and_defaults_on() {
+        let fixture = Fixture::new();
+        assert!(fixture.startup().auto_sync.enabled);
+        fixture.write(crate::auto_sync::FILE, br#"{"version":1,"enabled":false}"#);
+        assert!(!fixture.startup().auto_sync.enabled);
+        fixture.write(crate::auto_sync::FILE, br#"{"version":1,"enabled":true}"#);
+        assert!(fixture.startup().auto_sync.enabled);
+        fixture.write(crate::auto_sync::FILE, br#"{"enabled":false}"#);
+        assert!(load_startup_state(&fixture.1, &mut DaemonState::default()).is_err());
     }
 
     #[test]

@@ -49,6 +49,7 @@ pub(super) fn handles(command: &str) -> bool {
             | "governance.apply"
             | "governance.sync_apply"
             | "den.retire"
+            | "governance.auto_sync"
             | "route.set"
             | "route.remove"
             | "discover.advertise"
@@ -267,6 +268,26 @@ pub(super) async fn handle(
             Ok(result) => ControlResponse::ok(&req.id, result),
             Err((code, message)) => ControlResponse::err(&req.id, code, message),
         };
+    }
+    if req.cmd == "governance.auto_sync" {
+        // Stage31 section 2: persisted before the runtime switch changes.
+        let enabled = match req.args["state"].as_str() {
+            Some("on") => true,
+            Some("off") => false,
+            _ => return error(&req.id, "AUTO_SYNC_INVALID"),
+        };
+        if durable_bytes(
+            crate::auto_sync::FILE,
+            crate::auto_sync::encode(enabled),
+            &state,
+        )
+        .await
+        .is_err()
+        {
+            return error(&req.id, "AUTO_SYNC_SAVE_FAILED");
+        }
+        state.lock().await.auto_sync.enabled = enabled;
+        return ControlResponse::ok(&req.id, json!({"enabled": enabled, "status": "saved"}));
     }
     if req.cmd == "pelt.init" {
         if state.lock().await.pelt.is_some() {
@@ -2408,6 +2429,19 @@ mod tests {
     /// Stage30: genesis then a death statement on a migrated Den, with a
     /// Pelt. Returns the state after the death reply.
     async fn dead_node(fixture: &Fixture) -> (Arc<Mutex<DaemonState>>, serde_json::Value) {
+        let (state, death) = genesis_node(fixture).await;
+        let reply = apply_statement(&death, None, &state).await.unwrap();
+        (state, reply)
+    }
+
+    /// A migrated Den with a Pelt and a genesis applied, and a valid death
+    /// statement after it (not applied).
+    async fn genesis_node(
+        fixture: &Fixture,
+    ) -> (
+        Arc<Mutex<DaemonState>>,
+        werewolf_core::governance::Statement,
+    ) {
         use ed25519_dalek::SigningKey;
         use werewolf_core::governance::{sign, Body, Core, Statement};
         let state = fixture.state();
@@ -2445,8 +2479,78 @@ mod tests {
             previous: genesis.core.hash(),
             body: Body::Death,
         });
-        let reply = apply_statement(&death, None, &state).await.unwrap();
-        (state, reply)
+        (state, death)
+    }
+
+    /// Stage31 decision 7a: no requester-side weakening. A valid death that
+    /// arrives as a sync result (from any responder, by a manual or an
+    /// automatic run) is applied like any other statement.
+    #[tokio::test]
+    async fn a_valid_death_from_sync_is_applied() {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        let fixture = Fixture::new();
+        let (state, death) = genesis_node(&fixture).await;
+        let reply = crate::control::handle_request(
+            ControlRequest {
+                id: "auto-sync".into(),
+                cmd: "governance.sync_apply".into(),
+                args: json!({
+                    "statements": [STANDARD.encode(death.encode())],
+                    "peers": [],
+                }),
+            },
+            state.clone(),
+            fixture.0.clone(),
+        )
+        .await;
+        let result = reply.result.unwrap();
+        assert_eq!(result["applied"][0]["lifecycle"], "dead");
+        assert_eq!(result["applied"][0]["destruction"], "complete");
+        assert_eq!(den_names(&fixture), vec!["tombstone.json"]);
+        assert!(state.lock().await.terminal_exit_requested);
+    }
+
+    /// Stage31 section 2: the switch is saved before it changes.
+    #[tokio::test]
+    async fn the_auto_sync_switch_is_saved_before_it_changes() {
+        let fixture = Fixture::new();
+        let state = fixture.state();
+        let ask = |state: &str| ControlRequest {
+            id: "1".into(),
+            cmd: "governance.auto_sync".into(),
+            args: json!({"state": state}),
+        };
+        let run = |req| crate::control::handle_request(req, state.clone(), fixture.0.clone());
+        assert_eq!(
+            run(ask("no")).await.error.unwrap().code,
+            "AUTO_SYNC_INVALID"
+        );
+        // A save that cannot commit changes nothing.
+        std::fs::create_dir(fixture.0.join(crate::auto_sync::FILE)).unwrap();
+        assert_eq!(
+            run(ask("off")).await.error.unwrap().code,
+            "AUTO_SYNC_SAVE_FAILED"
+        );
+        assert!(state.lock().await.auto_sync.enabled);
+        assert!(!state.lock().await.storage_degraded);
+        std::fs::remove_dir(fixture.0.join(crate::auto_sync::FILE)).unwrap();
+        // Saved, then changed; turning it back on writes it explicitly.
+        let reply = run(ask("off")).await;
+        assert_eq!(
+            reply.result.unwrap(),
+            json!({"enabled": false, "status": "saved"})
+        );
+        assert_eq!(
+            std::fs::read(fixture.0.join(crate::auto_sync::FILE)).unwrap(),
+            br#"{"version":1,"enabled":false}"#
+        );
+        assert!(!state.lock().await.auto_sync.enabled);
+        run(ask("on")).await;
+        assert_eq!(
+            std::fs::read(fixture.0.join(crate::auto_sync::FILE)).unwrap(),
+            br#"{"version":1,"enabled":true}"#
+        );
+        assert!(state.lock().await.auto_sync.enabled);
     }
 
     fn den_names(fixture: &Fixture) -> Vec<String> {
@@ -2540,6 +2644,7 @@ mod tests {
             "governance.apply",
             "silver.reset",
             "den.retire",
+            "governance.auto_sync",
         ] {
             let response =
                 crate::control::handle_request(ask(cmd), state.clone(), fixture.0.clone()).await;

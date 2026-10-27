@@ -13,6 +13,12 @@ the private seed/key. Pelt is not automatically rotated and is not TOFU. Its
 public identity is pinned as the exact SPKI for TLS receiver authentication.
 Pelt is intentionally outside the Stage15B protected consistency group.
 
+Stage31 adds `auto_sync.json`, the automatic-sync switch, as independent Den
+state outside the protected group (spec decision S1): exactly
+`{"version":1,"enabled":true|false}`, absent meaning enabled, anything else
+failing startup closed. It grants nothing; it only decides whether this node
+fetches governance statements on its own.
+
 ## Protected generation
 
 The Stage15B group is Pack, Silver, target policy, Fang profiles, and active

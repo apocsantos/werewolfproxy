@@ -64,16 +64,19 @@ follows.
   revocation only. Applying a genesis to a node is irreversible: nothing
   removes governance from a node, a node joins exactly one governance
   network, and a network-revoked key can never be re-added there. Statements
-  are delivered by an operator (no gossip), so a node that is not given a
-  revocation keeps trusting the member. A fork fences governance with no
+  are delivered by an operator, and after activation also fetched
+  automatically from Pack members (Stage31, pull only, no gossip); a node
+  that receives neither keeps trusting a revoked member. A fork fences governance with no
   tooling to resolve it. Governance requires a manifest-enabled Den; OS root
   on a host still controls that host's node. Stage29 adds admission and
   activation: after activation the roster bounds every node's Pack, which
   stops one compromised host from widening trust on any other host, but
   not root on that host from rewriting its own Den. `governance sync`
-  fetches statements from Pack peers on operator command only; nothing
-  propagates automatically, and an unadmitted node still receives its
-  admission as a file.
+  fetches statements from Pack peers, on operator command and (Stage31)
+  automatically on active, admitted nodes; the ceremony stays manual, an
+  unadmitted node still receives its admission as a file, and a revoked
+  node cannot learn its own revocation by sync (its former peers refuse
+  it), so it receives that as a file too.
 - **Death and retirement (Stage30).** On death or retirement, Werewolf
   commits the decision, locks the node, destroys the node's identity key
   first and then every file in the Den, overwriting each regular file it
