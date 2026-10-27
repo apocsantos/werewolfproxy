@@ -49,12 +49,21 @@ Every campaign runs inside one sandbox, created without root:
   (node end) and `s + 1` (router end). A campaign impairs the A–R link,
   the R–B link, or for routed Fangs the A–R and R–Y links, as the matrix
   says.
-- **The build:** `cargo build --release --locked --offline --workspace
-  --bins --features werewolfd/lab-faults --target-dir target/stage32-chaos`.
-  Release, so timing is realistic; `lab-faults` only so the control-plane
-  campaign can shorten the Stage31 delays (decision X4). Provenance as in
-  the other gates, plus `uname -r`, the `iproute2` and `libfaketime`
-  versions.
+- **Two builds, each with its own provenance** (*owner edit*):
+  - **the certification build:** `cargo build --release --locked
+    --offline --workspace --bins --target-dir target/stage32-chaos`, with
+    no features. Every run uses it except the one below, so what is
+    certified is the release binary;
+  - **the lab build:** the same with `--features werewolfd/lab-faults`
+    and `--target-dir target/stage32-chaos-lab`, used **only** for the
+    Stage31 automatic-sync item of S5, so it can set exact delays
+    (decision X4).
+
+  Each build writes its own provenance file: commit, `git status`,
+  features, `rustc` and `cargo` versions, and the SHA-256 of `werewolfd`
+  and `werewolfctl`. The host part is recorded once per campaign:
+  `uname -r`, the `iproute2` and `libfaketime` versions. Every run records
+  which build it used, and the records keep the two apart.
 
 ## 2. Network campaigns (decision 2a)
 
@@ -97,7 +106,9 @@ intended.
 | S5 | P0, P2, P3, P5, P8 |
 | S6, S7 | P0, P2, P3 |
 
-Each cell runs 3 times (decision 5a): 168 runs.
+47 cells (30 for S1–S3, 6 for S4, 5 for S5, 6 for S6 and S7), each run
+3 times (decision 5a): 141 runs. (*Corrected by the owner:* the draft
+said 168.)
 
 ## 3. Time campaigns (decision 3a)
 
@@ -152,8 +163,13 @@ counted as PASS (owner rule).
    times and S4 success counts are recorded, not asserted (decision X3).
 3. **No downgrade.** No S7 selection, and no Fang under any profile, uses
    plain TCP. Any is FAIL.
-4. **Fences hold.** After Silver or revoke, the established session ends
-   within 10 s (`CLEANUP_WINDOW` 5 s + 5 s), and a new open is refused.
+4. **Fences hold, measured locally at `B`** (*owner edit*). Timed on
+   `B`'s monotonic clock from the moment the Silver or revoke command
+   returns on `B`: within 10 s (`CLEANUP_WINDOW` 5 s + 5 s), `B`'s
+   inbound authority reports no active session and `B`'s side of the
+   session (its target connection) is closed. A new open from `A` is then
+   refused, within the 20 s open bound. When `A` sees the session end
+   travels over the impaired link, so it is recorded, not asserted.
 5. **No crash, no leak.** No daemon exits or panics. After each run and
    a 35 s settle (past the 30 s QUIC idle timeout), each daemon's open
    file descriptors are at most baseline + 4, threads at most baseline
@@ -172,7 +188,8 @@ A scenario passes only if all 3 of its runs pass.
 - Seeds: run `n` (1–3) of profile `Pk` uses `s = 1000·k + 10·n` on the
   node end and `s + 1` on the router end. netem's `seed` is set on every
   qdisc and recorded.
-- Every run records: the exact `tc` and `faketime` commands, provenance,
+- Every run records: the exact `tc` and `faketime` commands, the build
+  it used and that build's provenance,
   per-transfer bytes, hashes and times, the per-daemon fd/thread/RSS
   samples, and the result with its reason. Logs and the sandbox tree are
   kept for every FAIL or EXCLUDED run.
@@ -210,9 +227,10 @@ A scenario passes only if all 3 of its runs pass.
 - **X3. S4 success counts recorded, not asserted.** Under 10% loss or
   corruption some opens may fail cleanly; what is asserted is no hang, no
   wrong bytes and no crash. Recommended.
-- **X4. A release build with `lab-faults`,** so S5 can use exact Stage31
-  delays; the feature only reads lab environment variables.
-  Recommended.
+- **X4. A separate lab build with `lab-faults`, for the S5
+  automatic-sync item only,** so it can use exact Stage31 delays; the
+  feature only reads lab environment variables. Every other run uses the
+  certification build without features (section 1). Recommended.
 - **X5. Sections 4 and 7** as the PASS and defect rules. Recommended.
 
 ## Implementation (after approval)
