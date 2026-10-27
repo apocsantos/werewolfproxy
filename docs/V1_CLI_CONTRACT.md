@@ -380,8 +380,40 @@ Refusals:
 - after a fork (`GOVERNANCE_FORKED`);
 - while another discovery runs (`DISCOVER_BUSY`).
 
-It is manual only; nothing syncs automatically. The disposable gate
-`tests/integration/sync_gate.py` exercises it.
+The disposable gate `tests/integration/sync_gate.py` exercises it.
+
+- governance auto-sync on|off
+
+Stage31 ([survey](STAGE31_AUTO_SYNC_SURVEY.md),
+[spec](STAGE31_AUTO_SYNC_SPEC.md)) runs the same sync automatically on an
+**eligible** node: one with a Pelt and its listeners configured, on an
+active network (not dead, not forked) that admits it, with the switch on,
+no Silver, not dying and storage not degraded. During the ceremony, before
+any genesis and on an unadmitted node, sync stays manual and an Admission
+arrives by file. An eligible node runs once 5–30 s after it becomes
+eligible (start-up, its activation or Admission, the switch turned on,
+Silver cleared), then every 7.5–22.5 minutes on the monotonic clock, one run
+at a time; a run that finds another discovery running is skipped until the
+next interval. Every statement kind applies exactly as above; a fork fences
+the node and stops it. A valid death that any peer serves is applied like
+any other statement, although a node that applied one cannot serve it.
+
+`discover refresh`, `discover find` and `governance sync` cancel an
+automatic run that is still asking its peers (read-only RPCs) and proceed;
+once a run has started applying, it is never cancelled.
+
+`auto-sync on|off` saves the switch in the Den (`auto_sync.json`) before it
+takes effect, so it survives restarts; the default is on. It fails with
+`AUTO_SYNC_SAVE_FAILED` if the file cannot be saved (and while dying, with
+`LIFECYCLE_DYING`). `governance status` adds `auto_sync`: `enabled`,
+`eligible`, `ineligible_reason` (`no_pelt`, `not_ready`, `no_genesis`,
+`not_activated`, `dead`, `forked`, `unadmitted`, `switched_off`, `silver`,
+`dying`, `storage_degraded`), `phase` (`ineligible`, `waiting`, `resolving`,
+`applying`), `next_due_in_secs` and `last_run` (`started_secs_ago`,
+`outcome`: `applied`, `nothing_new`, `stopped`, `fork`, `skipped_busy` or
+`cancelled`, with `applied`, `peers` and any `stopped` code). Only the switch
+is persisted. The disposable gate `tests/integration/auto_sync_gate.py`
+exercises this contract.
 
 Stage30 ([survey](STAGE30_LIFECYCLE_SURVEY.md),
 [spec](STAGE30_LIFECYCLE_SPEC.md)), step 1 (offline only):

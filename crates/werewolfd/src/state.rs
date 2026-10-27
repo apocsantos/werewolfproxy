@@ -117,6 +117,9 @@ pub(super) struct DaemonState {
     /// once its reply is written (or after a short grace).
     pub(super) terminal_exit_requested: bool,
     pub(super) terminal_exit: std::sync::Arc<tokio::sync::Notify>,
+    /// Stage31 automatic sync: the switch (persisted) and the scheduler's
+    /// runtime state.
+    pub(super) auto_sync: crate::auto_sync::Runtime,
 }
 
 impl DaemonState {

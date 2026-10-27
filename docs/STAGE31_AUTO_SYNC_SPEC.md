@@ -1,6 +1,9 @@
 # Stage31 automatic governance sync — behaviour spec
 
-**Status: draft for review.** No code exists yet. This implements the
+**Status: approved 2026-10-27 (S1–S5 as recommended; see
+[Spec decisions](#spec-decisions)); step 1 implemented, see
+[Implementation](#implementation-after-approval).** Corrections found while
+implementing are marked *Corrected in step 1*. This implements the
 accepted decisions of the [Stage31 survey](STAGE31_AUTO_SYNC_SURVEY.md#decisions-accepted-2026-10-26)
 (1a, 3a, 6a and 7a as corrected by the owner; 2a, 4a, 5a, 8a and 9). It
 changes when the Stage29 `governance sync` runs, and nothing about what it
@@ -39,7 +42,10 @@ stays manual and the Admission arrives by file (decision 1a, corrected).
 ## 2. The switch
 
 - **Command:** `werewolfctl governance auto-sync on|off`, control command
-  `governance.auto_sync` with `{"enabled": true|false}`. A mutation: it
+  `governance.auto_sync` with `{"state": "on"|"off"}` (*corrected in step
+  1:* every control argument is a string, so the draft's boolean
+  `{"enabled": …}` could not pass the control parser; anything else is
+  `AUTO_SYNC_INVALID`). A mutation: it
   goes through mutation admission, is refused while DYING, and is allowed
   in every other state (including before a genesis), so an operator can
   turn it off before the node ever becomes eligible.
@@ -69,8 +75,9 @@ security-state manifest instead.
 
 ## 3. The schedule
 
-One scheduler task per daemon, started with the other owned tasks and
-stopped by `shutdown_owned_tasks` and by the terminal transition. All
+One scheduler task per daemon, owned by the control server and stopped
+with it (by `shutdown_owned_tasks`, which the terminal transition also
+reaches); stopping it aborts a resolving run. All
 times use the monotonic clock (`tokio::time::Instant`); wall-clock shifts
 never move a deadline.
 
@@ -92,8 +99,9 @@ never move a deadline.
   every committed mutation, after Silver changes and after the switch
   changes, so these all count: start-up of an eligible node; applying the
   activation on an admitted node; applying the node's own Admission on an
-  active chain; the switch turned on; Silver cleared; storage recovering
-  from degraded.
+  active chain; the switch turned on; Silver cleared. (*Corrected in step
+  1:* degraded storage never recovers in a running daemon, only at the
+  next start, which is a start-up transition.)
 - **No overlap:** one scheduler, one run at a time. A run never queues
   behind another discovery; if the lock is busy it is skipped.
 - A run that ends with the node no longer eligible (for example it applied
@@ -101,8 +109,14 @@ never move a deadline.
 
 ## 4. Operator precedence (decision 6a, corrected)
 
-- The operator commands that take the discovery lock are `discover find`,
-  `discover services` and `governance sync`.
+- The operator commands that take the discovery lock are `discover
+  refresh`, `discover find` and `governance sync` (*corrected in step 1:*
+  the draft listed `discover services`, which takes no lock, and missed
+  `discover refresh`).
+- Such a command first tries the lock; only if it is held by an automatic
+  run that is resolving does it cancel that run, and it then waits at most
+  2 s for the lock. A lock held by anything else is `DISCOVER_BUSY`, as
+  before.
 - If an automatic run is **resolving**, such a command cancels it and then
   takes the lock: the run's network task is aborted and its guard dropped.
   Resolving only sends read-only RPCs and changes no state on either side,
@@ -164,8 +178,11 @@ manual one. Nothing in this spec filters statement kinds.
 - All of it is runtime only; only the switch is persisted.
 - `status` (the general command) is unchanged; its schema is pinned by the
   JSON schema gate.
-- Logs: one line per run outcome other than `nothing_new`, and one line
-  per applied statement with its sequence and hash, marked automatic.
+- Logs: one line per run outcome other than `nothing_new`
+  (`[GOVERNANCE][AUTO_SYNC]`), and one line per applied statement
+  (`[GOVERNANCE][AUTO_SYNC_APPLIED]` followed by its apply result as JSON:
+  sequence, hash and effects such as `revoked_members` and
+  `closed_fangs`).
 
 ## 7. Lab timing
 
@@ -190,6 +207,7 @@ their share.
 
 | Code | When |
 |---|---|
+| `AUTO_SYNC_INVALID` | the switch command without `state` `on` or `off` |
 | `AUTO_SYNC_SAVE_FAILED` | the switch could not be saved (section 2) |
 | `LIFECYCLE_DYING` | the switch command while DYING (existing refusal) |
 
@@ -240,6 +258,8 @@ receiving node.
 
 ## Spec decisions
 
+All five approved by the owner on 2026-10-27 as recommended.
+
 - **S1. Where the switch lives.** Recommended: independent Den state
   (`auto_sync.json`). The switch grants no authority and only changes when
   a statement arrives, never whether it applies; every statement still
@@ -262,5 +282,38 @@ receiving node.
 
 | Step | Scope | State |
 |---|---|---|
-| 1 | Daemon: the switch and its file, the scheduler, operator precedence, status, logs; unit tests; lab gate `auto_sync_gate.py` | |
+| 1 | Daemon: the switch and its file, the scheduler, operator precedence, status, logs; unit tests; lab gate `auto_sync_gate.py` | Done |
 | 2 | Real-host check on disposable daemons only | |
+
+Step 1 notes:
+
+- **Where the tests stand against section 11.**
+  - The scheduler tests run on the real clock with short fixed delays (a
+    test-only override), not a paused clock: `tokio`'s `test-util` feature
+    is not enabled, and adding a dev-dependency only for this was not
+    worth it. The delay bounds have their own test. "A wall-clock change
+    moves nothing" holds by construction: every deadline is a
+    `tokio::time::Instant`, which never reads the wall clock; it is not
+    tested separately.
+  - The 7a death test drives `governance.sync_apply`, the requester's only
+    entry point for sync results, with a valid death; no responder double
+    exists for the `governance` RPC, and the RPC layer does not look at
+    statement kinds.
+  - DYING is not exercised in the lab gate (it lasts one terminal
+    transition); the unit tests cover it as an ineligibility and as a
+    refusal of the switch command.
+  - "The responder's side" in the gate is a UDP sink standing in for a
+    Pack member (`wolf-trap`, its key admitted): it counts the QUIC
+    datagrams the node sends to it. Because the sink never answers, a run
+    that includes it stays resolving for the 7 s lookup budget, which is
+    also how the gate catches a run resolving for the operator check.
+- **A revoked node cannot learn its own revocation by sync (finding).**
+  Its former peers applied the revocation, which removed it from their
+  Packs, so they refuse its requests (`rejected`). It keeps its last head
+  and stays eligible as far as it knows, running and being refused, until
+  its operator applies the revocation file (it then becomes unadmitted and
+  stops) or turns the switch off. This is the Stage29 behaviour of manual
+  sync as well; the gate checks it.
+- **The control parser accepts only string arguments**, which is why the
+  switch is `{"state": "on"|"off"}`; a parser test now pins it, since the
+  unit test that calls the handler directly could not catch it.

@@ -12,6 +12,7 @@ use werewolf_core::{
     state::WolfMode,
 };
 
+mod auto_sync;
 mod limits;
 mod mutation;
 mod socket;
@@ -45,6 +46,14 @@ pub(super) async fn serve_until_shutdown(
     let clients = Arc::new(Semaphore::new(limits::CLIENTS));
     let mutations = Arc::new(limits::Mutations::default());
     let mutation_tasks: MutationTasks = Arc::new(Mutex::new(JoinSet::new()));
+    // Stage31: the automatic sync scheduler shares mutation admission with
+    // the clients and stops with this server.
+    let scheduler = tokio::spawn(auto_sync::run(
+        state.clone(),
+        home.clone(),
+        mutations.clone(),
+        mutation_tasks.clone(),
+    ));
     let mut tasks = JoinSet::new();
     let result = loop {
         if let Ok(mut owned) = mutation_tasks.try_lock() {
@@ -89,6 +98,8 @@ pub(super) async fn serve_until_shutdown(
             .await;
         });
     };
+    scheduler.abort();
+    let _ = scheduler.await;
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
     let mut owned_mutations = mutation_tasks.lock().await;
@@ -141,7 +152,7 @@ async fn handle_control_client(
         // `governance sync` asks peers first, outside mutation admission,
         // then applies through the internal `governance.sync_apply`.
         let req = if req.cmd == "governance.sync" {
-            match crate::discovery::operator::resolve_sync(req, &state).await {
+            match crate::discovery::operator::resolve_sync(req, &state, true).await {
                 Ok(apply) => apply,
                 Err(response) => {
                     limits::write_response(&mut writer, &response, end).await?;
@@ -221,6 +232,21 @@ pub(crate) async fn dying_refusal(
 }
 
 async fn handle_request(
+    req: ControlRequest,
+    state: Arc<Mutex<DaemonState>>,
+    home: PathBuf,
+) -> ControlResponse {
+    let mutates = limits::mutates(&req.cmd);
+    let response = dispatch_request(req, state.clone(), home).await;
+    // Stage31: eligibility for automatic sync changes only through a
+    // mutation (Silver included); the scheduler re-evaluates it after each.
+    if mutates {
+        state.lock().await.auto_sync.poke.notify_one();
+    }
+    response
+}
+
+async fn dispatch_request(
     req: ControlRequest,
     state: Arc<Mutex<DaemonState>>,
     home: PathBuf,
@@ -335,7 +361,11 @@ async fn handle_request(
             match &st.governance {
                 None => ControlResponse::ok(
                     req.id,
-                    json!({"genesis": false, "lifecycle": crate::terminal::lifecycle(&st)}),
+                    json!({
+                        "genesis": false,
+                        "lifecycle": crate::terminal::lifecycle(&st),
+                        "auto_sync": crate::auto_sync::status(&st),
+                    }),
                 ),
                 Some(head) => {
                     use base64::{engine::general_purpose::STANDARD, Engine};
@@ -356,6 +386,7 @@ async fn handle_request(
                             "admitted": !crate::governance::unadmitted(&st),
                             "dead_at": head.dead_at,
                             "lifecycle": crate::terminal::lifecycle(&st),
+                            "auto_sync": crate::auto_sync::status(&st),
                         }),
                     )
                 }

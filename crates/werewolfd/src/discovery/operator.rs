@@ -190,8 +190,8 @@ async fn network(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> Control
     } else {
         None
     };
-    let (identity, peers, routes, guard) = {
-        let st = state.lock().await;
+    let (identity, peers, routes, guard, lock, preempted) = {
+        let mut st = state.lock().await;
         if matches!(st.status.mode, WolfMode::Silver) {
             return ControlResponse::err(
                 req.id,
@@ -209,10 +209,19 @@ async fn network(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> Control
         let Some(identity) = st.pelt.clone() else {
             return ControlResponse::err(req.id, "NO_PELT", "No local Pelt identity exists");
         };
-        let Ok(guard) = st.discovery.clone().try_lock_owned() else {
-            return ControlResponse::err(req.id, "DISCOVER_BUSY", "another discovery is running");
-        };
-        (identity, st.peers.clone(), st.routes.clone(), guard)
+        let guard = st.discovery.clone().try_lock_owned().ok();
+        let preempted = guard.is_none() && st.auto_sync.preempt();
+        (
+            identity,
+            st.peers.clone(),
+            st.routes.clone(),
+            guard,
+            st.discovery.clone(),
+            preempted,
+        )
+    };
+    let Some(guard) = take_discovery(guard, lock, preempted).await else {
+        return ControlResponse::err(req.id, "DISCOVER_BUSY", "another discovery is running");
     };
 
     let seeds: Vec<Seed> = peers
@@ -246,6 +255,27 @@ async fn network(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> Control
             .collect::<Vec<_>>());
     }
     ControlResponse::ok(req.id, result)
+}
+
+/// How long an operator discovery waits for a cancelled automatic run to
+/// release the discovery lock.
+const PREEMPT_WAIT: Duration = Duration::from_secs(2);
+
+/// Stage31 section 4: an operator discovery that found the lock held by an
+/// automatic run still resolving has cancelled that run; it waits briefly
+/// for the lock. Otherwise a held lock is `DISCOVER_BUSY`, as before.
+async fn take_discovery(
+    guard: Option<tokio::sync::OwnedMutexGuard<()>>,
+    lock: Arc<Mutex<()>>,
+    preempted: bool,
+) -> Option<tokio::sync::OwnedMutexGuard<()>> {
+    match guard {
+        Some(guard) => Some(guard),
+        None if preempted => tokio::time::timeout(PREEMPT_WAIT, lock.lock_owned())
+            .await
+            .ok(),
+        None => None,
+    }
 }
 
 fn transport_arg(req: &ControlRequest) -> Result<&'static str, ControlResponse> {
@@ -370,6 +400,7 @@ async fn services(req: ControlRequest, state: Arc<Mutex<DaemonState>>) -> Contro
 pub(crate) async fn resolve_sync(
     req: ControlRequest,
     state: &Arc<Mutex<DaemonState>>,
+    operator: bool,
 ) -> Result<ControlRequest, ControlResponse> {
     if let Some(refusal) = crate::control::dying_refusal(&req, state).await {
         return Err(refusal);
@@ -377,8 +408,8 @@ pub(crate) async fn resolve_sync(
     use werewolf_core::governance::{self, Outcome, Statement};
     const ROUNDS: usize = 16;
     let transport = transport_arg(&req)?;
-    let (identity, peers, routes, head, guard) = {
-        let st = state.lock().await;
+    let (identity, peers, routes, head, guard, lock, preempted) = {
+        let mut st = state.lock().await;
         if matches!(st.status.mode, WolfMode::Silver) {
             return Err(ControlResponse::err(
                 &req.id,
@@ -407,14 +438,26 @@ pub(crate) async fn resolve_sync(
                 "governance is fenced after a fork",
             ));
         }
-        let Ok(guard) = st.discovery.clone().try_lock_owned() else {
-            return Err(ControlResponse::err(
-                &req.id,
-                "DISCOVER_BUSY",
-                "another discovery is running",
-            ));
-        };
-        (identity, st.peers.clone(), st.routes.clone(), head, guard)
+        // An automatic run (Stage31) never cancels anything; an operator
+        // sync cancels an automatic run that is still resolving.
+        let guard = st.discovery.clone().try_lock_owned().ok();
+        let preempted = operator && guard.is_none() && st.auto_sync.preempt();
+        (
+            identity,
+            st.peers.clone(),
+            st.routes.clone(),
+            head,
+            guard,
+            st.discovery.clone(),
+            preempted,
+        )
+    };
+    let Some(guard) = take_discovery(guard, lock, preempted).await else {
+        return Err(ControlResponse::err(
+            &req.id,
+            "DISCOVER_BUSY",
+            "another discovery is running",
+        ));
     };
     let only = req.args["peer"].as_str().unwrap_or("").trim().to_owned();
     if !only.is_empty() && !peers.iter().any(|peer| peer.name == only) {

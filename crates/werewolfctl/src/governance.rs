@@ -27,6 +27,12 @@ pub(crate) enum GovernanceCommands {
         #[arg(long, default_value = "quic", value_parser = ["quic", "tcp"])]
         transport: String,
     },
+    /// Stage31: turn automatic sync on or off on this node (sent to the
+    /// daemon; saved in the Den, survives restarts).
+    AutoSync {
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
     /// Create one key holder's governance key file (mode 0600).
     Keygen { out: PathBuf },
     /// Create an unsigned statement for the key holders to sign.
@@ -195,6 +201,10 @@ pub(crate) fn run(
             "governance.sync".into(),
             json!({"peer": peer.unwrap_or_default(), "transport": transport}),
         ))),
+        GovernanceCommands::AutoSync { state } => Ok(Some((
+            "governance.auto_sync".into(),
+            json!({"state": state}),
+        ))),
         local => run_local(json_output, local).map(|()| None),
     }
 }
@@ -203,7 +213,8 @@ fn run_local(json_output: bool, command: GovernanceCommands) -> Result<(), CliEr
     match command {
         GovernanceCommands::Apply { .. }
         | GovernanceCommands::Status
-        | GovernanceCommands::Sync { .. } => {
+        | GovernanceCommands::Sync { .. }
+        | GovernanceCommands::AutoSync { .. } => {
             unreachable!("daemon commands")
         }
         GovernanceCommands::Keygen { out } => {

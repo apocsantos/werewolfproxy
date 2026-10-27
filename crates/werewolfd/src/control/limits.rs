@@ -186,6 +186,7 @@ pub(super) fn parse(line: &[u8]) -> io::Result<ControlRequest> {
         "governance.apply" => &["statement", "expect_hash"],
         "governance.sync" => &["peer", "transport"],
         "den.retire" => &["confirm"],
+        "governance.auto_sync" => &["state"],
         "route.remove" => &["peer"],
         "pack.remove"
         | "pack.revoke"
@@ -309,6 +310,7 @@ pub(super) fn mutates(cmd: &str) -> bool {
             | "governance.apply"
             | "governance.sync_apply"
             | "den.retire"
+            | "governance.auto_sync"
             | "route.set"
             | "route.remove"
             | "discover.advertise"
@@ -470,6 +472,20 @@ mod tests {
         .is_ok());
         assert!(parse(br#"{"id":"1","cmd":"governance.sync","args":{"statements":"x"}}"#).is_err());
         assert!(!mutates("governance.sync") && mutates("governance.sync_apply"));
+        // Stage31 switch: one string argument, like every control argument.
+        for state in ["on", "off"] {
+            let good = format!(
+                r#"{{"id":"1","cmd":"governance.auto_sync","args":{{"state":"{state}"}}}}"#
+            );
+            assert!(parse(good.as_bytes()).is_ok());
+        }
+        for bad in [
+            &br#"{"id":"1","cmd":"governance.auto_sync","args":{"state":false}}"#[..],
+            br#"{"id":"1","cmd":"governance.auto_sync","args":{"enabled":"off"}}"#,
+        ] {
+            assert!(parse(bad).is_err());
+        }
+        assert!(mutates("governance.auto_sync"));
     }
 
     #[test]

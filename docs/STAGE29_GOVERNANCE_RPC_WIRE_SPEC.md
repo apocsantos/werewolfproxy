@@ -200,7 +200,9 @@ any point.
 - **G4. Manual sync only.** Wire protocol, archive semantics, fork
   detection and manual convergence come first; automatic sync would make
   governance propagation a permanent property of the system rather than a
-  deliberate action, and stays a follow-up.
+  deliberate action, and stays a follow-up. *Superseded for active,
+  admitted nodes by [Stage31](STAGE31_AUTO_SYNC_SPEC.md); manual sync is
+  unchanged.*
 
 ## Implementation
 
