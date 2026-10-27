@@ -57,6 +57,8 @@ mod receiver_auth_tests;
 #[cfg(test)]
 mod session_end_tests;
 #[cfg(test)]
+mod setup_retry_tests;
+#[cfg(test)]
 mod stream_client_tests;
 
 #[cfg(test)]
@@ -313,9 +315,107 @@ async fn pipe_one_fang_connection(
     identity: PeltIdentity,
     expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> io::Result<()> {
-    let mut outbound = connect_authenticated_tcp(peer_addr, &expected_peer).await?;
-    let key = client_handshake(&mut outbound, remote, &identity, &expected_peer).await?;
+    let (outbound, key) = connect_tcp_session(peer_addr, remote, &identity, &expected_peer).await?;
     secure_copy_client_side(inbound, outbound, key).await
+}
+
+/// An initiator's encrypted-TCP session: TCP, pinned TLS and the client
+/// handshake, with at most one retry of the setup (Stage32 F1).
+///
+/// Only a failure before the first byte of the receiver's challenge is
+/// retried: TCP connect, TLS at the transport level (timeout, reset or
+/// close; never a TLS alert or a pinning failure), or a receiver that closed
+/// before it spoke. Under TLS 1.3 this initiator's TLS completes before the
+/// receiver's does, and the challenge is the first sign that the receiver's
+/// own TLS accept completed. Until then this initiator has sent no Werewolf
+/// handshake message and nothing has been read from the local application,
+/// so the retry is a fresh, independent session: new TCP, new TLS, new
+/// challenge. The receiver, its TLS-accept window and every handshake
+/// message are unchanged.
+pub(crate) async fn connect_tcp_session(
+    peer_addr: &str,
+    remote: &str,
+    identity: &PeltIdentity,
+    expected_peer: &crate::policy::ExpectedPeerIdentity,
+) -> io::Result<(ClientTlsStream<TcpStream>, Zeroizing<[u8; 32]>)> {
+    match tcp_session_attempt(peer_addr, remote, identity, expected_peer).await {
+        Err(Setup::Retry(_)) => tcp_session_attempt(peer_addr, remote, identity, expected_peer)
+            .await
+            .map_err(Setup::into_error),
+        result => result.map_err(Setup::into_error),
+    }
+}
+
+/// How one session attempt failed: before the receiver's challenge began
+/// (may be retried once) or not.
+enum Setup {
+    Retry(io::Error),
+    Final(io::Error),
+}
+
+impl Setup {
+    fn into_error(self) -> io::Error {
+        match self {
+            Self::Retry(error) | Self::Final(error) => error,
+        }
+    }
+}
+
+async fn tcp_session_attempt(
+    peer_addr: &str,
+    remote: &str,
+    identity: &PeltIdentity,
+    expected_peer: &crate::policy::ExpectedPeerIdentity,
+) -> Result<(ClientTlsStream<TcpStream>, Zeroizing<[u8; 32]>), Setup> {
+    let connector = selected_peer_connector(expected_peer).map_err(Setup::Final)?;
+    let stream = open_tcp(peer_addr).await.map_err(Setup::Retry)?;
+    let server_ip = stream.peer_addr().map_err(Setup::Retry)?.ip();
+    let mut outbound = tokio::time::timeout(
+        hs::READ_WINDOW,
+        connector.connect(ServerName::from(server_ip), stream),
+    )
+    .await
+    .map_err(|_| Setup::Retry(hs::rejected()))?
+    // tokio-rustls reports TLS errors (alerts, a certificate that fails the
+    // pin) as InvalidData; anything else is the transport.
+    .map_err(|error| match error.kind() {
+        io::ErrorKind::InvalidData => Setup::Final(hs::rejected()),
+        _ => Setup::Retry(hs::rejected()),
+    })?;
+    let mut challenge_bytes = 0;
+    match client_handshake_counted(
+        &mut outbound,
+        remote,
+        identity,
+        expected_peer,
+        &mut challenge_bytes,
+    )
+    .await
+    {
+        Ok(key) => Ok((outbound, key)),
+        Err(error) if challenge_bytes == 0 => Err(Setup::Retry(error)),
+        Err(error) => Err(Setup::Final(error)),
+    }
+}
+
+/// Counts the bytes read through it, so that a failed challenge read can
+/// tell whether the receiver had begun its challenge.
+struct CountingReader<'a, S> {
+    inner: &'a mut S,
+    count: &'a mut usize,
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for CountingReader<'_, S> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        let before = buf.filled().len();
+        let result = std::pin::Pin::new(&mut *self.inner).poll_read(cx, buf);
+        *self.count += buf.filled().len() - before;
+        result
+    }
 }
 
 /// The client side of the encrypted-TCP handshake (challenge, signed OPEN,
@@ -331,10 +431,28 @@ pub(crate) async fn client_handshake<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    client_handshake_counted(outbound, remote, identity, expected_peer, &mut 0).await
+}
+
+/// `client_handshake`, also reporting in `challenge_bytes` how many bytes
+/// of the receiver's challenge arrived.
+async fn client_handshake_counted<S>(
+    outbound: &mut S,
+    remote: &str,
+    identity: &PeltIdentity,
+    expected_peer: &crate::policy::ExpectedPeerIdentity,
+    challenge_bytes: &mut usize,
+) -> io::Result<Zeroizing<[u8; 32]>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let deadline = tokio::time::Instant::now() + hs::CLIENT_WINDOW;
     tokio::time::timeout_at(deadline, async {
         let challenge: hs::TcpChallenge = hs::read(
-            outbound,
+            &mut CountingReader {
+                inner: &mut *outbound,
+                count: challenge_bytes,
+            },
             hs::CHALLENGE_LIMIT,
             (tokio::time::Instant::now() + hs::READ_WINDOW).min(deadline),
         )
@@ -367,12 +485,18 @@ pub(crate) async fn connect_authenticated_tcp(
     // socket. Historical fingerprint-only Pack entries therefore fail closed
     // without sending transport or application bytes.
     let connector = selected_peer_connector(expected_peer)?;
+    let stream = open_tcp(peer_addr).await?;
+    let server_ip = stream.peer_addr()?.ip();
+    tls_connect(&connector, stream, server_ip).await
+}
+
+/// The initiator's TCP connection, with the session liveness settings.
+async fn open_tcp(peer_addr: &str) -> io::Result<TcpStream> {
     let stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(peer_addr))
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "tcp connect timeout"))??;
     configure_liveness(&stream)?;
-    let server_ip = stream.peer_addr()?.ip();
-    tls_connect(&connector, stream, server_ip).await
+    Ok(stream)
 }
 
 /// TLS pinned to the selected peer over an existing byte stream instead of
