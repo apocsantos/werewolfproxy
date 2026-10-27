@@ -3,7 +3,7 @@
 **Status: decisions accepted 2026-10-27 (1a, 2a, 3a, 5a, 6a, 7a as
 recommended; see [Decisions](#decisions-accepted-2026-10-27)).** Docs only.
 The PASS criteria (section 4) and defect handling (section 8) were not
-ruled on separately; they go into the spec for review with the exact
+ruled on separately; they go into the [spec](STAGE32_ROBUSTNESS_SPEC.md) for review with the exact
 matrix, bounds and margins, as in Stage30 and Stage31.
 
 This is the next item on the owner's order (after Stage31, before the CLI
