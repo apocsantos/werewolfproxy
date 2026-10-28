@@ -42,6 +42,15 @@ fn configure_liveness(stream: &TcpStream) -> io::Result<()> {
     socket.set_tcp_user_timeout(Some(TCP_USER_TIMEOUT))
 }
 
+/// Both ends of an encrypted-TCP session (Stage32 F4): no Nagle delay, then
+/// the liveness settings. Handshake messages are small writes; with Nagle a
+/// write waits for the ACK of the previous one, one round trip each, and on
+/// a slow path that time comes out of the receiver's 5 s setup window.
+fn configure_session_socket(stream: &TcpStream) -> io::Result<()> {
+    stream.set_nodelay(true)?;
+    configure_liveness(stream)
+}
+
 #[cfg(test)]
 mod authority_tests;
 #[cfg(test)]
@@ -112,7 +121,7 @@ pub(crate) async fn run_fang_listener_with_ready(
             Some(_) = tasks.join_next(), if !tasks.is_empty() => continue,
             accepted = listener.accept() => accepted?,
         };
-        if authority.is_locked() || configure_liveness(&stream).is_err() {
+        if authority.is_locked() || configure_session_socket(&stream).is_err() {
             continue;
         }
         let started = tokio::time::Instant::now();
@@ -495,7 +504,7 @@ async fn open_tcp(peer_addr: &str) -> io::Result<TcpStream> {
     let stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(peer_addr))
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "tcp connect timeout"))??;
-    configure_liveness(&stream)?;
+    configure_session_socket(&stream)?;
     Ok(stream)
 }
 
