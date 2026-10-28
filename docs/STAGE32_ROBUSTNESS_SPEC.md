@@ -525,3 +525,15 @@ the outcome depends on netem state the seed does not fix.
   failures above (QUIC hop at 5.0 s, TCP outer hop at 10.4 s, both
   before any data) are retained as observations.
 - No product change from S3-P3. The campaign resumes from S3-P4.
+
+### S3-P4 (2026-10-28)
+
+Resumed from S3-P4 (`20261028T163021Z-network`), harness verdict FAIL:
+16 MiB through Y, 50 ± 20 ms jitter on the A–R and Y–R links. The TCP hop
+completed all three runs (25.4 s, 27.9 s, 41.4 s; 406–661 kB/s; hashes
+match). The QUIC hop reached the 120 s bound on all three, still
+progressing (7.1–8.5 MB echoed, 59–71 kB/s), no reset. The F3 pattern on
+a path that crosses two jittered links.
+
+**Owner decision: EXCLUDED under F3** (QUIC throughput under reordering,
+documented limit). The campaign resumes from S3-P5.
