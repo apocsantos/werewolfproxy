@@ -63,6 +63,13 @@ LEAK = {'fds': 4, 'threads': 2, 'rss_kib': 32 * 1024}
 KIB = 1 << 10
 MIB = 1 << 20
 OPEN_BOUND_S = 20
+# Owner rule (2026-10-28, spec "S3-P5"): a routed QUIC-hop leg under a jitter
+# or reordering profile that reaches the outer bound while still making
+# forward progress, with every echoed byte correct and nothing else failing
+# in the run, is EXCLUDED under F3. Forward progress: an echoed byte within
+# the last PROGRESS_WINDOW_S before the bound.
+F3_PROFILES = ('P4', 'P5', 'P6')
+PROGRESS_WINDOW_S = 10
 FENCE_BOUND_S = 10
 # S1-S3 payloads (spec section 2): direct (S1, S2) and routed (S3). P9's are
 # set by its rate. The others here are calibrated against raw TCP on the
@@ -471,11 +478,22 @@ def judge_transfer(transfer, profile, reasons, label=''):
         return 'EXCLUDED'
     if transfer.get('complete') and not transfer.get('match'):
         reasons.append(f'{label}integrity: SHA-256 mismatch')
+    if transfer.get('echo_in_order') is False:
+        reasons.append(f'{label}integrity: echoed bytes differ from the data sent')
     if transfer.get('error') == 'outer bound exceeded':
         reasons.append(f'{label}liveness: outer bound exceeded')
     if profile == 'P0' and not transfer.get('complete'):
         reasons.append(f'{label}baseline transfer did not complete: {transfer.get("error")}')
     return None
+
+
+def f3_progress(surface, profile, mode, transfer, bound):
+    """Whether a leg's only fault falls under the owner's F3 rule."""
+    return (surface == 'S3' and mode == 'quic' and profile in F3_PROFILES
+            and transfer.get('error') == 'outer bound exceeded'
+            and transfer.get('received', 0) > 0 and transfer.get('echo_in_order') is True
+            and transfer.get('last_echo_s') is not None
+            and transfer['last_echo_s'] >= bound - PROGRESS_WINDOW_S)
 
 
 def judge_leaks(box, baselines, reasons):
@@ -559,7 +577,7 @@ def transfers(box, surface, profile, p0):
                         for i, link in enumerate(links)}
         bound = bound_for(profile, surface, p0)
         run['outer_bound_s'] = bound
-        reasons, excluded, run['legs'] = [], None, []
+        reasons, excluded, run['legs'], f3 = [], None, [], []
         for label, mode in legs:
             if routed:
                 box.ctl('a', 'route.set', {'peer': 'wolf-b', 'via': 'wolf-y', 'hop': mode})
@@ -569,14 +587,24 @@ def transfers(box, surface, profile, p0):
                                   bound)
             box.close_fangs('a')
             run['legs'].append({'leg': label, 'fang': fang, 'transfer': transfer})
+            leg_reasons = []
             excluded = excluded or (transfer['error'] if judge_transfer(
-                transfer, profile, reasons, f'{label}: ') else None)
+                transfer, profile, leg_reasons, f'{label}: ') else None)
+            if leg_reasons == [f'{label}: liveness: outer bound exceeded'] and f3_progress(
+                    surface, profile, mode, transfer, bound):
+                f3.append(f'{label}: F3: outer bound reached while progressing '
+                          f'({transfer["received"]} of {size} B, last echo at '
+                          f'{transfer["last_echo_s"]} s)')
+            else:
+                reasons.extend(leg_reasons)
             if profile == 'P0' and transfer.get('complete'):
                 times.append(transfer['elapsed_s'])
         for link in links:
             box.clear(link)
         time.sleep(SETTLE_S)
         run['after_settle'] = judge_leaks(box, baselines, reasons)
+        if f3 and not reasons and not excluded:
+            excluded = '; '.join(f3)
         runs.append(finish(run, excluded, reasons))
         log(f'  {run["result"]:8} run {n}: ' + ', '.join(
             f'{leg["leg"]} {leg["transfer"].get("elapsed_s")} s '
