@@ -16,3 +16,30 @@ async fn liveness_enables_kernel_keepalive_and_user_timeout() {
     assert_eq!(socket.tcp_keepalive_retries().unwrap(), KEEPALIVE_RETRIES);
     assert_eq!(socket.tcp_user_timeout().unwrap(), Some(TCP_USER_TIMEOUT));
 }
+
+#[tokio::test]
+async fn session_socket_disables_nagle_and_keeps_liveness() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let stream = TcpStream::connect(listener.local_addr().unwrap())
+        .await
+        .unwrap();
+    assert!(!stream.nodelay().unwrap());
+
+    configure_session_socket(&stream).unwrap();
+
+    assert!(stream.nodelay().unwrap());
+    let socket = socket2::SockRef::from(&stream);
+    assert!(socket.keepalive().unwrap());
+    assert_eq!(socket.tcp_user_timeout().unwrap(), Some(TCP_USER_TIMEOUT));
+}
+
+#[tokio::test]
+async fn initiator_socket_disables_nagle() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+
+    let stream = open_tcp(&listener.local_addr().unwrap().to_string())
+        .await
+        .unwrap();
+
+    assert!(stream.nodelay().unwrap());
+}
