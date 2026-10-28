@@ -488,6 +488,7 @@ async fn rpc_quic<T>(
         })?;
     let deadline = Instant::now() + hs::CLIENT_WINDOW;
     let result = timeout_at(deadline, async {
+        crate::quic_fang::handshake_confirmed(&connection).await?;
         let binding = hs::quic_binding(&connection)?;
         let (mut send, mut recv) = connection.open_bi().await.map_err(|_| hs::rejected())?;
         let rpc = hs::QuicRpc::new(identity, &expected.fingerprint, request, &binding)?;
