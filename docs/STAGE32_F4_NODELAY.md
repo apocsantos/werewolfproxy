@@ -57,8 +57,8 @@ nothing echoed), with this change in place. The capture shows Y never
 connected to B: the A–Y QUIC handshake completed, A sent what is most
 likely the OPEN and received ACKs, and Y closed the connection about 5 s
 after its handshake, matching Y's own window (`transport/quic.rs`,
-accept-stream deadline or OPEN read). The cause is undiagnosed; it is
-followed up separately.
+accept-stream deadline or OPEN read). Diagnosed and fixed as F5
+(`docs/STAGE32_F5_QUIC_CONFIRM.md`).
 
 Certification evidence is the Stage32 network campaign, rerun on a build
 with this change when the owner resumes it.
