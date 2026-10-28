@@ -408,3 +408,132 @@ path under the same profile. The rule takes each path as measured.
 The remaining failure is outside the retry boundary the owner set: the
 receiver's 5 s window also bounds the OPEN read, and an OPEN lost after
 the challenge ends the session.
+
+### Campaign resumed (2026-10-27/28)
+
+Resumed on `main` at `5a45ed9` (with the F1 fix, #81), certification
+build rebuilt; results `20261027T231811Z-network`. S1-P0, P1, P2 and P4
+kept from the first run (owner decision); S1-P3 and S1-P5 rerun.
+
+| Cell | Result |
+|---|---|
+| S1-P3 | PASS: all three runs clean early ends, reset after 79.9 s, 90.9 s and 67.6 s (F2, documented limit) |
+| S1-P5 | PASS: 2 MiB (calibrated), 38.8 s, 69.9 s, 69.6 s, hashes match |
+| S1-P6 to S1-P9 | PASS |
+| S2-P0 to S2-P2 | PASS |
+| S2-P3 | PASS: all three runs clean early ends, QUIC reset after 51.0 s, 56.1 s and 33.8 s |
+| S2-P4 | harness verdict FAIL: all three runs at the 120 s bound, still progressing (19.4–19.7 MB echoed of 32 MiB), daemons alive, no leaks. **F3**, reclassified by the owner (below) |
+
+### F3: QUIC throughput under jitter (diagnosis)
+
+Diagnostic only, on a separate build of `5a45ed9` with quinn statistics
+and environment-set loss thresholds and windows (never shipped; patch
+and hash with the evidence in
+`20261027T231811Z-network/diagnostics/f3/`). 8 MiB transfers, seed 4010,
+the A–R link impaired on both ends. Every transfer's hashes matched.
+
+| Netem | QUIC | Encrypted TCP |
+|---|---|---|
+| 50 ms delay | 622 kB/s | 4448 kB/s |
+| 50 ± 20 ms jitter, kept in order | 474 kB/s | 825 kB/s |
+| 50 ± 20 ms jitter, reordered (P4) | 162 kB/s | 433 kB/s |
+
+- **Reordering is read as loss.** P4 drops nothing (netem drops 0, no
+  UDP errors, 1240 UDP sends from A and 1239 received at B), yet quinn
+  declared 349 of 6778 packets lost on A and 415 on B, with 73–80
+  congestion events, keeping the congestion window at 10–23 KB (124–350
+  KB, no losses, without reordering). A's path MTU also fell from 1452
+  to 1200 after a probe was wrongly declared lost. Turning off quinn's
+  packet-count loss detection and widening its time threshold to 2 and
+  4 RTT raised P4 throughput to about 196–245 and 290 kB/s; about 200
+  losses were still declared at 4 RTT, a residue not explained.
+- **A 64 KiB per-stream window.** B's QUIC stream receive window
+  (`transport/quic.rs`, the resource bound) caps a stream at 64 KiB per
+  round trip: QUIC throughput × RTT stayed at about 62 KB at 20, 50 and
+  100 ms RTT. Wider windows brought QUIC to TCP's rate under pure delay
+  (4707 kB/s at 50 ms) and changed nothing under P4.
+
+### Owner decisions (2026-10-28)
+
+- **S2-P4 (1a):** a documented limit, QUIC throughput under reordering
+  is about a third of encrypted TCP's (spurious loss detection, no data
+  lost). S2-P4 is **EXCLUDED**; the campaign resumes from S2-P5.
+- **Loss detection (2a):** no change.
+- **Stream window (3a):** documented: about 620 kB/s per QUIC stream at
+  100 ms RTT, the cost of the 64 KiB memory bound.
+- **Residual losses (4a):** the investigation is closed; the cause of
+  the losses still declared at a 4 RTT threshold is recorded as
+  unexplained.
+
+### S2-P5 to S3-P3 (2026-10-28)
+
+Resumed from S2-P5 (results `20261028T141135Z-network`): S2-P5 to S2-P9,
+S3-P0 and S3-P1 PASS.
+
+**S3-P2**, harness verdict FAIL (`20261028T141135Z-network`): 16 MiB
+through Y, 10% loss on the A–R and Y–R links. The QUIC hop completed two
+runs (100.4 s, 78.2 s; hashes match) and reached the bound on the third
+(8.3 MB echoed); the TCP hop reached the bound on all three (4.1–5.7 MB
+echoed). No reset, no mismatch. A raw-TCP control on the same links and
+seeds (diagnostic, `diagnostics/s3_raw_control.py`): through a plain TCP
+relay on Y, 6.6–8.9 MB echoed in 120 s; direct A to B, complete in
+13.6–18.9 s. 16 MiB in 120 s is not attainable on the relayed path.
+**Owner decision: EXCLUDED, an invalid workload; evidence retained; rerun
+with a payload calibrated on the relayed path, for S3 P2, P3 and P5.**
+
+### S3 calibration
+
+The calibration rule (above) on the S3 path as it is carried: raw TCP
+from A through a plain TCP relay on Y (`chaos_relay.py`, two TCP legs as
+the TCP hop has) to an echo on B, the A–R and Y–R links impaired, with
+each cell's own seeds. **Owner decision (S3-P3): the rule takes
+power-of-two KiB, not only MiB.** This replaces the single-connection
+measurement of the routed P5 payload (8 MiB).
+
+| Profile | Run | Probe: echoed in 60 s | Confirmed | Payload |
+|---|---|---|---|---|
+| P2 | `20261028T145605Z-calibrate` | 3.5–4.8 MB | 2 MiB failed on 2030; 1 MiB in 24.1–26.5 s | **1 MiB** |
+| P5 | `20261028T145605Z-calibrate` | 4.1–4.3 MB | 2 MiB in 36.9–56.1 s | **2 MiB** |
+| P3 | `20261028T145605Z-calibrate` | 87–144 KB | none (under 1 MiB, MiB rule) | none |
+| P3 | `20261028T152342Z-calibrate` (KiB) | 47–87 KB | 32 KiB in 0.001–3.1 s | **32 KiB** |
+
+The two P3 probes differ by about 2× on the same seeds: under burst loss
+the outcome depends on netem state the seed does not fix.
+
+**S3-P2 rerun** (1 MiB, `20261028T151149Z-network`): PASS; QUIC hop
+3.4–7.6 s, TCP hop 23.6–43.3 s, hashes match.
+
+**S3-P3** (32 KiB, `20261028T152738Z-network`), harness verdict FAIL:
+
+| Seed | QUIC hop | TCP hop |
+|---|---|---|
+| 3010 | reset at 56.6 s, 14 KB echoed | at the 120 s bound, 25.2 KB echoed, connected |
+| 3020 | reset at 5.0 s, nothing echoed (setup) | complete, 33.2 s, hashes match |
+| 3030 | complete, 3.1 s, hashes match | reset at 10.4 s, nothing echoed (setup) |
+
+### Owner decisions (2026-10-28, P3)
+
+- **P3 transfer availability is a documented limit; S1-P3, S2-P3 and
+  S3-P3 are EXCLUDED.** Under burst loss, transfers do not reliably
+  complete on any transport: sessions end early or crawl. No data was
+  corrupted in any run.
+- **F2** remains the encrypted-TCP evidence of the 60 s liveness policy
+  (`TCP_USER_TIMEOUT`).
+- **QUIC under P3** remains consistent with the 30 s idle-timeout policy.
+- **F4 is not opened.**
+- **Routed setup retry: unchanged** (F1's scope). The two routed setup
+  failures above (QUIC hop at 5.0 s, TCP outer hop at 10.4 s, both
+  before any data) are retained as observations.
+- No product change from S3-P3. The campaign resumes from S3-P4.
+
+### S3-P4 (2026-10-28)
+
+Resumed from S3-P4 (`20261028T163021Z-network`), harness verdict FAIL:
+16 MiB through Y, 50 ± 20 ms jitter on the A–R and Y–R links. The TCP hop
+completed all three runs (25.4 s, 27.9 s, 41.4 s; 406–661 kB/s; hashes
+match). The QUIC hop reached the 120 s bound on all three, still
+progressing (7.1–8.5 MB echoed, 59–71 kB/s), no reset. The F3 pattern on
+a path that crosses two jittered links.
+
+**Owner decision: EXCLUDED under F3** (QUIC throughput under reordering,
+documented limit). The campaign resumes from S3-P5.
