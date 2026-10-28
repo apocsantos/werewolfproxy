@@ -60,6 +60,7 @@ MATRIX = [('S1', ALL), ('S2', ALL), ('S3', ALL),
           ('S5', ['P0', 'P2', 'P3', 'P5', 'P8']),
           ('S6', ['P0', 'P2', 'P3']), ('S7', ['P0', 'P2', 'P3'])]
 LEAK = {'fds': 4, 'threads': 2, 'rss_kib': 32 * 1024}
+KIB = 1 << 10
 MIB = 1 << 20
 OPEN_BOUND_S = 20
 FENCE_BOUND_S = 10
@@ -67,13 +68,12 @@ FENCE_BOUND_S = 10
 # set by its rate. The others here are calibrated against raw TCP on the
 # same path (spec, "P5 calibration" and "S3 calibration"): direct P5 in
 # calibrate run 20261027T203757Z; routed P2, P3 and P5 on the relayed path
-# in calibrate run 20261028T145605Z. None means not calibrated: P3's routed
-# path moved under 1 MiB in 60 s, which the rule cannot express.
+# in calibrate run 20261028T145605Z, routed P3 (in KiB) in 20261028T152342Z.
 PAYLOAD = {'direct': 32 * MIB, 'routed': 16 * MIB}
 PAYLOAD_BY_PROFILE = {'P9': {'direct': 4 * MIB, 'routed': 2 * MIB},
                       'P5': {'direct': 2 * MIB, 'routed': 2 * MIB},
                       'P2': {'routed': 1 * MIB},
-                      'P3': {'routed': None}}
+                      'P3': {'routed': 32 * KIB}}
 # The paths `calibrate` measures for each profile.
 CALIBRATION_PATHS = {'P2': ('routed',), 'P3': ('routed',), 'P5': ('routed',)}
 LAB_ENV = {'WEREWOLF_LAB_AUTO_SYNC_FIRST_MS': '300', 'WEREWOLF_LAB_AUTO_SYNC_INTERVAL_MS': '1500'}
@@ -122,10 +122,10 @@ def host_facts():
 def cells(campaign, only, start, explicit=None):
     if campaign == 'dry-run':
         return [('S1', 'P0'), ('S1', 'P2')]
-    if campaign == 'calibrate':
-        return [('CAL', p) for p in CALIBRATION_PATHS]
     if explicit:
         return [tuple(c.split(':')) for c in explicit.split(',')]
+    if campaign == 'calibrate':
+        return [('CAL', p) for p in CALIBRATION_PATHS]
     chosen = [(s, p) for s, profiles in MATRIX for p in profiles
               if not only or s in only]
     if start:
@@ -916,9 +916,10 @@ def calibration(box, profile, p0):
     kernel TCP, no Werewolf, with the cell's seeds, on the S1/S2 path (A to
     B, the A-R link impaired) or the S3 path (A through a plain TCP relay on
     Y to B, the A-R and Y-R links impaired: two TCP legs, as the TCP hop).
-    The payload is the largest power-of-two MiB that all three seeds
-    complete within half the 120 s bound: probe how much each seed echoes
-    in that time, then confirm the candidate, halving until all complete."""
+    The payload is the largest power-of-two KiB that all three seeds
+    complete within half the 120 s bound (owner: KiB, not only MiB, since
+    S3-P3): probe how much each seed echoes in that time, then confirm the
+    candidate, halving until all complete."""
     half = 120 / 2
     box.build_network(('a', 'b', 'y'))
     b = f'{NODES["b"]}.2'
@@ -951,20 +952,20 @@ def calibration(box, profile, p0):
 
         probe = batch(PAYLOAD[kind], 'probe')
         least = min(r['received'] for r in probe)
-        size = MIB
+        size = KIB
         while size * 2 <= least:
             size *= 2
-        require(least >= MIB, f'{kind}: under 1 MiB echoed within {half:.0f} s')
+        require(least >= KIB, f'{kind}: under 1 KiB echoed within {half:.0f} s')
         confirmations = []
         while True:
             confirm = batch(size, 'confirm')
             confirmations += confirm
-            if all(r['complete'] and r['match'] for r in confirm) or size == MIB:
+            if all(r['complete'] and r['match'] for r in confirm) or size == KIB:
                 break
             size //= 2
         chosen = size if all(r['complete'] and r['match'] for r in confirm) else None
         runs.append({'path': kind, 'result': 'PASS' if chosen else 'EXCLUDED',
-                     'reason': None if chosen else f'{kind}: 1 MiB not confirmed',
+                     'reason': None if chosen else f'{kind}: 1 KiB not confirmed',
                      'payload_bytes': chosen, 'probe': probe, 'confirm': confirmations})
         log(f'  {kind}: payload {chosen} B')
     return {'runs': runs}
