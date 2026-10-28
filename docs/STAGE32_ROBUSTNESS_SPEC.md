@@ -408,3 +408,59 @@ path under the same profile. The rule takes each path as measured.
 The remaining failure is outside the retry boundary the owner set: the
 receiver's 5 s window also bounds the OPEN read, and an OPEN lost after
 the challenge ends the session.
+
+### Campaign resumed (2026-10-27/28)
+
+Resumed on `main` at `5a45ed9` (with the F1 fix, #81), certification
+build rebuilt; results `20261027T231811Z-network`. S1-P0, P1, P2 and P4
+kept from the first run (owner decision); S1-P3 and S1-P5 rerun.
+
+| Cell | Result |
+|---|---|
+| S1-P3 | PASS: all three runs clean early ends, reset after 79.9 s, 90.9 s and 67.6 s (F2, documented limit) |
+| S1-P5 | PASS: 2 MiB (calibrated), 38.8 s, 69.9 s, 69.6 s, hashes match |
+| S1-P6 to S1-P9 | PASS |
+| S2-P0 to S2-P2 | PASS |
+| S2-P3 | PASS: all three runs clean early ends, QUIC reset after 51.0 s, 56.1 s and 33.8 s |
+| S2-P4 | harness verdict FAIL: all three runs at the 120 s bound, still progressing (19.4–19.7 MB echoed of 32 MiB), daemons alive, no leaks. **F3**, reclassified by the owner (below) |
+
+### F3: QUIC throughput under jitter (diagnosis)
+
+Diagnostic only, on a separate build of `5a45ed9` with quinn statistics
+and environment-set loss thresholds and windows (never shipped; patch
+and hash with the evidence in
+`20261027T231811Z-network/diagnostics/f3/`). 8 MiB transfers, seed 4010,
+the A–R link impaired on both ends. Every transfer's hashes matched.
+
+| Netem | QUIC | Encrypted TCP |
+|---|---|---|
+| 50 ms delay | 622 kB/s | 4448 kB/s |
+| 50 ± 20 ms jitter, kept in order | 474 kB/s | 825 kB/s |
+| 50 ± 20 ms jitter, reordered (P4) | 162 kB/s | 433 kB/s |
+
+- **Reordering is read as loss.** P4 drops nothing (netem drops 0, no
+  UDP errors, 1240 UDP sends from A and 1239 received at B), yet quinn
+  declared 349 of 6778 packets lost on A and 415 on B, with 73–80
+  congestion events, keeping the congestion window at 10–23 KB (124–350
+  KB, no losses, without reordering). A's path MTU also fell from 1452
+  to 1200 after a probe was wrongly declared lost. Turning off quinn's
+  packet-count loss detection and widening its time threshold to 2 and
+  4 RTT raised P4 throughput to about 196–245 and 290 kB/s; about 200
+  losses were still declared at 4 RTT, a residue not explained.
+- **A 64 KiB per-stream window.** B's QUIC stream receive window
+  (`transport/quic.rs`, the resource bound) caps a stream at 64 KiB per
+  round trip: QUIC throughput × RTT stayed at about 62 KB at 20, 50 and
+  100 ms RTT. Wider windows brought QUIC to TCP's rate under pure delay
+  (4707 kB/s at 50 ms) and changed nothing under P4.
+
+### Owner decisions (2026-10-28)
+
+- **S2-P4 (1a):** a documented limit, QUIC throughput under reordering
+  is about a third of encrypted TCP's (spurious loss detection, no data
+  lost). S2-P4 is **EXCLUDED**; the campaign resumes from S2-P5.
+- **Loss detection (2a):** no change.
+- **Stream window (3a):** documented: about 620 kB/s per QUIC stream at
+  100 ms RTT, the cost of the 64 KiB memory bound.
+- **Residual losses (4a):** the investigation is closed; the cause of
+  the losses still declared at a 4 RTT threshold is recorded as
+  unexplained.
