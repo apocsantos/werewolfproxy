@@ -735,3 +735,89 @@ async fn clean_upload_after_early_target_half_close_arrives_complete() {
     .await
     .unwrap();
 }
+
+/// Forwards datagrams like `relay`, but holds back the client's long-header
+/// datagrams after its first (they carry its TLS Finished) so the 1-RTT
+/// packets sent after them overtake them, as jitter did on the S3-P5 path
+/// (Stage32 F5).
+async fn reordering_relay(socket: UdpSocket, server: SocketAddr, hold: Duration) {
+    let socket = Arc::new(socket);
+    let mut client = None;
+    let mut first_sent = false;
+    let mut buffer = vec![0; 65_535];
+    loop {
+        let Ok((amount, source)) = socket.recv_from(&mut buffer).await else {
+            break;
+        };
+        let datagram = buffer[..amount].to_vec();
+        if source == server {
+            if let Some(client) = client {
+                let _ = socket.send_to(&datagram, client).await;
+            }
+            continue;
+        }
+        client = Some(source);
+        let long_header = datagram[0] & 0x80 != 0;
+        if long_header && first_sent {
+            let socket = socket.clone();
+            tokio::spawn(async move {
+                sleep(hold).await;
+                let _ = socket.send_to(&datagram, server).await;
+            });
+        } else {
+            first_sent = true;
+            let _ = socket.send_to(&datagram, server).await;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn open_waits_for_receiver_to_confirm_the_handshake() {
+    timeout(Duration::from_secs(10), async {
+        let sender = generate_identity();
+        let receiver = generate_identity();
+        let (server, _) = server_endpoint(&receiver);
+        let server_address = server.local_addr().unwrap();
+        let relay_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let relay_address = relay_socket.local_addr().unwrap();
+        let _relay = AbortOnDrop(tokio::spawn(reordering_relay(
+            relay_socket,
+            server_address,
+            Duration::from_millis(300),
+        )));
+        let receiver_for_server = receiver.clone();
+        let _server = AbortOnDrop(tokio::spawn(async move {
+            let connection = server.accept().await.unwrap().await.unwrap();
+            let binding = hs::quic_binding(&connection).unwrap();
+            let (mut send, mut recv) = connection.accept_bi().await.unwrap();
+            let deadline = Instant::now() + hs::READ_WINDOW;
+            let open: hs::QuicOpen = hs::read(&mut recv, hs::MESSAGE_LIMIT, deadline)
+                .await
+                .unwrap();
+            let retained = open.transcript(&binding).unwrap();
+            let ack = hs::QuicAck::new(&open, &retained, &receiver_for_server).unwrap();
+            hs::write(&mut send, &ack, hs::MESSAGE_LIMIT, deadline)
+                .await
+                .unwrap();
+            connection.closed().await;
+        }));
+
+        let (connection, _send, _recv) = connect_v3(
+            relay_address,
+            "203.0.113.77:4242",
+            &sender,
+            &expected(&receiver),
+        )
+        .await
+        .unwrap();
+
+        // The OPEN went out once, after HANDSHAKE_DONE: it was never sent
+        // into the receiver's handshake and lost there.
+        let stats = connection.stats();
+        assert!(stats.frame_rx.handshake_done >= 1);
+        assert_eq!(stats.frame_tx.stream, 1);
+        connection.close(0u32.into(), b"");
+    })
+    .await
+    .unwrap();
+}
