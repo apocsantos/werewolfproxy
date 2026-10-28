@@ -464,3 +464,64 @@ the A–R link impaired on both ends. Every transfer's hashes matched.
 - **Residual losses (4a):** the investigation is closed; the cause of
   the losses still declared at a 4 RTT threshold is recorded as
   unexplained.
+
+### S2-P5 to S3-P3 (2026-10-28)
+
+Resumed from S2-P5 (results `20261028T141135Z-network`): S2-P5 to S2-P9,
+S3-P0 and S3-P1 PASS.
+
+**S3-P2**, harness verdict FAIL (`20261028T141135Z-network`): 16 MiB
+through Y, 10% loss on the A–R and Y–R links. The QUIC hop completed two
+runs (100.4 s, 78.2 s; hashes match) and reached the bound on the third
+(8.3 MB echoed); the TCP hop reached the bound on all three (4.1–5.7 MB
+echoed). No reset, no mismatch. A raw-TCP control on the same links and
+seeds (diagnostic, `diagnostics/s3_raw_control.py`): through a plain TCP
+relay on Y, 6.6–8.9 MB echoed in 120 s; direct A to B, complete in
+13.6–18.9 s. 16 MiB in 120 s is not attainable on the relayed path.
+**Owner decision: EXCLUDED, an invalid workload; evidence retained; rerun
+with a payload calibrated on the relayed path, for S3 P2, P3 and P5.**
+
+### S3 calibration
+
+The calibration rule (above) on the S3 path as it is carried: raw TCP
+from A through a plain TCP relay on Y (`chaos_relay.py`, two TCP legs as
+the TCP hop has) to an echo on B, the A–R and Y–R links impaired, with
+each cell's own seeds. **Owner decision (S3-P3): the rule takes
+power-of-two KiB, not only MiB.** This replaces the single-connection
+measurement of the routed P5 payload (8 MiB).
+
+| Profile | Run | Probe: echoed in 60 s | Confirmed | Payload |
+|---|---|---|---|---|
+| P2 | `20261028T145605Z-calibrate` | 3.5–4.8 MB | 2 MiB failed on 2030; 1 MiB in 24.1–26.5 s | **1 MiB** |
+| P5 | `20261028T145605Z-calibrate` | 4.1–4.3 MB | 2 MiB in 36.9–56.1 s | **2 MiB** |
+| P3 | `20261028T145605Z-calibrate` | 87–144 KB | none (under 1 MiB, MiB rule) | none |
+| P3 | `20261028T152342Z-calibrate` (KiB) | 47–87 KB | 32 KiB in 0.001–3.1 s | **32 KiB** |
+
+The two P3 probes differ by about 2× on the same seeds: under burst loss
+the outcome depends on netem state the seed does not fix.
+
+**S3-P2 rerun** (1 MiB, `20261028T151149Z-network`): PASS; QUIC hop
+3.4–7.6 s, TCP hop 23.6–43.3 s, hashes match.
+
+**S3-P3** (32 KiB, `20261028T152738Z-network`), harness verdict FAIL:
+
+| Seed | QUIC hop | TCP hop |
+|---|---|---|
+| 3010 | reset at 56.6 s, 14 KB echoed | at the 120 s bound, 25.2 KB echoed, connected |
+| 3020 | reset at 5.0 s, nothing echoed (setup) | complete, 33.2 s, hashes match |
+| 3030 | complete, 3.1 s, hashes match | reset at 10.4 s, nothing echoed (setup) |
+
+### Owner decisions (2026-10-28, P3)
+
+- **P3 transfer availability is a documented limit; S1-P3, S2-P3 and
+  S3-P3 are EXCLUDED.** Under burst loss, transfers do not reliably
+  complete on any transport: sessions end early or crawl. No data was
+  corrupted in any run.
+- **F2** remains the encrypted-TCP evidence of the 60 s liveness policy
+  (`TCP_USER_TIMEOUT`).
+- **QUIC under P3** remains consistent with the 30 s idle-timeout policy.
+- **F4 is not opened.**
+- **Routed setup retry: unchanged** (F1's scope). The two routed setup
+  failures above (QUIC hop at 5.0 s, TCP outer hop at 10.4 s, both
+  before any data) are retained as observations.
+- No product change from S3-P3. The campaign resumes from S3-P4.
