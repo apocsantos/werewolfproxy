@@ -1,16 +1,63 @@
-# WerewolfProxy v1 RC CLI contract
+# WerewolfProxy CLI contract
 
-This contract freezes the visible Stage18 administrative commands. The broad
-online/offline behavior and output contract are RC interfaces, not a promise of
-indefinite compatibility after v1.
+This is the administrative contract of the `1.0.0-rc.2` candidate. It
+consolidates the 1.0.0-rc.1 contract (the Stage18 commands) and every
+command group added on `main` since (Stage23–31); the
+[history](#history) at the end says which stage added what. Behaviour is
+exactly as those stages specified; this document only gathers it.
 
-Global options: werewolfctl [--socket PATH] [--home PATH] [--json]. Explicit
-socket selects the daemon. Offline commands use --home; online mutations go
-through the selected daemon's bounded same-UID control socket. There is no
-independent CLI writer behind a running daemon.
+**Compatibility.** These are release-candidate interfaces, not a promise
+of indefinite compatibility after v1. Within the candidate line a command,
+option, field or error code may be added, but none is removed or changed
+incompatibly.
 
-Supported commands:
+Global options: `werewolfctl [--socket PATH] [--home PATH] [--json]`.
+Explicit socket selects the daemon. Offline commands use --home; online
+mutations go through the selected daemon's bounded same-UID control socket.
+There is no independent CLI writer behind a running daemon. Commands that
+handle governance files (`governance keygen/draft/sign/combine/inspect/
+check`) run locally and never contact a daemon.
 
+Systemd is controlled separately with systemctl; werewolfctl does not shell
+out to it. The CLI has no network pairing or remote administration feature.
+
+## Exit status and JSON
+
+With --json, stdout is exactly one JSON object with the stable top-level
+fields `ok`, `command` and `result`; a failure has `ok: false`, `error` and
+`exit_class`. Human diagnostics go to stderr. No secret material is
+returned. Not-found and conflict detail stays in the diagnostic or result.
+
+| Exit | Meaning |
+|---|---|
+| 0 | success |
+| 64 | usage or input error |
+| 65 | local security-state failure |
+| 66 | conflict or already running |
+| 69 | daemon unavailable |
+| 70 | locally rejected operation (every daemon error code below) |
+
+`werewolfd` itself exits 67 (`TOMBSTONE`) after a death or retirement and
+at every start on a Den that holds a Tombstone, and 65 on a malformed one;
+the packaged systemd unit does not restart on 64, 65, 66, 67 or 69.
+
+## Commands
+
+| Area | Commands | Section |
+|---|---|---|
+| Node | `version`, `status`, `health`, `diagnose`, `doctor`, `den init/info`, `pelt init/show`, `state manifest-migrate/backup-info` | [Node and trust](#node-and-trust) |
+| Trust | `pack add/list/remove/revoke/set-address`, `target allow/list/remove`, `silver status/on/off` | [Node and trust](#node-and-trust) |
+| Forwarding | `fang create/list/active/activate/deactivate/remove` | [Node and trust](#node-and-trust) |
+| Services | `service add/list/show/remove/connect`, `service publish/unpublish/published`, `service add --from`, `service provider add/remove` | [Services](#services) |
+| Discovery | `discover advertise/withdraw/show/contacts/refresh/find/services` | [Discovery](#discovery) |
+| Routing | `route set/list/remove` | [Routes](#routes) |
+| Governance, offline | `governance keygen/draft/sign/combine/inspect`, `governance check new/sign/verify` | [Governance files](#governance-files) |
+| Governance, on the node | `governance apply/status/sync`, `governance auto-sync on/off` | [Governance on the node](#governance-on-the-node) |
+| Lifecycle | `governance apply` of a death, `den retire` | [Death and retirement](#death-and-retirement) |
+
+## Node and trust
+
+- version
 - den init, den info
 - pelt init, pelt show
 - pack add NAME PUBLIC_KEY_B64 ADDRESS; pack list, remove NAME, revoke NAME,
@@ -21,6 +68,9 @@ Supported commands:
 - silver status, on, off
 - status, health, diagnose, doctor
 - state manifest-migrate, backup-info
+
+`version` runs locally and reports the version and commit the binary was
+built with.
 
 Fang's transport argument selects quic, secure TCP, or explicit tcp-plain for
 that profile; it is not a fallback selector. The local Stage11A automatic
@@ -35,24 +85,17 @@ werewolfctl profile surface does not make plain fallback implicit.
 validates identity from public key material. Target rules are exact literal IP
 and port grants; no hostname, CIDR, wildcard or range grants. Protected
 mutations serialize in the daemon and commit through Stage15B. Hidden legacy
-commands are not supported v1 administration.
 
-## JSON and exit status
+After activation of a governed network, `pack add` is bounded by the
+roster ([Governance on the node](#governance-on-the-node)).
 
-With --json, stdout is exactly one JSON object with stable Stage18 top-level
-fields ok, command, and result. Human diagnostics go to stderr. The broad exit
-classes are 0 success, 64 usage/input, 65 local security-state failure, 66
-conflict/already-running, 69 daemon unavailable, and 70 locally rejected
-operation. Not-found/conflict detail remains in the local diagnostic/result;
-no secret material is returned.
+<a id="stage23-extension-named-services"></a>
+## Services
 
-Systemd is controlled separately with systemctl; werewolfctl does not shell
-out to it. The CLI has no network pairing or remote administration feature.
+Named services (Stage23), service discovery (Stage25) and providers
+(Stage27).
 
-## Stage23 extension: named services
-
-Stage23 adds a Service Registry after the RC freeze. It is an additive
-online command group; the commands and exit classes above are unchanged.
+### Named services
 
 - service add NAME PEER TARGET tcp|http|https|ssh
 - service list; service show NAME; service remove NAME
@@ -83,12 +126,96 @@ message (with --json, `ok:false`, `error`, `exit_class`). A failed save leaves
 the previous registry live. The disposable gate
 `tests/integration/service_gate.py` exercises this contract.
 
-## Stage24 extension: discovery
+<a id="stage25-extension-service-discovery"></a>
+### Publishing and fetching services
 
-Stage24 adds an online `discover` group
+([design](STAGE25_SERVICE_DISCOVERY_DESIGN.md), wire rules in the
+[services RPC spec](STAGE25_SERVICES_RPC_WIRE_SPEC.md))
+
+- service publish NAME TARGET tcp|http|https|ssh; service unpublish NAME;
+  service published
+- discover services [--peer NAME] [--transport quic|tcp]
+- service add NAME --from PEER [--transport quic|tcp]
+
+`publish` offers a local target under a name. It grants nothing: a Pack
+member sees the entry only while this node's Target Policy grants it that
+exact target, the same decision OPEN applies, so revoking a grant hides the
+entry at once. NAME follows the Stage23 rules and may not contain control
+characters; TARGET must be a canonical literal `IP:port` (no hostnames,
+non-zero port, specified address); at most 32 services. Publications persist as
+`published.json` (persist first, then publish; outside the Stage15B
+manifest; malformed fails startup closed, like `services.json`).
+`published` lists each entry with the Pack members it is currently visible
+to.
+
+`discover services` asks every Pack member (or only `--peer`) and reports
+per member `ok` with its entries, `unreachable`, `rejected`, `timeout`,
+`bad_address`, `bad_route` or `not_queried`, within seven seconds. An empty list does not distinguish
+"nothing published" from "nothing granted to you". It stores nothing.
+
+`service add NAME --from PEER` asks Pack member PEER at that moment for the
+services it shows this node and, if NAME is among them, adds it to the
+Service Registry with PEER and the received target and kind, through the
+ordinary `service add` path (persist first, refused while storage is
+degraded). The query runs before mutation admission, so it never blocks
+other mutations. It never copies from a cache, and the resulting entry grants
+nothing more than a manual `service add`.
+
+Under Silver, `discover services` and `--from` are refused. Errors are
+`SERVICE_INVALID`, `SERVICE_EXISTS`, `SERVICE_NOT_FOUND`,
+`SERVICE_SAVE_FAILED`, `DISCOVER_INVALID`, `DISCOVER_FAILED` (PEER
+unreachable or rejected the query), `SILVER_ACTIVE` and `NO_PELT`;
+werewolfctl exits 70. The disposable gate
+`tests/integration/service_discovery_gate.py` exercises this contract.
+
+<a id="stage27-extension-service-providers"></a>
+### Providers
+
+([design](STAGE27_PROVIDER_SELECTION_DESIGN.md)) One service entry can
+name an ordered list of providers.
+
+- service provider add NAME PEER TARGET
+- service provider add NAME --from PEER [--transport quic|tcp]
+- service provider remove NAME PEER
+
+A service's providers are its first `peer`/`target` followed by its
+fallbacks, in the order added; `service show` lists them. `provider add`
+appends one; `--from PEER` takes the target from NAME as PEER publishes it
+to this node at that moment (as `service add --from`) and is refused if
+PEER's kind label differs from the entry's. `provider remove` drops one;
+removing the first promotes the next, and the last provider goes only with
+`service remove`. At most 4 providers, none listed twice; PEER need not be
+in the Pack yet. Providers grant nothing: each still authorizes the
+requester with its own Target Policy. Entries persist in `services.json`
+with an optional `fallbacks` list, omitted when empty, so an entry with one
+provider keeps its Stage23 form. Errors are `SERVICE_INVALID`,
+`SERVICE_NOT_FOUND`, `SERVICE_SAVE_FAILED` and the `--from` discovery
+errors; werewolfctl exits 70. `--transport` without `--from` is a usage
+error (exit 64) for `service add` and `service provider add`.
+
+`service connect NAME` on an entry with fallbacks opens one local listener
+whose every connection tries the providers in order, each through its
+ordinary session (direct, or through its Stage26 route). A provider is
+skipped only if it fails before its session is established (unreachable,
+TLS pin mismatch, OPEN refused); once its ACK has verified, any failure
+resets the local connection and no other provider is tried. The selection
+for one connection has 15 seconds; if every provider fails, or the time
+runs out, the local connection is reset. Every provider must resolve when
+the Fang opens (a Pack member with an address for `--transport`, or a valid
+route), otherwise the open fails (`FANG_UNKNOWN_PEER`, `FANG_BAD_ADDRESS`,
+`FANG_BAD_QUIC_ADDRESS`, `FANG_ROUTE_INVALID`); `--transport tcp-plain` is
+refused (`FANG_INVALID`). The open reports `providers` in order and `fang
+active` shows `providers: A, B, ...`. Changing, revoking or removing any
+listed provider, or a provider's relay, closes the Fang; provider list
+changes apply to Fangs opened afterwards. The disposable gate
+`tests/integration/provider_gate.py` exercises this contract.
+
+<a id="stage24-extension-discovery"></a>
+## Discovery
+
 ([design](STAGE24_FINDNODE_DESIGN.md), wire messages in
-[V1_WIRE_CONTRACT.md](V1_WIRE_CONTRACT.md)). Earlier commands and exit
-classes are unchanged.
+[V1_WIRE_CONTRACT.md](V1_WIRE_CONTRACT.md)); `discover services` is under
+[Services](#publishing-and-fetching-services).
 
 - discover advertise ADDRESS... (1 to 4 `quic://IP:PORT` or `tcp://IP:PORT`)
 - discover withdraw
@@ -131,51 +258,11 @@ Errors are `DISCOVER_INVALID`, `DISCOVER_ADDRESS_INVALID`,
 werewolfctl exits 70. The disposable gate `tests/integration/discovery_gate.py`
 exercises this contract with four wolves.
 
-## Stage25 extension: service discovery
+<a id="stage26-extension-routes"></a>
+## Routes
 
-Stage25 ([design](STAGE25_SERVICE_DISCOVERY_DESIGN.md), wire rules in the
-[services RPC spec](STAGE25_SERVICES_RPC_WIRE_SPEC.md)) adds:
-
-- service publish NAME TARGET tcp|http|https|ssh; service unpublish NAME;
-  service published
-- discover services [--peer NAME] [--transport quic|tcp]
-- service add NAME --from PEER [--transport quic|tcp]
-
-`publish` offers a local target under a name. It grants nothing: a Pack
-member sees the entry only while this node's Target Policy grants it that
-exact target, the same decision OPEN applies, so revoking a grant hides the
-entry at once. NAME follows the Stage23 rules and may not contain control
-characters; TARGET must be a canonical literal `IP:port` (no hostnames,
-non-zero port, specified address); at most 32 services. Publications persist as
-`published.json` (persist first, then publish; outside the Stage15B
-manifest; malformed fails startup closed, like `services.json`).
-`published` lists each entry with the Pack members it is currently visible
-to.
-
-`discover services` asks every Pack member (or only `--peer`) and reports
-per member `ok` with its entries, `unreachable`, `rejected`, `timeout`,
-`bad_address`, `bad_route` or `not_queried`, within seven seconds. An empty list does not distinguish
-"nothing published" from "nothing granted to you". It stores nothing.
-
-`service add NAME --from PEER` asks Pack member PEER at that moment for the
-services it shows this node and, if NAME is among them, adds it to the
-Service Registry with PEER and the received target and kind, through the
-ordinary `service add` path (persist first, refused while storage is
-degraded). The query runs before mutation admission, so it never blocks
-other mutations. It never copies from a cache, and the resulting entry grants
-nothing more than a manual `service add`.
-
-Under Silver, `discover services` and `--from` are refused. Errors are
-`SERVICE_INVALID`, `SERVICE_EXISTS`, `SERVICE_NOT_FOUND`,
-`SERVICE_SAVE_FAILED`, `DISCOVER_INVALID`, `DISCOVER_FAILED` (PEER
-unreachable or rejected the query), `SILVER_ACTIVE` and `NO_PELT`;
-werewolfctl exits 70. The disposable gate
-`tests/integration/service_discovery_gate.py` exercises this contract.
-
-## Stage26 extension: routes
-
-Stage26 ([design](STAGE26_MULTIHOP_ROUTING_DESIGN.md)) lets a Fang reach a
-Pack member through another Pack member (the relay).
+([design](STAGE26_MULTIHOP_ROUTING_DESIGN.md)) A Fang can reach a Pack
+member through another Pack member (the relay).
 
 - route set PEER --via RELAY [--hop quic|tcp]
 - route list
@@ -224,66 +311,28 @@ apply to a routed PEER. A route that no longer resolves is reported as
 `bad_route`; the member is never dialled directly instead. Nodes learned
 from contact records are always dialled directly.
 
-## Stage27 extension: service providers
+<a id="stage28-extension-governance-files"></a>
+## Governance files
 
-Stage27 ([design](STAGE27_PROVIDER_SELECTION_DESIGN.md)) lets one service
-entry name an ordered list of providers.
-
-- service provider add NAME PEER TARGET
-- service provider add NAME --from PEER [--transport quic|tcp]
-- service provider remove NAME PEER
-
-A service's providers are its first `peer`/`target` followed by its
-fallbacks, in the order added; `service show` lists them. `provider add`
-appends one; `--from PEER` takes the target from NAME as PEER publishes it
-to this node at that moment (as `service add --from`) and is refused if
-PEER's kind label differs from the entry's. `provider remove` drops one;
-removing the first promotes the next, and the last provider goes only with
-`service remove`. At most 4 providers, none listed twice; PEER need not be
-in the Pack yet. Providers grant nothing: each still authorizes the
-requester with its own Target Policy. Entries persist in `services.json`
-with an optional `fallbacks` list, omitted when empty, so an entry with one
-provider keeps its Stage23 form. Errors are `SERVICE_INVALID`,
-`SERVICE_NOT_FOUND`, `SERVICE_SAVE_FAILED` and the `--from` discovery
-errors; werewolfctl exits 70. `--transport` without `--from` is a usage
-error (exit 64) for `service add` and `service provider add`.
-
-`service connect NAME` on an entry with fallbacks opens one local listener
-whose every connection tries the providers in order, each through its
-ordinary session (direct, or through its Stage26 route). A provider is
-skipped only if it fails before its session is established (unreachable,
-TLS pin mismatch, OPEN refused); once its ACK has verified, any failure
-resets the local connection and no other provider is tried. The selection
-for one connection has 15 seconds; if every provider fails, or the time
-runs out, the local connection is reset. Every provider must resolve when
-the Fang opens (a Pack member with an address for `--transport`, or a valid
-route), otherwise the open fails (`FANG_UNKNOWN_PEER`, `FANG_BAD_ADDRESS`,
-`FANG_BAD_QUIC_ADDRESS`, `FANG_ROUTE_INVALID`); `--transport tcp-plain` is
-refused (`FANG_INVALID`). The open reports `providers` in order and `fang
-active` shows `providers: A, B, ...`. Changing, revoking or removing any
-listed provider, or a provider's relay, closes the Fang; provider list
-changes apply to Fangs opened afterwards. The disposable gate
-`tests/integration/provider_gate.py` exercises this contract.
-
-## Stage28 extension: governance files
-
-Stage28 ([survey](STAGE28_GOVERNANCE_SURVEY.md),
-[statement spec](STAGE28_GOVERNANCE_STATEMENT_SPEC.md)) adds network
-governance statements signed by at least 7 of 10 governance keys.
+([survey](STAGE28_GOVERNANCE_SURVEY.md),
+[statement spec](STAGE28_GOVERNANCE_STATEMENT_SPEC.md),
+[addendum](STAGE29_GOVERNANCE_ADDENDUM_SPEC.md),
+[lifecycle spec](STAGE30_LIFECYCLE_SPEC.md)) Network governance statements
+are signed by at least 7 of 10 governance keys.
 
 - governance keygen OUT
 - governance draft genesis --key PUB_B64 (×10, index order) [--network-id HEX] --out FILE
 - governance draft rotate --after PREVIOUS --set INDEX=PUB_B64 ... --out FILE
 - governance draft revoke --after PREVIOUS --member PUB_B64 ... --out FILE
-- governance draft admit --after PREVIOUS --member PUB_B64 ... --out FILE (Stage29)
-- governance draft activate --after PREVIOUS --out FILE (Stage29)
-- governance draft death --after PREVIOUS --out FILE (Stage30)
+- governance draft admit --after PREVIOUS --member PUB_B64 ... --out FILE
+- governance draft activate --after PREVIOUS --out FILE
+- governance draft death --after PREVIOUS --out FILE
 - governance sign DRAFT KEYFILE --index N --out PART
 - governance combine DRAFT PART... --out FILE
 - governance inspect FILE [--chain FILE...] [--expect-genesis HEX]
-- governance check new --chain FILE... [--expect-genesis HEX] --out CHALLENGE (Stage30)
-- governance check sign CHALLENGE KEYFILE --index N --out ANSWER (Stage30)
-- governance check verify CHALLENGE ANSWER... --chain FILE... [--expect-genesis HEX] (Stage30)
+- governance check new --chain FILE... [--expect-genesis HEX] --out CHALLENGE
+- governance check sign CHALLENGE KEYFILE --index N --out ANSWER
+- governance check verify CHALLENGE ANSWER... --chain FILE... [--expect-genesis HEX]
 
 These run locally and never contact a daemon or the network, so a key
 holder can use them on an offline machine. `keygen` creates a key file with
@@ -298,10 +347,27 @@ chain exactly as a node will, pinning the genesis to the given hash or, if
 none is given, to its own hash, which the operator must compare out of
 band. Output files are never overwritten. Errors exit 70, usage errors 64.
 
-On the node:
+`draft death` creates the network's terminal statement (kind 5, empty
+body). Nothing chains after it: every later statement fails as
+`Terminal`. `inspect --chain` reports `dead_at`.
+
+`check new/sign/verify` is the key check: holders answer a fresh random
+challenge with their governance keys, under a signature domain of its
+own. `verify` checks every answer against the keys in force at the
+chain's head, and rejects the whole check on any answer for another
+challenge or network, a bad signature or a repeated index. It reports
+the valid indices and a verdict that is only `at_least_7_usable` (7 or
+more) or `unverified`, never "unrecoverable": that is a
+legitimate-custody determination made by the holders.
+
+Challenge and answer files are strict JSON and never overwritten.
+
+## Governance on the node
 
 - governance apply FILE [--expect-hash HEX]
 - governance status
+- governance sync [--peer NAME] [--transport quic|tcp]
+- governance auto-sync on|off
 
 `apply` reads the statement file locally and sends it to the daemon, which
 verifies it against its governance head exactly as the spec defines and,
@@ -327,9 +393,11 @@ network ID, sequence, head hash, threshold, current keys, revoked keys and
 the fork flag. Errors exit 70. The disposable gate
 `tests/integration/governance_gate.py` exercises this contract.
 
-Stage29 ([design](STAGE29_ACTIVATION_DESIGN.md),
-[addendum](STAGE29_GOVERNANCE_ADDENDUM_SPEC.md)) adds admission and
-activation statements. Activation is a network-chain fact; admission is
+### Admission and activation
+
+([design](STAGE29_ACTIVATION_DESIGN.md),
+[addendum](STAGE29_GOVERNANCE_ADDENDUM_SPEC.md)) Admission and activation
+are statements too. Activation is a network-chain fact; admission is
 local eligibility derived from that chain. Every node applies a valid
 activation. In the same protected generation it removes every Pack member
 whose key is not on the roster or is revoked, exactly as a revocation does,
@@ -352,9 +420,9 @@ the fence automatically. `silver off` does not lift it.
 head excludes refuses to start. The disposable gate
 `tests/integration/activation_gate.py` exercises this contract.
 
-- governance sync [--peer NAME] [--transport quic|tcp]
+### Sync
 
-`sync` (Stage29, [RPC spec](STAGE29_GOVERNANCE_RPC_WIRE_SPEC.md)) asks every
+`sync` ([RPC spec](STAGE29_GOVERNANCE_RPC_WIRE_SPEC.md)) asks every
 Pack member, or only `--peer`, for the statements after this node's head
 with the read-only `governance` RPC. A routed member is asked through its
 relay. For each next sequence it verifies every offered candidate
@@ -382,10 +450,10 @@ Refusals:
 
 The disposable gate `tests/integration/sync_gate.py` exercises it.
 
-- governance auto-sync on|off
+### Automatic sync
 
-Stage31 ([survey](STAGE31_AUTO_SYNC_SURVEY.md),
-[spec](STAGE31_AUTO_SYNC_SPEC.md)) runs the same sync automatically on an
+([survey](STAGE31_AUTO_SYNC_SURVEY.md), [spec](STAGE31_AUTO_SYNC_SPEC.md))
+The daemon runs the same sync automatically on an
 **eligible** node: one with a Pelt and its listeners configured, on an
 active network (not dead, not forked) that admits it, with the switch on,
 no Silver, not dying and storage not degraded. During the ceremony, before
@@ -415,12 +483,13 @@ takes effect, so it survives restarts; the default is on. It fails with
 is persisted. The disposable gate `tests/integration/auto_sync_gate.py`
 exercises this contract.
 
-Stage30 ([survey](STAGE30_LIFECYCLE_SURVEY.md),
-[spec](STAGE30_LIFECYCLE_SPEC.md)), step 1 (offline only):
+## Death and retirement
 
-- `draft death` creates the network's terminal statement (kind 5, empty
-  body). Nothing chains after it: every later statement fails as
-  `Terminal`. `inspect --chain` reports `dead_at`.
+([survey](STAGE30_LIFECYCLE_SURVEY.md), [spec](STAGE30_LIFECYCLE_SPEC.md))
+
+- governance apply FILE (a death statement)
+- den retire --confirm FINGERPRINT
+
 - **Applying a death** (`governance apply FILE`) commits the DEAD head,
   then locks the node, writes an incomplete Tombstone durably, destroys
   the Pelt first and then every file in the Den except the Tombstone and
@@ -441,14 +510,28 @@ Stage30 ([survey](STAGE30_LIFECYCLE_SURVEY.md),
   systemd unit does not restart on 67.
 - **Bounded claim:** see KNOWN_LIMITATIONS; Werewolf makes no claim about
   storage media, logs, swap, backups or copies outside the Den.
-- `check new/sign/verify` is the key check: holders answer a fresh random
-  challenge with their governance keys, under a signature domain of its
-  own. `verify` checks every answer against the keys in force at the
-  chain's head, and rejects the whole check on any answer for another
-  challenge or network, a bad signature or a repeated index. It reports
-  the valid indices and a verdict that is only `at_least_7_usable` (7 or
-  more) or `unverified`, never "unrecoverable": that is a
-  legitimate-custody determination made by the holders.
 
-Challenge and answer files are strict JSON and never overwritten.
+## Hidden test-only commands
 
+These exist for the integration suites, are hidden from `--help`, are not
+administration and may change or disappear without notice: `state
+set-target-policy`, `silver trigger`, `silver reset`, `pelt fingerprint`,
+`fang open`, `fang open-profile`, `fang close`, `fang cleanup`.
+
+## History
+
+| Stage | Added |
+|---|---|
+| Stage18 (rc.1) | `den`, `pelt`, `pack`, `target`, `fang`, `silver`, `status`, `health`, `diagnose`, `doctor`, `state`; JSON and exit classes |
+| Stage23 | `service add/list/show/remove/connect` |
+| Stage24 | `discover advertise/withdraw/show/contacts/refresh/find` |
+| Stage25 | `service publish/unpublish/published`, `discover services`, `service add --from` |
+| Stage26 | `route set/list/remove`; routed Fangs and discovery |
+| Stage27 | `service provider add/remove`; provider failover |
+| Stage28 | `governance keygen/draft/sign/combine/inspect/apply/status` (genesis, rotation, revocation) |
+| Stage29 | `governance draft admit/activate`, roster-bounded `pack add`, the unadmitted fence, `governance sync` |
+| Stage30 | `governance draft death`, `governance check`, death apply, `den retire`, exit 67 |
+| Stage31 | automatic sync, `governance auto-sync on/off` |
+
+Each stage's contract was appended to this document when it landed; the
+consolidation for the candidate (Stage33) changed no behaviour.
