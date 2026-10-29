@@ -43,9 +43,30 @@ follows.
   (D07), resource pressure at production ceilings (D08) and storage faults:
   full, unwritable and read-only storage and torn state (D09). See
   [docs/STATUS.md](docs/STATUS.md).
-- **Still not run:** netem-style random loss, jitter and reordering; host
-  clock changes; an indeterminate protected-state commit on real storage
-  (unit-tested only, D09).
+- **Since exercised in a sandbox (Stage32):** netem random and burst
+  loss, delay, jitter, reordering, duplication, corruption and rate
+  limits, in unprivileged network namespaces on one host, and wall-clock
+  jumps (libfaketime, one process) and process stalls (`SIGSTOP` 30 s and
+  300 s). See
+  [docs/STAGE32_ROBUSTNESS_SPEC.md](docs/STAGE32_ROBUSTNESS_SPEC.md) and
+  [docs/STAGE32_TIME_CERTIFICATION.md](docs/STAGE32_TIME_CERTIFICATION.md).
+  Documented limits found there:
+  - an encrypted-TCP session whose data stays unacknowledged for 60 s
+    ends (`TCP_USER_TIMEOUT`), and a QUIC session silent for 30 s ends
+    (idle timeout); under sustained burst loss (about 19%) transfers do
+    not reliably complete on any transport, though no data was corrupted;
+    a peer stalled longer than these ends its sessions;
+  - QUIC reads reordering as loss: under 50 ± 20 ms jitter its throughput
+    is about a third of encrypted TCP's; a QUIC stream carries at most
+    64 KiB per round trip (about 620 kB/s at 100 ms RTT), the cost of
+    its memory bound; a routed QUIC hop under jitter can be slower than
+    the campaign bound while still progressing;
+  - a node whose wall clock is more than 7 days off real time, in either
+    direction, cannot publish a contact record its peers accept, until
+    its clock is back.
+- **Still not run:** the same impairments over a real WAN, IPv6; real
+  host (kernel) clock changes and suspend/resume; an indeterminate
+  protected-state commit on real storage (unit-tested only, D09).
 - **Discovery (Stage24, Stage25)** is Pack-only: it finds addresses and
   services of nodes already trusted, never adds trust, and a discovered
   service is usable only where the provider's Target Policy grants it.

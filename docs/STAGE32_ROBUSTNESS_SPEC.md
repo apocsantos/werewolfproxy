@@ -1,8 +1,8 @@
 # Stage32 robustness and chaos certification — campaign spec
 
 **Status: approved 2026-10-27 (X1–X5 as recommended, with the owner's
-edits); step 2 (harness and dry run) done, see
-[Step 2 notes](#step-2-notes).**
+edits); complete 2026-10-29, every step done (see
+[Implementation](#implementation-after-approval)).**
 
 Stage32 changes no product behaviour. It adds a lab harness and
 certification records; any defect it finds is fixed separately (section 7).
@@ -196,7 +196,8 @@ A scenario passes only if all 3 of its runs pass.
   kept for every FAIL or EXCLUDED run.
 - Records: `docs/STAGE32_NETWORK_CERTIFICATION.md` and
   `docs/STAGE32_TIME_CERTIFICATION.md`, one table per surface, docs-only
-  commits, as for Stage22R.
+  commits, as for Stage22R. (*As run:* the network record stayed in this
+  spec's step 3 notes.)
 
 ## 6. Out of scope
 
@@ -242,9 +243,9 @@ All five approved by the owner on 2026-10-27.
 |---|---|---|
 | 1 | This spec | Done |
 | 2 | Harness: sandbox, topology, netem and faketime control, sampling; dry run of P0 and P2 on S1 | Done (faketime control: step 4) |
-| 3 | Network campaigns; `STAGE32_NETWORK_CERTIFICATION.md` | **Paused** at S1-P5 by the owner, see [Step 3 notes](#step-3-notes-interim). F1: fix in a separate PR; F2: documented limit; harness echo fixed; P5 payloads calibrated. Resumes when the owner says |
-| 4 | Time campaigns; `STAGE32_TIME_CERTIFICATION.md` | |
-| 5 | KNOWN_LIMITATIONS and STATUS updated to what ran | |
+| 3 | Network campaigns | Done 2026-10-29: every cell has a verdict; the record is the [Step 3 notes](#step-3-notes-interim) (F1 and F5 fixed; F2, F3 and P3 availability documented limits) |
+| 4 | Time campaigns; [`STAGE32_TIME_CERTIFICATION.md`](STAGE32_TIME_CERTIFICATION.md) | Done 2026-10-29: T1 and T2 certified, 9 of 9 each |
+| 5 | KNOWN_LIMITATIONS and STATUS updated to what ran | Done |
 
 ## Step 2 notes
 
