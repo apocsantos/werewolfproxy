@@ -87,6 +87,17 @@ PAYLOAD_BY_PROFILE = {'P9': {'direct': 4 * MIB, 'routed': 2 * MIB},
                       'P3': {'routed': 32 * KIB}}
 # The paths `calibrate` measures for each profile.
 CALIBRATION_PATHS = {'P2': ('routed',), 'P3': ('routed',), 'P5': ('routed',)}
+# T1 (spec section 3): one daemon at a time under libfaketime, its control
+# file stepped through these offsets relative to real time; monotonic time
+# is never faked. 0 at the end is the jump back.
+FAKETIME_LIB = '/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1'
+T1_OFFSETS = ('+60s', '-60s', '+1h', '-1h', '+1d', '-1d', '+8d', '-8d')
+# The documented contact-record limit: a record whose lifetime falls outside
+# a peer's [now, now + 7 d] is refused, so a clock 8 days ahead or behind
+# (owner decision 2026-10-29) cannot publish one its peers accept.
+T1_REFUSED = ('+8d', '-8d')
+DEADLINE_TOLERANCE_S = 1.5
+T1_TRANSFER = 512 * MIB
 LAB_ENV = {'WEREWOLF_LAB_AUTO_SYNC_FIRST_MS': '300', 'WEREWOLF_LAB_AUTO_SYNC_INTERVAL_MS': '1500'}
 
 
@@ -137,6 +148,8 @@ def cells(campaign, only, start, explicit=None):
         return [tuple(c.split(':')) for c in explicit.split(',')]
     if campaign == 'calibrate':
         return [('CAL', p) for p in CALIBRATION_PATHS]
+    if campaign == 'time':
+        return [('T1', node) for node in ('A', 'B', 'Y')]
     chosen = [(s, p) for s, profiles in MATRIX for p in profiles
               if not only or s in only]
     if start:
@@ -322,7 +335,7 @@ class Sandbox:
 
     # Daemons. `name` is the Den (and socket); `node` the network namespace.
 
-    def start(self, name, node, lab=False):
+    def start(self, name, node, lab=False, faketime=None):
         den = self.root / 'work' / name
         den.mkdir(mode=0o700)
         write_json(den / 'silver.json', {'version': 1, 'mode': 'open'})
@@ -330,6 +343,10 @@ class Sandbox:
         handle = (self.work / f'{name}.log').open('ab')
         self.handles.append(handle)
         env = {'PATH': '/usr/bin:/bin', **(LAB_ENV if lab else {})}
+        if faketime:
+            env.update({'LD_PRELOAD': FAKETIME_LIB, 'FAKETIME_NO_CACHE': '1',
+                        'FAKETIME_DONT_FAKE_MONOTONIC': '1',
+                        'FAKETIME_TIMESTAMP_FILE': f'/work/{faketime}'})
         process = subprocess.Popen(
             ['nsenter', f'--net=/run/netns/{node}', '/usr/sbin/chroot', self.root,
              '/labbins/werewolfd' if lab else '/bins/werewolfd',
@@ -1016,10 +1033,181 @@ def calibration(box, profile, p0):
 SURFACES['CAL'] = calibration
 
 
+def wall_clock(box, node, offset):
+    """Sets the T1 node's faketime control file (read on every clock call)."""
+    path = box.root / 'work' / f'faketime-{node}'
+    path.write_text(f'{offset}\n')
+    return {'offset': offset, 'file': f'/work/faketime-{node}'}
+
+
+def deadline(box, name):
+    status = box.ctl(name, 'governance.status')['auto_sync']
+    last = status.get('last_run') or {}
+    return {'phase': status['phase'], 'next_due_in_secs': status['next_due_in_secs'],
+            'last_run_started_secs_ago': last.get('started_secs_ago'),
+            'monotonic': time.monotonic()}
+
+
+def judge_deadline(before, after, reasons, label):
+    """The Stage31 deadline counts real seconds across a jump (section 4, item 7)."""
+    elapsed = after['monotonic'] - before['monotonic']
+    record = {'before': before, 'after': after, 'elapsed_s': round(elapsed, 3)}
+    if before['next_due_in_secs'] is None or after['next_due_in_secs'] is None:
+        record['skipped'] = 'no pending deadline (a run was in progress)'
+    elif (after['last_run_started_secs_ago'] is not None
+          and after['last_run_started_secs_ago'] <= elapsed + 1):
+        record['skipped'] = 'an automatic run happened in the interval; new deadline'
+    else:
+        fell = before['next_due_in_secs'] - after['next_due_in_secs']
+        record['fell_s'] = fell
+        if abs(fell - elapsed) > DEADLINE_TOLERANCE_S:
+            reasons.append(f'{label}: deadline fell {fell} s over {elapsed:.1f} real s')
+    return record
+
+
+def time_jumps(box, profile, p0):
+    """T1: wall-clock jumps on one of A, B and Y (spec section 3)."""
+    jumped = profile.lower()
+    nodes = ('a', 'b', 'y')
+    box.build_network(nodes)
+    echo = box.echo('b')
+    gov = Governance(box)
+    runs = []
+    for n in (1, 2, 3):
+        run = {'run': n, 'build': 'certification', 'jumped': jumped,
+               'faketime': {'LD_PRELOAD': FAKETIME_LIB, 'FAKETIME_NO_CACHE': '1',
+                            'FAKETIME_DONT_FAKE_MONOTONIC': '1'}, 'steps': []}
+        reasons, excluded = [], None
+        names = {node: f'{node}{n}' for node in nodes}
+        wall_clock(box, names[jumped], '+0s')
+        ids = {node: box.start(names[node], node,
+                               faketime=f'faketime-{names[jumped]}' if node == jumped else None)
+               for node in nodes}
+        for node in nodes:
+            for peer in nodes:
+                if peer != node:
+                    box.pack_add(names[node], f'wolf-{peer}', ids[peer], peer)
+            box.ctl(names[node], 'discover.advertise',
+                    {'addresses': f'quic://{NODES[node]}.2:{PORT}'})
+        a, b, y = names['a'], names['b'], names['y']
+        box.ctl(b, 'target.allow', {'peer': 'wolf-a', 'target': f'127.0.0.1:{echo}'})
+        box.ctl(y, 'target.allow', {'peer': 'wolf-a', 'target': f'{NODES["b"]}.2:{PORT}'})
+        # Governance: all three admitted and active, so the Stage31 deadline
+        # is pending on each; B is the source of each step's new statement.
+        genesis, ghash = gov.genesis()
+        admit = gov.statement(['admit', '--after', genesis,
+                               *[x for node in nodes
+                                 for x in ('--member', ids[node]['public_key_b64'])]])
+        activate = gov.statement(['activate', '--after', admit])
+        for name in names.values():
+            gov.apply(name, genesis, ghash)
+            gov.apply(name, admit)
+            gov.apply(name, activate)
+        previous, head = activate, 2
+        # Fangs from A: direct, or routed through Y when Y is the jumped node.
+        fangs = {}
+        for mode, port in (('tcp', 17001), ('quic', 17002)):
+            if jumped == 'y':
+                box.ctl(a, 'route.set', {'peer': 'wolf-b', 'via': 'wolf-y', 'hop': mode})
+            fangs[mode] = box.fang(a, 'wolf-b', f'127.0.0.1:{port}', f'127.0.0.1:{echo}',
+                                   'quic' if jumped == 'y' else mode)
+        run['fangs'] = fangs
+        time.sleep(2)
+        baselines = {name: box.sample(name) for name in names.values()}
+        own_node = box.ctl(names[jumped], 'discover.show')['node_id']
+
+        def contact(label, expect_accepted):
+            shown = box.ctl(names[jumped], 'discover.show')
+            record = shown.get('record') or {}
+            result = {'seq': record.get('seq'), 'expires_at': record.get('expires_at'),
+                      'real_now': int(time.time()), 'peers': {}}
+            for node in nodes:
+                if node == jumped:
+                    continue
+                refreshed = box.try_ctl(names[node], 'discover.refresh',
+                                        {'transport': 'quic'}, timeout=30)
+                known = box.ctl(names[node], 'discover.contacts')
+                held = [r for r in known if r.get('node_id') == own_node]
+                accepted = any(r.get('seq') == record.get('seq') for r in held)
+                result['peers'][node] = {
+                    'refresh': refreshed.get('queried', refreshed),
+                    'held_seq': [r.get('seq') for r in held], 'accepted': accepted}
+                if accepted != expect_accepted:
+                    reasons.append(f'{label}: {node} {"refused" if expect_accepted else "accepted"}'
+                                   f' {jumped}\'s record (seq {record.get("seq")})')
+            result['expected'] = 'accepted' if expect_accepted else 'refused'
+            return result
+
+        def opens(label):
+            done = []
+            for i in range(2):
+                t = box.client('a', '127.0.0.1:17001', 1024, f'T1-{label}-open{i}', OPEN_BOUND_S)
+                done.append(t)
+                if not (t.get('complete') and t.get('match')):
+                    reasons.append(f'{label}: S1 open {i} failed: {t.get("error")}')
+            return done
+
+        for offset in (*T1_OFFSETS, '+0s'):
+            label = f'{offset}' if offset != '+0s' else 'back to 0'
+            step = {'offset': offset}
+            step['opens_before'] = opens(f'{label} before')
+            background = box.client_background('a', '127.0.0.1:17002', T1_TRANSFER,
+                                               f'T1-{profile}-{n}-{offset}', 300)
+            time.sleep(.5)
+            before = deadline(box, names[jumped])
+            in_flight = background.poll() is None
+            step['jump'] = wall_clock(box, names[jumped], offset)
+            step['transfer_in_flight_at_jump'] = in_flight
+            step['opens_after'] = opens(f'{label} after')
+            out, err = background.communicate(timeout=320)
+            transfer = parse_client(background.returncode, out, err)
+            step['transfer'] = transfer
+            if not in_flight:
+                excluded = excluded or f'{label}: the transfer ended before the jump'
+            if transfer.get('harness'):
+                excluded = excluded or transfer['error']
+            elif not (transfer.get('complete') and transfer.get('match')):
+                reasons.append(f'{label}: transfer not intact: {transfer.get("error")}')
+            time.sleep(max(0, 5 - (time.monotonic() - before['monotonic'])))
+            step['deadline'] = judge_deadline(before, deadline(box, names[jumped]),
+                                              reasons, label)
+            step['contact'] = contact(label, offset not in T1_REFUSED)
+            # Governance: a new statement at B, pulled by A and Y.
+            previous = gov.statement(['admit', '--after', previous, '--member', gov.dummy()])
+            gov.apply(b, previous)
+            head += 1
+            step['sync'] = {}
+            for name in (a, y):
+                synced = box.try_ctl(name, 'governance.sync',
+                                     {'peer': 'wolf-b', 'transport': 'quic'}, timeout=150)
+                now_head = box.ctl(name, 'governance.status')['sequence']
+                applied = [r['sequence'] for r in synced.get('applied', [])]
+                step['sync'][name] = {'applied': applied, 'head': now_head,
+                                      'error': synced.get('error')}
+                if now_head != head or applied not in ([head], []):
+                    reasons.append(f'{label}: {name} sync applied {applied}, head {now_head},'
+                                   f' expected {head}')
+            run['steps'].append(step)
+            log(f'    {label}: transfer {transfer.get("elapsed_s")} s '
+                f'match={transfer.get("match")} error={transfer.get("error")}, deadline {step["deadline"].get("fell_s")} '
+                f'over {step["deadline"]["elapsed_s"]} s, contact '
+                f'{ {k: v["accepted"] for k, v in step["contact"]["peers"].items()} }')
+        time.sleep(SETTLE_S)
+        run['after_settle'] = judge_leaks(box, baselines, reasons)
+        for name in names.values():
+            box.stop(name)
+        runs.append(finish(run, excluded, reasons))
+        log(f'  {run["result"]:8} run {n}: {run["reason"] or ""}')
+    return {'runs': runs}
+
+
+SURFACES['T1'] = time_jumps
+
+
 def inside(work, cert, lab, surface, profile, p0_json):
     box = Sandbox(pathlib.Path(work), pathlib.Path(cert),
                   pathlib.Path(lab) if lab else None)
-    cell = {'surface': surface, 'profile': profile, 'netem': PROFILES[profile]}
+    cell = {'surface': surface, 'profile': profile, 'netem': PROFILES.get(profile)}
     try:
         cell['sandbox'] = box.build_root()
         function = SURFACES[surface]
@@ -1043,7 +1231,7 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == '--inside':
         return inside(*sys.argv[2:8])
     parser = argparse.ArgumentParser()
-    parser.add_argument('campaign', choices=['dry-run', 'network', 'calibrate'])
+    parser.add_argument('campaign', choices=['dry-run', 'network', 'calibrate', 'time'])
     parser.add_argument('--only', help='comma-separated surfaces, e.g. S1,S2')
     parser.add_argument('--from', dest='start', help='resume at a cell, e.g. S3:P0')
     parser.add_argument('--cells', help='exactly these cells, e.g. S2:P0,S5:P0 (smoke tests)')
