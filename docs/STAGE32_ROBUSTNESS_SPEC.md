@@ -127,7 +127,10 @@ Expected: transfers intact, opens succeed, sync applies as without
 jumps, deadlines unmoved. The only expected change is to contact records:
 after `+8d` the jumped node's own record is signed 8 days ahead, its peers
 refuse it (`expires_at` more than 7 days ahead of their clock), and after
-the jump back it is accepted again. That refusal is the documented limit,
+the jump back it is accepted again. **Owner decision (2026-10-29):** the
+same holds at `-8d` (the record is already expired by the peers' clock): a
+clock more than 7 days off in either direction is the documented limit
+(`docs/STAGE32_TIME_CERTIFICATION.md`). That refusal is the documented limit,
 not a failure; any other effect of a jump is a finding.
 
 ### T2. Stalls
