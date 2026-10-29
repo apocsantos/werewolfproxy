@@ -71,6 +71,10 @@ OPEN_BOUND_S = 20
 F3_PROFILES = ('P4', 'P5', 'P6')
 PROGRESS_WINDOW_S = 10
 FENCE_BOUND_S = 10
+# S6 fences only a session B has accepted: setup under loss can take
+# seconds (F1), so a fixed wait from the start could fence nothing
+# (S6-P2 seed 2030, 2026-10-29).
+ACTIVE_BOUND_S = OPEN_BOUND_S
 # S1-S3 payloads (spec section 2): direct (S1, S2) and routed (S3). P9's are
 # set by its rate. The others here are calibrated against raw TCP on the
 # same path (spec, "P5 calibration" and "S3 calibration"): direct P5 in
@@ -823,7 +827,17 @@ def fences(box, profile, p0):
             record = {'fence': fence, 'transport': mode}
             background = box.client_background('a', f'127.0.0.1:{port}', 256 * MIB,
                                                f'S6-{profile}-{n}-{fence}', 300)
-            time.sleep(1.5)
+            t0 = time.monotonic()
+            active_at = None
+            while time.monotonic() - t0 < ACTIVE_BOUND_S and background.poll() is None:
+                if (box.ctl('b', 'status')['inbound_authority']['active'] > 0
+                        and box.established('b', echo) > 0):
+                    active_at = time.monotonic() - t0
+                    break
+                time.sleep(.05)
+            record['b_active_after_s'] = None if active_at is None else round(active_at, 3)
+            if active_at is not None:
+                time.sleep(1.5)  # fence mid-transfer, as before
             record['b_before'] = {'active': box.ctl('b', 'status')['inbound_authority']['active'],
                                   'target_connections': box.established('b', echo)}
             if fence == 'silver':
