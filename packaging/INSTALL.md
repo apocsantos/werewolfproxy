@@ -1,4 +1,4 @@
-# WerewolfProxy 1.0.0-rc.1 Linux installation
+# WerewolfProxy 1.0.0-rc.2 Linux installation
 
 This archive is certified only for Linux x86_64 with a systemd service manager.
 Verify `SHA256SUMS` before installation:
@@ -37,8 +37,10 @@ for a two-host user-mode example and RELEASE_NOTES.md for the release scope.
 
 The local control socket authorizes the daemon's Unix uid, so service
 administration uses `sudo -u werewolf`. Use `werewolfctl pelt show` for public peer provisioning material. Do not put
-private keys in shell history. See the Stage18 operator guide for Pack, target,
-Fang, and Silver commands.
+private keys in shell history. Every command is in the CLI contract
+(`docs/V1_CLI_CONTRACT.md` in the source tree): Pack, target, Fang and
+Silver, and the services, discovery, routes, governance and retirement
+commands added after 1.0.0-rc.1.
 
 Before an upgrade, stop the service and make a permission-preserving complete
 Den backup to a private administrator-controlled location. The backup includes
@@ -59,6 +61,13 @@ To roll back software, stop the service and install a previously verified
 Stage18/Stage19-compatible archive. This is software rollback, not protection
 against persistent-state rollback. Complete historical Dens remain subject to
 the Stage15B external-anchor nonclaim.
+
+Governance changes this. Applying a first governance genesis moves the
+protected manifest to schema 2, which 1.0.0-rc.1 and earlier binaries
+refuse, and a genesis cannot be removed from a node: a governed node can
+only be rolled back by restoring a backup taken before its genesis. A
+dead or retired node holds only a Tombstone; `werewolfd` exits 67 on it at
+every start and the unit does not restart it.
 
 `./uninstall.sh` removes software only. It retains `/var/lib/werewolfproxy`,
 including Pelt and all policy state. Stop/disable the service first. User-mode
