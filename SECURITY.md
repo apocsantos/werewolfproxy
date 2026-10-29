@@ -28,3 +28,10 @@ regression result, audit date and scope are recorded in the
 This record describes the audit performed for that candidate and does not
 make a claim about future advisories. The 1.0.0-rc.2 advisory audit is part
 of its Stage33 candidate audit, run on the final release inputs.
+
+## rc.2 security history
+
+Before the rc.2 audit, four rustls advisories against 0.23.45
+(GHSA-c8m5-c952-6cm4, GHSA-h2v8-394m-p7vv, GHSA-w44r-93j7-qv28,
+GHSA-vp88-798v-h67f) were remediated by moving to rustls 0.23.46; see the
+[Stage33 rustls remediation](docs/STAGE33_RUSTLS_0_23_46_REMEDIATION.md).

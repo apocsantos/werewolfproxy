@@ -41,6 +41,7 @@ contract is consolidated for the 1.0.0-rc.2 candidate.
 
 - [Stage20S RUSTSEC-2026-0285 remediation](STAGE20S_RUSTLS_2026_0285_REMEDIATION.md)
 - [Stage21 RC1 audit and freeze](STAGE21_RC1_AUDIT_FREEZE.md)
+- [Stage33 rustls 0.23.46 remediation](STAGE33_RUSTLS_0_23_46_REMEDIATION.md)
 
 The current Stage21 release uses the Stage20S-certified dependency graph:
 rustls 0.23.45 and rustls-webpki 0.103.15. Earlier stage reports retain the
