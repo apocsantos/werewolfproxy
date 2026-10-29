@@ -73,3 +73,67 @@ new sequence on A and on Y (162 of 162); daemons alive and within the leak
 margins after every run.
 
 **T1 is certified (9 of 9).**
+
+## T2. Stalls with SIGSTOP and SIGCONT (2026-10-29)
+
+**Setup.** The same three nodes and governance as T1, on real time. Two
+Fangs from A to B: S1 (encrypted TCP) and S2 (QUIC); when Y is the stopped
+node both are routed via Y. One node (A, B or Y, three runs each) is
+stopped with `SIGSTOP` on the `werewolfd` process itself and resumed with
+`SIGCONT`. Each run has four phases:
+
+- **idle 30 s** and **idle 300 s**: no transfer in flight. A governance
+  statement is applied at a peer before the stop so that the next
+  automatic sync has something to apply, and the stop begins while that
+  sync is due within 15 s, so it falls due during the pause.
+- **30 s during transfers**: a 512 MiB S2 transfer in flight across the
+  stop.
+- **300 s during transfers**: 512 MiB on S2 and on S1 in flight across the
+  stop.
+
+After every resume: `status` must answer; two new S1 opens (1 KiB echo)
+must succeed with matching hashes. A transfer stopped for 30 s may
+complete intact or end; one stopped for 300 s must end; no transfer may
+reach the outer bound (420 s), and none may complete with a hash
+mismatch.
+
+**Automatic sync.** The certification build's schedule (first run 5–30 s,
+interval 450–1350 s) cannot be made to fall due inside a pause
+deterministically, so this check uses a lab-build twin of the stopped node
+(`werewolfd` built with `lab-faults`, `acc56df9…a211`), in the same
+namespace on its own port with its own lab peer, a first run after 1 s and
+a fixed 60 s interval (`WEREWOLF_LAB_AUTO_SYNC_FIRST_MS`,
+`WEREWOLF_LAB_AUTO_SYNC_INTERVAL_MS`). It is stopped and resumed together
+with the certification node. After resume its status is polled every
+0.2 s for 20 s. PASS: exactly one run starts, within 5 s of resume, it
+applies the new statement, and the next run is due a fresh interval later
+(60 ± 2.5 s). Two or more runs is a burst and FAILs. The scheduler is the
+same code in both builds; only the timings come from the environment.
+
+### Certification
+
+`20261029T132555Z-time`, `main` at `22cee5c` plus the T1 harness and
+record (`1e3bc0d`, `c0706f0`) and the T2 harness (`138e1ef`);
+certification build `werewolfd` `6333a482…042c`, lab build
+`acc56df9…a211`; kernel 6.12.113. The provenance records the commit as
+`c0706f0` with `chaos.py` modified: the run started from the T2 harness
+before it was committed as `138e1ef`, with identical content.
+
+| Stopped node | Runs | Overdue automatic sync, both pauses | 30 s during transfers (S2) | 300 s during transfers (S2, S1) |
+|---|---|---|---|---|
+| A | 3 of 3 PASS | one run 0.2 s after resume, next due in 59 s; head as expected | 2 completed intact (38.0 s), 1 ended (reset, 31.0 s) | all ended at resume (reset, 301.0 s) |
+| B | 3 of 3 PASS | the same | 1 completed intact (52.2 s), 2 ended (reset, 31.0 s) | all ended during the pause: S2 at 31.0–41.0 s, S1 at 61.3–61.5 s |
+| Y | 3 of 3 PASS | the same | 1 completed intact through Y (76.6 s), 2 ended (reset, 30.9 s) | all ended during the pause: S2 at 30.9–41.0 s, S1 at 61.3 s |
+
+`status` answered within 4 ms after every resume (36 of 36); every new
+open succeeded (72 of 72); no transfer reached the outer bound and none
+completed with a mismatch; daemons alive after every run.
+
+When the stopped node is B or Y, the sessions end during the pause, at
+times consistent with QUIC's 30 s idle timeout (`QUIC_IDLE_TIMEOUT`) and
+encrypted TCP's 60 s `TCP_USER_TIMEOUT`. When A, the client's own node, is
+stopped, the far side ends them the same way and A sees the reset as soon
+as it resumes.
+
+**T2 is certified (9 of 9).** With T1, the Stage32 time campaign is
+complete.
