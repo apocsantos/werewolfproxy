@@ -119,6 +119,13 @@ def standard_mit_text(packages):
     fail("could not find a local copy of the standard MIT license text")
 
 
+def release_version():
+    for line in (ROOT / "packaging/release.env").read_text(encoding="utf-8").splitlines():
+        if line.startswith("RELEASE_VERSION="):
+            return line.split("=", 1)[1].strip()
+    fail("RELEASE_VERSION missing from packaging/release.env")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--sbom", type=Path, default=ROOT / "packaging/SBOM.json")
@@ -200,7 +207,7 @@ def main():
     )
 
     notices = [
-        "WerewolfProxy 1.0.0-rc.1 — third-party notices",
+        f"WerewolfProxy {release_version()} — third-party notices",
         "",
         "The SBOM lists every locked package. The included_in_linux_release field identifies the x86_64 release dependency closure; third-party license texts below cover that shipped closure.",
         "The following license and notice texts are copied from their published Cargo package sources. Identical text is included once; the owner index identifies every associated package. Where a crate declared an MIT alternative but its registry archive omitted the text, the standard MIT text is included with the crate author from its Cargo metadata.",
