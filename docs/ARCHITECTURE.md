@@ -1436,7 +1436,12 @@ It must not preserve:
 - credentials;
 - reconstructable operational state.
 
-The precise Tombstone format remains future protocol work.
+The format is specified by Stage30 ([spec](STAGE30_LIFECYCLE_SPEC.md)):
+strict canonical JSON of at most 8 KiB with the format and version, the
+kind (death or retirement), for a death the network ID, terminal sequence,
+terminal hash and the death statement, whether destruction completed, and
+the software that wrote it. It holds no key, Pack, roster, route, service
+or address.
 
 ---
 
@@ -1663,62 +1668,45 @@ This environment is important because Werewolf functionality must be tested as a
 
 ---
 
-# 44. Current service-transport maturity
+# 44. Service-transport maturity
 
-Already demonstrated:
+As of the 1.0.0-rc.2 candidate:
 
 ```text
-HTTP through Werewolf      ✅
-Generic TCP through Werewolf ✅
-TCP half-close correctness ✅
-QUIC transport             ✅
-encrypted TCP transport    ✅
-named local service registry CRUD ✅ (branch codex/stage23-service-registry)
+HTTP and generic TCP through Werewolf              ✅
+TCP half-close correctness                         ✅
+QUIC and encrypted TCP transports                  ✅ (Stage22R WAN, Stage32 sandbox)
+named services, daemon-native service.connect      ✅ (Stage23)
+service discovery and provider failover            ✅ (Stage25, Stage27)
+routing through one relay                          ✅ (Stage26)
 ```
 
 SSH integration exists as a gate and depends on availability of a local SSH service during testing.
 
 ---
 
-# 45. Current Service Registry development stage
+# 45. Service Registry
 
-At the current development point:
+Implemented in Stage23 ([CLI contract](V1_CLI_CONTRACT.md#services)):
+`ServiceDefinition`, `ServiceKind`, `services.json` restored at startup,
+`service add/remove/list/show/connect`, and since Stage27 an ordered list
+of providers per entry.
 
-Implemented:
-
-```text
-ServiceDefinition
-ServiceKind
-services.json startup restoration
-service.add
-service.remove
-service.list
-service.show
-```
-
-The persistent registry has been designed as:
+The registry is:
 
 ```text
 non-authoritative but durable
 ```
 
-Startup validation is fail-closed.
-
-CRUD persistence semantics are certified by tests: mutations persist
-`services.json` before publishing to live state, failed saves leave memory
-unchanged, and `service.add` does not require the peer to be a Pack member.
-
-The next immediate work is to implement daemon-native:
-
-```text
-service.connect <name>
-```
+Startup validation is fail-closed. Mutations persist `services.json`
+before publishing to live state, failed saves leave memory unchanged, and
+`service add` does not require the peer to be a Pack member.
 
 ---
 
-# 46. Intended service.connect architecture
+# 46. service.connect architecture
 
-The correct future path is:
+The implemented path:
 
 ```text
 werewolfctl service connect web --local-port 18087
@@ -1789,6 +1777,12 @@ Provider selection may eventually consider:
 
 But discovery still does not grant authorization.
 
+**Status (1.0.0-rc.2):** Stage25 implements publication to Pack members
+only, visible where the provider's Target Policy grants it, and Stage27
+an operator-ordered provider list. Advertising into an overlay beyond the
+Pack and selection by proximity, latency or reputation are not built and
+are outside the candidate's scope.
+
 ---
 
 # 48. Reputation and availability
@@ -1827,6 +1821,13 @@ can access final service?
 Routing eligibility and application authorization are separate concepts.
 
 This separation becomes especially important under multi-hop transport.
+
+**Status (1.0.0-rc.2):** Stage26 routes through exactly one relay, set by
+the operator. "Can route through B" is a Target Policy grant on B for the
+destination's listener address, deny by default but sharing one list with
+service grants; "can access the final service" stays the destination's
+own decision, end to end. Route discovery, automatic selection and more
+than one relay are not built.
 
 ---
 
@@ -2020,6 +2021,13 @@ Answers:
 ```text
 How are exceptional lifecycle changes authorized?
 ```
+
+Implemented as 7-of-10 signed statements (Stage28–30): genesis, key
+rotation, network revocation, admission, activation and death, applied in
+chain order, with forks fenced. Statements travel as files or by
+pull-only sync from Pack peers: manual after a genesis (Stage29),
+automatic on active, admitted nodes (Stage31). A genesis is only ever
+applied from a file, and death in effect travels only as a file.
 
 ## Lifecycle plane
 
@@ -2284,30 +2292,29 @@ Any future implementation should preserve the following rules:
 
 ---
 
-# 65. Current development direction
+# 65. Development direction
 
-The near-term engineering path remains:
+The path set out here from the Service Registry to terminal death is
+built. As of the 1.0.0-rc.2 candidate:
 
 ```text
-Service Registry CRUD certification
-        ↓
-daemon-native service.connect
-        ↓
-named HTTP/TCP/SSH service gates
-        ↓
-FindNode RPC over authenticated transport
-        ↓
-distributed peer discovery
-        ↓
-distributed service discovery
-        ↓
-multi-hop routing
-        ↓
-mature governance/lifecycle machinery
-        ↓
-root-unobtainium activation model
-        ↓
-terminal death / Tombstone protocol
+Service Registry, daemon-native service.connect   Stage23
+FindNode over authenticated transport            Stage24
+service discovery                                Stage25
+multi-hop routing (one relay)                    Stage26
+provider selection                               Stage27
+threshold governance                             Stage28
+admission, activation, sync                      Stage29
+lifecycle, death, Tombstone                      Stage30
+automatic governance sync                        Stage31
+robustness certification                         Stage32
 ```
 
-The implementation should evolve incrementally, but all stages should remain compatible with the final architecture described above.
+What this document still describes as future (an overlay beyond the
+Pack, KAD `STORE`, record relaying, route discovery and more than one
+relay, reputation, pairing, GUI and mobile, other platforms) is outside
+the architecture-complete scope of the candidate (Stage33 decision 1a)
+and listed in [Known limitations](../KNOWN_LIMITATIONS.md).
+
+Further work should still evolve incrementally and remain compatible with
+the final architecture described above.
