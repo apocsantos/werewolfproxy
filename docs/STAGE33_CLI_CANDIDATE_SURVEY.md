@@ -1,7 +1,8 @@
 # Stage33 CLI architecture-complete candidate — survey
 
-**Status: draft for the owner's decisions.** Docs only. No code, tag,
-archive or version change until the decisions below are reviewed.
+**Status: decisions accepted 2026-10-29, all as recommended (1a, 2a
+`1.0.0-rc.2` with 2-i, 3a, 4a, 5a, 6a, 7a, section 8; see
+[Decisions](#decisions-accepted-2026-10-29)).** Docs only.
 
 This is the last item on the owner's order (2026-10-26): Stage30
 lifecycle → Stage31 automatic sync → Stage32 robustness → **the CLI
@@ -231,3 +232,26 @@ KNOWN_LIMITATIONS:
 
 1a, 2a (`1.0.0-rc.2`) with 2-i, 3a, 4a, 5a, 6a, 7a, and section 8 as
 stated.
+
+## Decisions accepted 2026-10-29
+
+- **1a.** Architecture complete means what is claimed is built, certified
+  and documented; the future items of ARCHITECTURE are listed as outside
+  this scope.
+- **2a.** A frozen, audited, private candidate with archive, SBOM, tag
+  and audit record, named `1.0.0-rc.2`; rc.1 stays frozen as it is.
+- **2-i.** The Cargo package versions are aligned with the release
+  version (step 2).
+- **3a.** One consolidated CLI contract, behaviour unchanged; the wire
+  contract gains the Stage26 routed OPEN and the Stage29 governance RPC.
+- **4a.** Hidden commands stay hidden and unsupported, listed by name as
+  test-only. No code change.
+- **5a.** Every listed document brought up to the candidate in one
+  docs-only pass before the audit.
+- **6a.** The Stage21 gate set on the candidate archive, plus one WAN
+  smoke with disposable daemons.
+- **7a.** Upgrade test from the frozen rc.1 binaries, with the clean
+  refusal of a schema-2 Den by rc.1; `releases/` is never touched.
+- **Section 8** out of scope as stated.
+
+Step 2 is therefore 2-i only.
