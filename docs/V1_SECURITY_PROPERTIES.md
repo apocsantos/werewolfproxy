@@ -20,6 +20,16 @@
 | CLI provisioning | Supported local operations avoid protected JSON edits | Stage18, Stage19–20 |
 | Packaging | Linux x86_64 staging, upgrade and state-preserving uninstall | Stage19, Stage20 |
 | Adversarial soak | Recorded bounded campaigns; several chaos profiles were not run | Stage20 and Known limitations |
+| Named services | Intent only: resolved to peer and target, then every Pack, Target Policy and Silver check applies | Stage23 |
+| Discovery | Pack-only; signed, pinned contact records; never adds trust; withholding and stale records possible | Stage24 |
+| Service visibility | A published service is shown only where the same Target Policy check as OPEN grants it | Stage25 |
+| Routing | One relay; inner session pinned to and authorized by the destination; the relay authorizes only the listener address | Stage26, WAN checked |
+| Provider failover | Next provider only before establishment; each provider authorizes independently | Stage27, WAN checked |
+| Governance threshold | 7 of 10 Ed25519 signatures per statement; chain applied in order; forks fence and are never resolved automatically | Stage28 |
+| Roster and admission | After activation the roster bounds every Pack; an unadmitted node is fenced like Silver; not against root on its own host | Stage29, WAN checked |
+| Governance sync | Responders can withhold, never forge; statements verified against the node's own head; automatic sync changes when, not what | Stage29, Stage31 |
+| Death and retirement | Explicit only (7-of-10 statement or local retirement); terminal; DEAD committed before destruction; identity key destroyed first; bounded erasure claim | Stage30, real-host check |
+| Robustness | Integrity and fail-closed behaviour under netem impairment, wall-clock jumps and stalls, in a sandbox; documented limits | Stage32 and Known limitations |
 
 See individual stage records for test counts, fixture details and exact
 preconditions. This table does not expand a tested property beyond its stated
