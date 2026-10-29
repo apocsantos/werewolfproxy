@@ -18,6 +18,9 @@ use werewolf_core::pelt::PeltIdentity;
 /// is up; a dead path still ends it at that timeout.
 const QUIC_KEEP_ALIVE: Duration = Duration::from_secs(10);
 
+/// How often the initiator checks for the receiver's handshake confirmation.
+const CONFIRM_POLL: Duration = Duration::from_millis(5);
+
 pub async fn open_quic_fang(
     local_addr: String,
     quic_server: String,
@@ -142,6 +145,23 @@ pub(crate) fn client_endpoint(expected_peer: &ExpectedPeerIdentity) -> std::io::
     Ok(endpoint)
 }
 
+/// Waits until the receiver has confirmed the QUIC handshake (Stage32 F5).
+/// Quinn completes the initiator's handshake when it sends its Finished, but
+/// discards 1-RTT packets that reach the receiver before that Finished. On a
+/// reordering path the first application stream was lost that way, unacked,
+/// and the receiver's stream window closed before a retransmission. The
+/// receiver sends HANDSHAKE_DONE only after its own handshake completed;
+/// Quinn has no event for it, so this polls its frame counter.
+pub(crate) async fn handshake_confirmed(connection: &quinn::Connection) -> std::io::Result<()> {
+    while connection.stats().frame_rx.handshake_done == 0 {
+        if connection.close_reason().is_some() {
+            return Err(hs::rejected());
+        }
+        tokio::time::sleep(CONFIRM_POLL).await;
+    }
+    Ok(())
+}
+
 pub(crate) async fn connect_v3_on(
     endpoint: &Endpoint,
     address: SocketAddr,
@@ -161,6 +181,7 @@ pub(crate) async fn connect_v3_on(
         .map_err(|_| hs::rejected())?;
     let deadline = tokio::time::Instant::now() + hs::CLIENT_WINDOW;
     let result = tokio::time::timeout_at(deadline, async {
+        handshake_confirmed(&connection).await?;
         let binding = hs::quic_binding(&connection)?;
         let (mut send, mut recv) = connection.open_bi().await.map_err(|_| hs::rejected())?;
         let open = hs::QuicOpen::new(identity, &expected_peer.fingerprint, remote, &binding)?;
