@@ -582,3 +582,49 @@ F4 (`TCP_NODELAY` on encrypted-TCP sockets, #83, a separate
 improvement; `docs/STAGE32_F4_NODELAY.md`).
 
 The campaign resumes from S3-P6.
+
+### S3-P6 to S7-P3 (2026-10-29)
+
+Resumed from S3-P6 on `main` at `cc92359` (with F4, #83, and F5, #85),
+certification build `werewolfd` `6333a482…042c`; results
+`20261029T000321Z-network`.
+
+| Cells | Result |
+|---|---|
+| S3-P6 to S3-P9 | PASS |
+| S4-P0, P2, P3, P5, P7, P8 | PASS |
+| S5-P0, P2, P3, P5, P8 | PASS |
+| S6-P0, S6-P3 | PASS |
+| S6-P2 | EXCLUDED (run 3, below); runs 1 and 2 PASS |
+| S7-P0, P2, P3 | PASS |
+
+**S6-P2 run 3** (seed 2030), EXCLUDED, harness-affected: S6 fenced B a
+fixed 1.5 s after starting the transfer. Under 10% loss the
+encrypted-TCP session had not reached B by then (F1's setup pattern), so
+the Silver fence found no session to end (`active` 0, no target
+connection) and the harness could not establish that it ends one. What
+it could check held: an open while fenced was refused, one after the
+restore worked (hashes match), and in the same run the Pack revoke ended
+the active QUIC session at B in 0.009 s.
+
+**Owner decision (2026-10-29):** fix the S6 harness; rerun S6-P0, P2 and
+P3 in full; the exclusion stays in the record; if the 9 new runs pass,
+S6 is certified.
+
+**Harness fix:** S6 waits, up to 20 s, until B reports an active inbound
+session and a target connection, records when, then lets the transfer
+run 1.5 s before the fence, as before. A session that never becomes
+active stays EXCLUDED.
+
+**S6 rerun** (`20261029T115539Z-network`, harness at `901a443`, the same
+`werewolfd` build): **9 of 9 PASS.**
+
+| Profile | Session active at B after | B ended it after the fence | Open while fenced | Open after restore |
+|---|---|---|---|---|
+| P0 | 0.06 s (all) | 0.007–0.008 s | refused | works |
+| P2 | 0.06–0.46 s; seed 2030 Silver (TCP) 9.17 s | 0.007–0.010 s | refused | works |
+| P3 | 0.06–0.52 s | 0.007–0.012 s | refused | works |
+
+Daemons alive and no leaks after every run. **S6 is certified.**
+
+With this, every cell of the network matrix has a verdict.
