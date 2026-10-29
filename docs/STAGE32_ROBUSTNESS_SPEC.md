@@ -537,3 +537,48 @@ a path that crosses two jittered links.
 
 **Owner decision: EXCLUDED under F3** (QUIC throughput under reordering,
 documented limit). The campaign resumes from S3-P5.
+
+### S3-P5 (2026-10-28)
+
+Resumed from S3-P5 (`20261028T170755Z-network`, `main` at `21951cc`),
+harness verdict FAIL: 2 MiB (calibrated) through Y, 200 ± 100 ms jitter
+on the A–R and Y–R links. The TCP hop completed all three runs (64.1 s,
+50.5 s, 91.2 s; hashes match). The QUIC hop reached the 120 s bound on
+5010 and 5020, still progressing (1.98 MB and 1.95 MB echoed of 2.10
+MB), and on 5030 was reset at 7.30 s with nothing echoed.
+
+**Owner decision (F3 rule):** a routed QUIC-hop leg under P4, P5 or P6
+that reaches the outer bound while demonstrably progressing (an echoed
+byte in the last 10 s, every echoed byte equal to the data sent at its
+offset) with nothing else failing in the run (no corruption, crash,
+leak or security failure) is **EXCLUDED** under F3. Any other failure
+still stops the campaign. The harness enforces it: the client records
+the time of its last echoed byte and whether the echo matched the data
+sent, in order.
+
+**Rerun** (`20261028T192021Z-network`, harness with the rule; the same
+`werewolfd` build, `d7afa45d…bc68`):
+
+| Seed | QUIC hop | TCP hop | Run |
+|---|---|---|---|
+| 5010 | complete, 109.1 s, hashes match | complete, 40.3 s, hashes match | PASS |
+| 5020 | at the 120 s bound, 1.87 MB echoed, last echo at 119.35 s, in order | complete, 55.0 s, hashes match | EXCLUDED (F3) |
+| 5030 | reset at 7.20 s, nothing echoed | complete, 70.7 s, hashes match | PASS (a clean early end, §4.2) |
+
+Daemons alive and no leaks after every run. **S3-P5 is EXCLUDED under
+F3.**
+
+The seed 5030 reset recurred (4 of 5 runs of that seed, including
+diagnostic runs) and was diagnosed separately as **F5**: jitter put the
+initiator's first 1-RTT packet, the OPEN, ahead of its TLS Finished; the
+relay's QUIC stack discards 1-RTT packets while its handshake is still
+running, and the relay's 5 s stream window closed before a
+retransmission. A product defect, fail-closed, before authentication.
+Fix, owner decision 2026-10-28: the QUIC initiator waits for the
+receiver's handshake confirmation before opening its stream (separate
+PR, `docs/STAGE32_F5_QUIC_CONFIRM.md`). An earlier diagnosis of it as
+Nagle delay on the relay's encrypted-TCP leg was wrong; that work became
+F4 (`TCP_NODELAY` on encrypted-TCP sockets, #83, a separate
+improvement; `docs/STAGE32_F4_NODELAY.md`).
+
+The campaign resumes from S3-P6.

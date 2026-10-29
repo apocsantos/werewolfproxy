@@ -6,7 +6,8 @@
 Sends BYTES of deterministic data (derived from LABEL) while reading the
 echo, simultaneously, in one non-blocking loop, and prints one JSON line:
 bytes sent and received, the SHA-256 of each direction, the elapsed
-seconds, the time to the first echoed byte, and how the transfer ended.
+seconds, the times to the first and the last echoed byte, whether every
+echoed byte equals the data sent at its offset, and how the transfer ended.
 The only client-side deadline is TIMEOUT_S, the outer bound: nothing else
 in the client can end a transfer, so an early end is the connection's.
 """
@@ -23,7 +24,8 @@ def duplex(address, total, label, limit):
     block = hashlib.sha256(label.encode()).digest() * 2048  # 64 KiB
     sent, received = hashlib.sha256(), hashlib.sha256()
     n_sent = n_received = 0
-    first_echo = None
+    first_echo = last_echo = None
+    in_order = True
     error = None
     started = time.monotonic()
     deadline = started + limit
@@ -67,8 +69,12 @@ def duplex(address, total, label, limit):
                     if not data:
                         done = True
                         break
+                    last_echo = time.monotonic() - started
                     if first_echo is None:
-                        first_echo = time.monotonic() - started
+                        first_echo = last_echo
+                    offset = n_received % len(block)
+                    expected = (block[offset:] + block * (len(data) // len(block) + 1))[:len(data)]
+                    in_order = in_order and data == expected
                     received.update(data)
                     n_received += len(data)
             if done:
@@ -87,6 +93,8 @@ def duplex(address, total, label, limit):
             'match': complete and sent.digest() == received.digest(),
             'complete': complete, 'elapsed_s': round(elapsed, 3),
             'first_echo_s': None if first_echo is None else round(first_echo, 3),
+            'last_echo_s': None if last_echo is None else round(last_echo, 3),
+            'echo_in_order': in_order,
             'error': error}
 
 
