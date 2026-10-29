@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "werewolf-core"
-version = "0.1.0"
+version = "1.0.0-rc.2"
 dependencies = [
  "base64",
  "blake3",
@@ -1693,7 +1693,7 @@ dependencies = [
 
 [[package]]
 name = "werewolfctl"
-version = "0.1.0"
+version = "1.0.0-rc.2"
 dependencies = [
  "clap",
  "ed25519-dalek",
@@ -1704,7 +1704,7 @@ dependencies = [
 
 [[package]]
 name = "werewolfd"
-version = "0.1.0"
+version = "1.0.0-rc.2"
 dependencies = [
  "base64",
  "blake3",
