@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0-rc.2
+
+Architecture-complete candidate (Stage33) after Stage22R–32: named
+services, Pack-only discovery, one-relay routing, provider failover,
+7-of-10 governance with admission, activation and sync, death, retirement
+and the Tombstone, automatic governance sync, and the Stage32 robustness
+fixes (F1, F4, F5). rustls 0.23.46 remediates four advisories. See the
+[release notes](RELEASE_NOTES_1.0.0-rc.2.md).
+
 ## 1.0.0-rc.1
 
 First formal Linux x86_64 release candidate after Stage9–20 security,

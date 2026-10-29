@@ -1,5 +1,5 @@
 {
-  "cargo_lock_sha256": "fbc16d90daaf58ba7f3f32f10615f8521103a5c019f98132ee37c36928458704",
+  "cargo_lock_sha256": "fc7f0dd54e9e138027a4f389bf2a0f1faf04efc2a0f290284e82459d9fa69c23",
   "components": [
     {
       "checksum": "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0",
@@ -1361,7 +1361,7 @@
       "version": "1.1.4"
     },
     {
-      "checksum": "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634",
+      "checksum": "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf",
       "dependency_type": "direct",
       "direct_for": [
         "werewolfd"
@@ -1372,7 +1372,7 @@
       "name": "rustls",
       "repository": "https://github.com/rustls/rustls",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.23.45"
+      "version": "0.23.46"
     },
     {
       "checksum": "612460d5f7bea540c490b2b6395d8e34a953e52b491accd6c86c8164c5932a63",
@@ -1687,8 +1687,10 @@
     },
     {
       "checksum": "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e",
-      "dependency_type": "transitive",
-      "direct_for": [],
+      "dependency_type": "direct",
+      "direct_for": [
+        "werewolfd"
+      ],
       "included_in_linux_release": true,
       "license": "MIT OR Apache-2.0",
       "license_file": null,
@@ -2231,7 +2233,7 @@
       "name": "werewolf-core",
       "repository": null,
       "source": "workspace path dependency",
-      "version": "0.1.0"
+      "version": "1.0.0-rc.2"
     },
     {
       "checksum": null,
@@ -2243,7 +2245,7 @@
       "name": "werewolfctl",
       "repository": null,
       "source": "workspace path dependency",
-      "version": "0.1.0"
+      "version": "1.0.0-rc.2"
     },
     {
       "checksum": null,
@@ -2255,7 +2257,7 @@
       "name": "werewolfd",
       "repository": null,
       "source": "workspace path dependency",
-      "version": "0.1.0"
+      "version": "1.0.0-rc.2"
     },
     {
       "checksum": "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22",
