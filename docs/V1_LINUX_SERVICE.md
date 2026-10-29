@@ -8,8 +8,9 @@ local Unix control socket.
 
 The vendor unit uses StateDirectory=werewolfproxy (persistent /var/lib state),
 RuntimeDirectory=werewolfproxy (recreated under /run), UMask=0077,
-LimitNOFILE=4096, Restart=on-failure with delay and start limiting, and a
-10-second systemd stop timeout. It enables NoNewPrivileges, an empty capability
+LimitNOFILE=4096, Restart=on-failure with delay and start limiting
+(`RestartPreventExitStatus=64 65 66 67 69`), and a 10-second systemd stop
+timeout. It enables NoNewPrivileges, an empty capability
 set, PrivateTmp, ProtectSystem=strict, ProtectHome, kernel/control-group
 protections, set-id/realtime restrictions, LockPersonality,
 MemoryDenyWriteExecute and native syscall architecture restriction. The
@@ -21,6 +22,12 @@ configured profiles and binds required secure listeners before READY. Silver
 LOCKED is a valid administrative state; control remains available and
 forwarding is fenced. Missing Pelt leaves secure listeners waiting and does not
 generate identity. Manifest inconsistency fails closed at startup.
+
+Stage30: startup checks for a Tombstone before loading any state. On a Den
+holding one, the daemon finishes or verifies destruction and exits 67
+(`TOMBSTONE`), binding nothing; a malformed Tombstone exits 65. A death or
+retirement applied while running ends the same way. The unit does not
+restart on either, so a dead node stays down.
 
 SIGTERM and foreground SIGINT use the same bounded owned-task shutdown. SIGHUP
 does not reload configuration. SIGKILL cannot run cleanup; OS lock release,

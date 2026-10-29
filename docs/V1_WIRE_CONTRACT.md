@@ -2,6 +2,8 @@
 
 This is a compatibility freeze for the accepted secure forwarding transports.
 It records the Stage10/12 behavior; it does not define another protocol.
+The sections for Stage24–29 below cover every message the `1.0.0-rc.2`
+candidate sends beyond it; each refers to its own exact specification.
 
 ## Secure transport generations and authentication
 
@@ -69,6 +71,38 @@ Policy would grant that requester. Receivers without it reject the unknown
 `op` like any invalid RPC. The exact rules are in the
 [Stage25 services RPC wire specification](STAGE25_SERVICES_RPC_WIRE_SPEC.md).
 
+## Stage26 extension: routed sessions
+
+A routed Fang ([Stage26 design](STAGE26_MULTIHOP_ROUTING_DESIGN.md),
+decision 1A) adds no message and no field. The requester opens an ordinary
+session (QUIC or encrypted TCP) to the relay whose OPEN target is the
+destination's encrypted-TCP listener `IP:port`; the relay authorizes that
+target exactly like any other, with its Target Policy. Over that byte
+stream the requester runs the unchanged encrypted-TCP client protocol to
+the destination: TLS pinned to the destination's Pelt, its challenge, the
+requester's signed OPEN for the real target, ACK and framed AEAD data. The
+destination authorizes the requester end to end; the relay can deny, delay
+or drop, never impersonate the destination or widen the requester's access.
+Discovery and governance RPCs to a routed member travel the same way.
+
+## Stage29 extension: governance RPC
+
+Stage29 adds one `op` value, `governance`, to the Stage24 RPC on both
+transports. `TG` is the requester's current governance head hash and `K`
+is 1 to 4; the result's records are Stage28/29 statement encodings that
+follow that head in the responder's applied chain, in order, read from its
+statement archive and stopping at the first gap. A responder without a
+head, or that never applied `TG`, returns zero records and says nothing
+about why. Messages, transcript domains and signatures are the Stage24 ones
+unchanged, so a `governance` result cannot stand for another op or head.
+It is read-only: no target, no authority lease, no state change on the
+responder and no trust. The requester rejects a result that is malformed
+or does not chain from `TG`, and applies a statement only if it verifies
+with seven governance signatures against its own head, through the same
+path as a file. Receivers without it reject the unknown `op` like any
+invalid RPC. The exact rules and limits are in the
+[Stage29 governance RPC specification](STAGE29_GOVERNANCE_RPC_WIRE_SPEC.md).
+
 ## Fallback and time/resource behavior
 
 The default secure selector (secure/strict) tries QUIC secure, encrypted TCP
@@ -81,6 +115,14 @@ The application handshake is subject to finite deadlines and resource caps.
 Timeout or saturation can close incomplete/abusive sessions earlier. Valid
 admitted sessions retain the same wire semantics. Stage16 documents exact
 compiled limits. QUIC has no application-authorization 0-RTT path.
+
+Three Stage32 fixes alter timing only, never a message: the encrypted-TCP
+initiator of a direct Fang or of failover's encrypted-TCP leg retries its
+setup once, on a fresh connection, if it fails before the first byte of
+the receiver's challenge ([F1](STAGE32_F1_SETUP_RETRY.md)); encrypted-TCP
+sockets set `TCP_NODELAY` ([F4](STAGE32_F4_NODELAY.md)); and the QUIC
+initiator opens its stream only after the receiver has confirmed the
+handshake, HANDSHAKE_DONE ([F5](STAGE32_F5_QUIC_CONFIRM.md)).
 
 ## Wire opacity
 

@@ -10,8 +10,8 @@ installer writes system paths but does not enable the service or create an
 identity. For this walk-through, use the installed binaries directly with
 explicit private Den and runtime paths:
 
-    tar -xzf werewolfproxy-1.0.0-rc.1-linux-x86_64.tar.gz
-    cd werewolfproxy-1.0.0-rc.1-linux-x86_64
+    tar -xzf werewolfproxy-1.0.0-rc.2-linux-x86_64.tar.gz
+    cd werewolfproxy-1.0.0-rc.2-linux-x86_64
     sha256sum -c SHA256SUMS
     sudo ./install.sh
     umask 077
@@ -86,3 +86,44 @@ pack remove to revoke a peer; the daemon installs a runtime denial fence
 before persisting the change. To stop the foreground daemon, send SIGTERM or
 press Ctrl-C. For backup and system-service operation, follow
 packaging/INSTALL.md.
+
+## Named services
+
+Instead of a Fang per port, name the target once and connect by name. The
+name is intent only; B's grant above still decides access:
+
+    werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" service add example node-b 127.0.0.1:7000 tcp
+    werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" service connect example --local-port 17002
+
+B can also publish the target, so that A fetches the entry instead of
+typing it. A sees it only because B's Target Policy grants A that target:
+
+    werewolfctl --socket "$HOME/.local/run/werewolf-b/control.sock" service publish echo 127.0.0.1:7000 tcp
+    werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" discover services
+    werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" service add echo --from node-b
+
+`--from` copies the entry under its published name, `echo`.
+
+## A third node through a relay
+
+If A cannot reach a node C directly but B can, route A's sessions to C
+through B. A and C need each other in their Packs as usual, with C's
+encrypted-TCP listener (`tcp://C_ADDRESS:8443`) as its address on A, and C
+authorizes A for its own targets. On B, grant A C's listener address:
+
+    werewolfctl --socket "$HOME/.local/run/werewolf-b/control.sock" target allow A_FINGERPRINT C_ADDRESS:8443
+    werewolfctl --socket "$HOME/.local/run/werewolf-a/control.sock" route set node-c --via node-b
+
+Fangs and services to node-c now go through B. B learns that A talks to C
+and how much, not the target or the payload.
+
+## Governance and retirement
+
+A network of nodes can be put under 7-of-10 governance (genesis,
+admission, activation, revocation, death), with statements prepared
+offline by the key holders and applied on each node, and fetched
+automatically from Pack peers once the network is active. A single node can
+be retired with `den retire`, which destroys its identity and Den and is
+irreversible. Both are described in the CLI contract
+(`docs/V1_CLI_CONTRACT.md` in the source tree); read it before a genesis,
+which cannot be undone.

@@ -48,6 +48,49 @@ different ports, switching transport means changing the address with
 Changing a Pack member's address invalidates its active Fangs; they are not
 live-refreshed onto the new endpoint (Stage22R LC-01).
 
+## Routed sessions and providers
+
+A Pack member can be reached through one relay, set with `route set PEER
+--via RELAY [--hop quic|tcp]` (Stage26). The Fang opens an ordinary session
+to the relay over the route's hop, whose target is the destination's
+encrypted-TCP listener, and runs the unchanged encrypted-TCP session to
+the destination inside it:
+
+```text
+A ──[outer: QUIC or encrypted TCP, A↔B keys]── B ──[plain TCP]── D:8443
+   └──────────[inner: encrypted TCP, TLS pinned to D, A↔D keys]──────────┘
+```
+
+No message is added: the relay authorizes the destination's listener with
+its own Target Policy, and the destination authorizes the requester end to
+end. The inner session is always encrypted TCP; the hop chooses the outer
+transport, so `--transport` selects nothing for a routed peer and
+`tcp-plain` is refused. A failure at either hop resets the local
+connection. Exactly one relay: a relay cannot itself be routed and a
+routed peer cannot relay. The relay learns the requester's identity, the
+destination's listener address and the session's timing and volume, not
+the service, the target or the payload.
+
+A service with several providers (Stage27) tries them in order for each
+local connection, each through its own direct or routed session, and moves
+to the next only while the current one has not yet been established
+(unreachable, TLS pin mismatch, OPEN refused); after a verified ACK, a
+failure resets the connection. One connection has 15 s to find a provider.
+
+## Setup under loss and reordering
+
+Stage32 found and fixed two setup failures, both on the initiator and
+neither changing a message:
+
+- **Encrypted TCP** retries its setup once, on a new connection, if it
+  fails before the first byte of the receiver's challenge (F1). The
+  receiver's 5 s setup window is unchanged. Encrypted-TCP sockets also set
+  `TCP_NODELAY` (F4), so small handshake writes are not held back.
+- **QUIC** opens its stream only after the receiver has confirmed the
+  handshake (HANDSHAKE_DONE). Before that, the receiver discards 1-RTT
+  packets, and a reordered OPEN could be lost (F5). This costs about one
+  round trip per session setup.
+
 ## Idle sessions and liveness
 
 An idle Fang session stays open while the path and peer are alive:
@@ -65,6 +108,14 @@ about 30 s on QUIC (Stage16: no keep-alive) and 60 s on encrypted TCP (a
 per-frame read timeout), which broke idle interactive sessions such as SSH.
 Keep-alive PINGs and TCP probes are additional observable traffic; they do
 not change any frame format or handshake.
+
+Stage32 certified these limits under impairment: a session whose data
+stays unacknowledged for 60 s (encrypted TCP) or that hears nothing for
+30 s (QUIC) ends, including when a peer process is stopped that long, and
+QUIC reads reordering as loss, so its throughput under jitter is about a
+third of encrypted TCP's. A QUIC stream carries at most 64 KiB per round
+trip, the cost of its receive-window memory bound. See
+[Known limitations](KNOWN_LIMITATIONS.md).
 
 ## Abnormal session end
 
@@ -117,3 +168,8 @@ The code currently dispatches on a `FangTransport { Tcp, Quic }` enum and a
 - Stage22/22R real-WAN validation of QUIC and encrypted TCP: sustained
   full-duplex integrity, receiver/initiator restart, hard crash and hard path
   loss. See the [documentation index](docs/INDEX.md).
+- Stage26 and Stage27 lab gates and real-WAN checks of routed sessions and
+  provider failover.
+- Stage32 sandbox certification under netem loss, jitter, reordering,
+  duplication, corruption and rate limits, on both transports, direct and
+  routed ([spec and record](docs/STAGE32_ROBUSTNESS_SPEC.md)).

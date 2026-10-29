@@ -1,6 +1,7 @@
 # Security reporting
 
-WerewolfProxy 1.0.0-rc.1 is a Linux x86_64 release candidate. Please include
+WerewolfProxy 1.0.0-rc.2, in preparation, is the next Linux x86_64 release
+candidate; 1.0.0-rc.1 is the frozen one. Please include
 the version, platform, transport, relevant configuration shape, and a minimal
 reproduction. Do not include Pelt private files, session secrets, TLS key
 material, or application payloads.
@@ -24,5 +25,6 @@ Stage20S separately certified the remediation; the RC1 dependency graph uses
 rustls 0.23.45 and rustls-webpki 0.103.15. The technical reproduction,
 regression result, audit date and scope are recorded in the
 [Stage20S remediation certification](docs/STAGE20S_RUSTLS_2026_0285_REMEDIATION.md).
-This record describes the audit performed for this candidate and does not
-make a claim about future advisories.
+This record describes the audit performed for that candidate and does not
+make a claim about future advisories. The 1.0.0-rc.2 advisory audit is part
+of its Stage33 candidate audit, run on the final release inputs.

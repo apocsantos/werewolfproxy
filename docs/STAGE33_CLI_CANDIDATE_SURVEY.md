@@ -222,9 +222,9 @@ KNOWN_LIMITATIONS:
 
 | Step | Scope |
 |---|---|
-| 1 | This survey; decisions |
-| 2 | Code changes the decisions require (2-i, 4b), each its own PR |
-| 3 | Documents (5a), docs only |
+| 1 | This survey; decisions (done 2026-10-29) |
+| 2 | Code changes the decisions require (2-i, 4b), each its own PR (done: 2-i only, as 4a was chosen) |
+| 3 | Documents (5a), docs only (done; also the persistence, Linux service and cryptography contracts, which had the same gaps) |
 | 4 | Release inputs, archive, gates (6), upgrade test (7); audit record `STAGE33_CANDIDATE_AUDIT.md` |
 | 5 | Tag and freeze, on the owner's word |
 
