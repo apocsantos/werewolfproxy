@@ -1,5 +1,5 @@
 {
-  "cargo_lock_sha256": "fc7f0dd54e9e138027a4f389bf2a0f1faf04efc2a0f290284e82459d9fa69c23",
+  "cargo_lock_sha256": "a191a20e0e943f726884f5965b93814df4c59145d170de66e3b554ab0b36d27b",
   "components": [
     {
       "checksum": "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0",
@@ -224,18 +224,6 @@
       "version": "1.2.62"
     },
     {
-      "checksum": "6d43a04d8753f35258c91f8ec639f792891f748a1edbd759cf1dcea3382ad83c",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": false,
-      "license": "Apache-2.0/MIT",
-      "license_file": null,
-      "name": "cesu8",
-      "repository": "https://github.com/emk/cesu8-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "1.1.0"
-    },
-    {
       "checksum": "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801",
       "dependency_type": "transitive",
       "direct_for": [],
@@ -258,6 +246,18 @@
       "repository": "https://github.com/katharostech/cfg_aliases",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.2.1"
+    },
+    {
+      "checksum": "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06",
+      "dependency_type": "transitive",
+      "direct_for": [],
+      "included_in_linux_release": true,
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "name": "chacha20",
+      "repository": "https://github.com/RustCrypto/stream-ciphers",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.10.2"
     },
     {
       "checksum": "c3613f74bd2eac03dad61bd53dbe620703d4371614fe0bc3b9f04dd36fe4e818",
@@ -593,7 +593,7 @@
       "version": "0.3.14"
     },
     {
-      "checksum": "4e7f34442dbe69c60fe8eaf58a8cafff81a1f278816d8ab4db255b3bef4ac3c4",
+      "checksum": "ef975e30683b2d965054bb0a836f8973857c4ebf6acf274fe46617cd285060d8",
       "dependency_type": "transitive",
       "direct_for": [],
       "included_in_linux_release": true,
@@ -602,7 +602,7 @@
       "name": "fastbloom",
       "repository": "https://github.com/tomtomwombat/fastbloom/",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.14.1"
+      "version": "0.17.0"
     },
     {
       "checksum": "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6",
@@ -639,6 +639,18 @@
       "repository": "https://github.com/rust-lang/cc-rs",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.1.9"
+    },
+    {
+      "checksum": "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb",
+      "dependency_type": "transitive",
+      "direct_for": [],
+      "included_in_linux_release": true,
+      "license": "Zlib",
+      "license_file": null,
+      "name": "foldhash",
+      "repository": "https://github.com/orlp/foldhash",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.2.0"
     },
     {
       "checksum": "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c",
@@ -716,13 +728,25 @@
       "checksum": "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd",
       "dependency_type": "transitive",
       "direct_for": [],
-      "included_in_linux_release": true,
+      "included_in_linux_release": false,
       "license": "MIT OR Apache-2.0",
       "license_file": null,
       "name": "getrandom",
       "repository": "https://github.com/rust-random/getrandom",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.3.4"
+    },
+    {
+      "checksum": "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099",
+      "dependency_type": "transitive",
+      "direct_for": [],
+      "included_in_linux_release": true,
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "name": "getrandom",
+      "repository": "https://github.com/rust-random/getrandom",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.4.3"
     },
     {
       "checksum": "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a",
@@ -797,28 +821,28 @@
       "version": "1.0.18"
     },
     {
-      "checksum": "1a87aa2bb7d2af34197c04845522473242e1aa17c12f4935d5856491a7fb8c97",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": false,
-      "license": "MIT/Apache-2.0",
-      "license_file": null,
-      "name": "jni",
-      "repository": "https://github.com/jni-rs/jni-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.21.1"
-    },
-    {
-      "checksum": "41a652e1f9b6e0275df1f15b32661cf0d4b78d4d87ddec5e0c3c20f097433258",
+      "checksum": "5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498",
       "dependency_type": "transitive",
       "direct_for": [],
       "included_in_linux_release": false,
       "license": "MIT OR Apache-2.0",
       "license_file": null,
-      "name": "jni-sys",
-      "repository": "https://github.com/jni-rs/jni-sys",
+      "name": "jni",
+      "repository": "https://github.com/jni-rs/jni-rs",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.3.1"
+      "version": "0.22.4"
+    },
+    {
+      "checksum": "a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3",
+      "dependency_type": "transitive",
+      "direct_for": [],
+      "included_in_linux_release": false,
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "name": "jni-macros",
+      "repository": "https://github.com/jni-rs/jni-rs",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.22.4"
     },
     {
       "checksum": "c6377a88cb3910bee9b0fa88d4f42e1d2da8e79915598f65fb0c7ee14c878af2",
@@ -1133,6 +1157,18 @@
       "version": "0.8.0"
     },
     {
+      "checksum": "05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85",
+      "dependency_type": "transitive",
+      "direct_for": [],
+      "included_in_linux_release": true,
+      "license": "Apache-2.0 OR MIT",
+      "license_file": null,
+      "name": "portable-atomic",
+      "repository": "https://github.com/taiki-e/portable-atomic",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.15.0"
+    },
+    {
       "checksum": "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391",
       "dependency_type": "transitive",
       "direct_for": [],
@@ -1143,18 +1179,6 @@
       "repository": "https://github.com/jhpratt/powerfmt",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.2.0"
-    },
-    {
-      "checksum": "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": true,
-      "license": "MIT OR Apache-2.0",
-      "license_file": null,
-      "name": "ppv-lite86",
-      "repository": "https://github.com/cryptocorrosion/cryptocorrosion",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.2.21"
     },
     {
       "checksum": "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934",
@@ -1169,7 +1193,7 @@
       "version": "1.0.106"
     },
     {
-      "checksum": "b9e20a958963c291dc322d98411f541009df2ced7b5a4f2bd52337638cfccf20",
+      "checksum": "4051e23e9185c255a7e33ef59cdbca87a22d359052eecd22fc6b901fb37d9d11",
       "dependency_type": "direct",
       "direct_for": [
         "werewolfd"
@@ -1180,10 +1204,10 @@
       "name": "quinn",
       "repository": "https://github.com/quinn-rs/quinn",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.11.9"
+      "version": "0.11.12"
     },
     {
-      "checksum": "4fcb935c5bec503c2f0e306bdd3e58bb9029dcb14fa8d9ac76e3a5256ac0763e",
+      "checksum": "a9746dbde176634f4f2f1faf2404e30a31b2bc1e9cafb5329c95d8177a18c9fc",
       "dependency_type": "transitive",
       "direct_for": [],
       "included_in_linux_release": true,
@@ -1192,7 +1216,7 @@
       "name": "quinn-proto",
       "repository": "https://github.com/quinn-rs/quinn",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.11.15"
+      "version": "0.11.18"
     },
     {
       "checksum": "addec6a0dcad8a8d96a771f815f0eaf55f9d1805756410b39f5fa81332574cbd",
@@ -1231,7 +1255,19 @@
       "version": "5.3.0"
     },
     {
-      "checksum": "44c5af06bb1b7d3216d91932aed5265164bf384dc89cd6ba05cf59a35f5f76ea",
+      "checksum": "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf",
+      "dependency_type": "transitive",
+      "direct_for": [],
+      "included_in_linux_release": false,
+      "license": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+      "license_file": null,
+      "name": "r-efi",
+      "repository": "https://github.com/r-efi/r-efi",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "6.0.0"
+    },
+    {
+      "checksum": "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af",
       "dependency_type": "transitive",
       "direct_for": [],
       "included_in_linux_release": true,
@@ -1240,19 +1276,22 @@
       "name": "rand",
       "repository": "https://github.com/rust-random/rand",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.9.4"
+      "version": "0.10.3"
     },
     {
-      "checksum": "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb",
-      "dependency_type": "transitive",
-      "direct_for": [],
+      "checksum": "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69",
+      "dependency_type": "direct",
+      "direct_for": [
+        "werewolf-core",
+        "werewolfd"
+      ],
       "included_in_linux_release": true,
       "license": "MIT OR Apache-2.0",
       "license_file": null,
-      "name": "rand_chacha",
-      "repository": "https://github.com/rust-random/rand",
+      "name": "rand_core",
+      "repository": "https://github.com/rust-random/rand_core",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.9.0"
+      "version": "0.10.1"
     },
     {
       "checksum": "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c",
@@ -1270,19 +1309,16 @@
       "version": "0.6.4"
     },
     {
-      "checksum": "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c",
-      "dependency_type": "direct",
-      "direct_for": [
-        "werewolf-core",
-        "werewolfd"
-      ],
+      "checksum": "caa0f4137e1c0a72f4c651489402276c8e8e1cf081f3b0ba156d2cbeef09e86a",
+      "dependency_type": "transitive",
+      "direct_for": [],
       "included_in_linux_release": true,
       "license": "MIT OR Apache-2.0",
       "license_file": null,
-      "name": "rand_core",
-      "repository": "https://github.com/rust-random/rand",
+      "name": "rand_pcg",
+      "repository": "https://github.com/rust-random/rngs",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.9.5"
+      "version": "0.10.2"
     },
     {
       "checksum": "75e669e5202259b5314d1ea5397316ad400819437857b90861765f24c4cf80a2",
@@ -1399,7 +1435,7 @@
       "version": "1.14.1"
     },
     {
-      "checksum": "1d99feebc72bae7ab76ba994bb5e121b8d83d910ca40b36e0921f53becc41784",
+      "checksum": "1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98",
       "dependency_type": "transitive",
       "direct_for": [],
       "included_in_linux_release": true,
@@ -1408,10 +1444,10 @@
       "name": "rustls-platform-verifier",
       "repository": "https://github.com/rustls/rustls-platform-verifier",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.6.2"
+      "version": "0.7.1"
     },
     {
-      "checksum": "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f",
+      "checksum": "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f",
       "dependency_type": "transitive",
       "direct_for": [],
       "included_in_linux_release": false,
@@ -1420,10 +1456,10 @@
       "name": "rustls-platform-verifier-android",
       "repository": "https://github.com/rustls/rustls-platform-verifier",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.1.1"
+      "version": "0.2.0"
     },
     {
-      "checksum": "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2",
+      "checksum": "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281",
       "dependency_type": "direct",
       "direct_for": [
         "werewolfd"
@@ -1434,7 +1470,7 @@
       "name": "rustls-webpki",
       "repository": "https://github.com/rustls/webpki",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.103.15"
+      "version": "0.103.16"
     },
     {
       "checksum": "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d",
@@ -1648,6 +1684,30 @@
       "repository": "https://github.com/RustCrypto/traits/tree/master/signature",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "2.2.0"
+    },
+    {
+      "checksum": "11031e251abf8611c80f460e19dbdeb54a66db918e49c65a7065b46ac7aec520",
+      "dependency_type": "transitive",
+      "direct_for": [],
+      "included_in_linux_release": false,
+      "license": "Apache-2.0 OR MIT",
+      "license_file": null,
+      "name": "simd_cesu8",
+      "repository": "https://github.com/seancroach/simd_cesu8",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.2.0"
+    },
+    {
+      "checksum": "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e",
+      "dependency_type": "transitive",
+      "direct_for": [],
+      "included_in_linux_release": false,
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "name": "simdutf8",
+      "repository": "https://github.com/rusticstuff/simdutf8",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.1.5"
     },
     {
       "checksum": "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649",
@@ -2209,7 +2269,7 @@
       "version": "1.1.0"
     },
     {
-      "checksum": "f31141ce3fc3e300ae89b78c0dd67f9708061d1d2eda54b8209346fd6be9a92c",
+      "checksum": "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb",
       "dependency_type": "transitive",
       "direct_for": [],
       "included_in_linux_release": false,
@@ -2218,7 +2278,7 @@
       "name": "webpki-root-certs",
       "repository": "https://github.com/rustls/webpki-roots",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "1.0.7"
+      "version": "1.0.10"
     },
     {
       "checksum": null,
@@ -2284,18 +2344,6 @@
       "version": "0.2.1"
     },
     {
-      "checksum": "75283be5efb2831d37ea142365f009c02ec203cd29a3ebecbc093d52315b66d0",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": false,
-      "license": "MIT OR Apache-2.0",
-      "license_file": null,
-      "name": "windows-sys",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.45.0"
-    },
-    {
       "checksum": "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d",
       "dependency_type": "transitive",
       "direct_for": [],
@@ -2332,18 +2380,6 @@
       "version": "0.61.2"
     },
     {
-      "checksum": "8e5180c00cd44c9b1c88adb3693291f1cd93605ded80c250a75d472756b4d071",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": false,
-      "license": "MIT OR Apache-2.0",
-      "license_file": null,
-      "name": "windows-targets",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.42.2"
-    },
-    {
       "checksum": "9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973",
       "dependency_type": "transitive",
       "direct_for": [],
@@ -2366,18 +2402,6 @@
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.53.5"
-    },
-    {
-      "checksum": "597a5118570b68bc08d8d59125332c54f1ba9d9adeedeef5b99b02ba2b0698f8",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": false,
-      "license": "MIT OR Apache-2.0",
-      "license_file": null,
-      "name": "windows_aarch64_gnullvm",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.42.2"
     },
     {
       "checksum": "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3",
@@ -2404,18 +2428,6 @@
       "version": "0.53.1"
     },
     {
-      "checksum": "e08e8864a60f06ef0d0ff4ba04124db8b0fb3be5776a5cd47641e942e58c4d43",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": false,
-      "license": "MIT OR Apache-2.0",
-      "license_file": null,
-      "name": "windows_aarch64_msvc",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.42.2"
-    },
-    {
       "checksum": "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469",
       "dependency_type": "transitive",
       "direct_for": [],
@@ -2438,18 +2450,6 @@
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.53.1"
-    },
-    {
-      "checksum": "c61d927d8da41da96a81f029489353e68739737d3beca43145c8afec9a31a84f",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": false,
-      "license": "MIT OR Apache-2.0",
-      "license_file": null,
-      "name": "windows_i686_gnu",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.42.2"
     },
     {
       "checksum": "8e9b5ad5ab802e97eb8e295ac6720e509ee4c243f69d781394014ebfe8bbfa0b",
@@ -2500,18 +2500,6 @@
       "version": "0.53.1"
     },
     {
-      "checksum": "44d840b6ec649f480a41c8d80f9c65108b92d89345dd94027bfe06ac444d1060",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": false,
-      "license": "MIT OR Apache-2.0",
-      "license_file": null,
-      "name": "windows_i686_msvc",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.42.2"
-    },
-    {
       "checksum": "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66",
       "dependency_type": "transitive",
       "direct_for": [],
@@ -2534,18 +2522,6 @@
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.53.1"
-    },
-    {
-      "checksum": "8de912b8b8feb55c064867cf047dda097f92d51efad5b491dfb98f6bbb70cb36",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": false,
-      "license": "MIT OR Apache-2.0",
-      "license_file": null,
-      "name": "windows_x86_64_gnu",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.42.2"
     },
     {
       "checksum": "147a5c80aabfbf0c7d901cb5895d1de30ef2907eb21fbbab29ca94c5b08b1a78",
@@ -2572,18 +2548,6 @@
       "version": "0.53.1"
     },
     {
-      "checksum": "26d41b46a36d453748aedef1486d5c7a85db22e56aff34643984ea85514e94a3",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": false,
-      "license": "MIT OR Apache-2.0",
-      "license_file": null,
-      "name": "windows_x86_64_gnullvm",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.42.2"
-    },
-    {
       "checksum": "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d",
       "dependency_type": "transitive",
       "direct_for": [],
@@ -2606,18 +2570,6 @@
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.53.1"
-    },
-    {
-      "checksum": "9aec5da331524158c6d1a4ac0ab1541149c0b9505fde06423b02f5ef0106b9f0",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": false,
-      "license": "MIT OR Apache-2.0",
-      "license_file": null,
-      "name": "windows_x86_64_msvc",
-      "repository": "https://github.com/microsoft/windows-rs",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.42.2"
     },
     {
       "checksum": "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec",
@@ -2692,30 +2644,6 @@
       "repository": "https://github.com/qnighy/yasna.rs",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.5.2"
-    },
-    {
-      "checksum": "eed437bf9d6692032087e337407a86f04cd8d6a16a37199ed57949d415bd68e9",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": true,
-      "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
-      "license_file": null,
-      "name": "zerocopy",
-      "repository": "https://github.com/google/zerocopy",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.8.48"
-    },
-    {
-      "checksum": "70e3cd084b1788766f53af483dd21f93881ff30d7320490ec3ef7526d203bad4",
-      "dependency_type": "transitive",
-      "direct_for": [],
-      "included_in_linux_release": false,
-      "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
-      "license_file": null,
-      "name": "zerocopy-derive",
-      "repository": "https://github.com/google/zerocopy",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.8.48"
     },
     {
       "checksum": "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0",

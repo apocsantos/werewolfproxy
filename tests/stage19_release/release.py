@@ -120,6 +120,11 @@ def main():
             security_record = (release / 'docs/STAGE33_RUSTLS_0_23_46_REMEDIATION.md').read_text()
             require('GHSA-c8m5-c952-6cm4' in security_record and '0.23.46' in security_record,
                     'archive omits Stage33 security history')
+        if 'docs/STAGE33_QUIC_TLS_DEPS_REMEDIATION.md' in SECURITY_RECORDS:
+            security_record = (release / 'docs/STAGE33_QUIC_TLS_DEPS_REMEDIATION.md').read_text()
+            require('RUSTSEC-2026-0341' in security_record and 'quinn-proto' in security_record
+                    and '0.11.18' in security_record and RELEASE['RUSTLS_WEBPKI_VERSION'] in security_record,
+                    'archive omits Stage33 QUIC and webpki security history')
         print('PASS archive inventory and SHA256SUMS')
 
         stage = base / 'stage-root'

@@ -43,7 +43,17 @@ inventory, third-party notices and the security remediation records.
 Four rustls advisories against 0.23.45 (GHSA-c8m5-c952-6cm4,
 GHSA-h2v8-394m-p7vv, GHSA-w44r-93j7-qv28, GHSA-vp88-798v-h67f) were
 remediated by moving to rustls 0.23.46, with no Werewolf code change. See
-the [Stage33 rustls remediation](docs/STAGE33_RUSTLS_0_23_46_REMEDIATION.md);
+the [Stage33 rustls remediation](docs/STAGE33_RUSTLS_0_23_46_REMEDIATION.md).
+
+The candidate's advisory gate then reported five quinn-proto advisories
+(RUSTSEC-2026-0338 to -0342), rustls-webpki RUSTSEC-2026-0382 and, in the
+lockfile only, webpki-root-certs RUSTSEC-2026-0383. They were remediated
+by moving to quinn 0.11.12 / quinn-proto 0.11.18, rustls-webpki 0.103.16
+and webpki-root-certs 1.0.10, again with no Werewolf code change. tokio
+stays at 1.52.3: its unsound-warning RUSTSEC-2026-0386 (`AsyncFd`) is
+accepted, since nothing shipped uses `AsyncFd`, and tokio 1.53.3 lengthened
+routed encrypted-TCP tails under loss. See the
+[Stage33 QUIC and webpki remediation](docs/STAGE33_QUIC_TLS_DEPS_REMEDIATION.md).
 rc.1's [Stage20S remediation](docs/STAGE20S_RUSTLS_2026_0285_REMEDIATION.md)
 is kept. The candidate's advisory audit result is in its Stage33 audit
 record.
