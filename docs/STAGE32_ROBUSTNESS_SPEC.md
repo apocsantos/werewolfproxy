@@ -632,3 +632,15 @@ active stays EXCLUDED.
 Daemons alive and no leaks after every run. **S6 is certified.**
 
 With this, every cell of the network matrix has a verdict.
+
+### Note: S3-P2 is marginal (Stage33, 2026-10-31)
+
+During the Stage33 QUIC and webpki dependency remediation
+(`docs/STAGE33_QUIC_TLS_DEPS_REMEDIATION.md`), S3-P2's 1 MiB routed
+workload proved marginal on every build: on `main` `efb537d`, 2 of 30
+diagnostic runs (seeds 2010, 2020, 2030) left the TCP hop at the 120 s
+bound, still progressing, every echoed byte in order. The cause is
+kernel TCP retransmission backoff on Y's last 60–130 KB toward A after
+lost ACKs. The certified 3 of 3 above stands as recorded; on the
+remediation commit S3-P2 is EXCLUDED (owner decision). Recalibrating the
+S3-P2 payload is left for later.
