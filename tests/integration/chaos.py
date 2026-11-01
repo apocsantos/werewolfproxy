@@ -80,11 +80,13 @@ ACTIVE_BOUND_S = OPEN_BOUND_S
 # set by its rate. The others here are calibrated against raw TCP on the
 # same path (spec, "P5 calibration" and "S3 calibration"): direct P5 in
 # calibrate run 20261027T203757Z; routed P2, P3 and P5 on the relayed path
-# in calibrate run 20261028T145605Z, routed P3 (in KiB) in 20261028T152342Z.
+# in calibrate run 20261028T145605Z, routed P3 (in KiB) in 20261028T152342Z;
+# routed P2 recalibrated with 10 confirmations per seed in 20261101T102219Z
+# (Stage34).
 PAYLOAD = {'direct': 32 * MIB, 'routed': 16 * MIB}
 PAYLOAD_BY_PROFILE = {'P9': {'direct': 4 * MIB, 'routed': 2 * MIB},
                       'P5': {'direct': 2 * MIB, 'routed': 2 * MIB},
-                      'P2': {'routed': 1 * MIB},
+                      'P2': {'routed': 512 * KIB},
                       'P3': {'routed': 32 * KIB}}
 # The paths `calibrate` measures for each profile.
 CALIBRATION_PATHS = {'P2': ('routed',), 'P3': ('routed',), 'P5': ('routed',)}
