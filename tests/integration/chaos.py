@@ -3,8 +3,8 @@
 
     python3 -B tests/integration/chaos.py dry-run [--keep-temp]
     python3 -B tests/integration/chaos.py network [--only S1,S2] [--from S3:P0]
-        [--cells S2:P0,S5:P0] [--keep-temp]
-    python3 -B tests/integration/chaos.py calibrate [--keep-temp]
+        [--cells S2:P0,S5:P0] [--repeat N] [--keep-temp]
+    python3 -B tests/integration/chaos.py calibrate [--cells CAL:P2] [--keep-temp]
 
 Builds the featureless release certification build (and, for `network`, the
 separate `lab-faults` build used only by S5's automatic-sync item), then runs
@@ -80,14 +80,19 @@ ACTIVE_BOUND_S = OPEN_BOUND_S
 # set by its rate. The others here are calibrated against raw TCP on the
 # same path (spec, "P5 calibration" and "S3 calibration"): direct P5 in
 # calibrate run 20261027T203757Z; routed P2, P3 and P5 on the relayed path
-# in calibrate run 20261028T145605Z, routed P3 (in KiB) in 20261028T152342Z.
+# in calibrate run 20261028T145605Z, routed P3 (in KiB) in 20261028T152342Z;
+# routed P2 recalibrated with 10 confirmations per seed in 20261101T102219Z
+# (Stage34).
 PAYLOAD = {'direct': 32 * MIB, 'routed': 16 * MIB}
 PAYLOAD_BY_PROFILE = {'P9': {'direct': 4 * MIB, 'routed': 2 * MIB},
                       'P5': {'direct': 2 * MIB, 'routed': 2 * MIB},
-                      'P2': {'routed': 1 * MIB},
+                      'P2': {'routed': 512 * KIB},
                       'P3': {'routed': 32 * KIB}}
 # The paths `calibrate` measures for each profile.
 CALIBRATION_PATHS = {'P2': ('routed',), 'P3': ('routed',), 'P5': ('routed',)}
+# Stage34 decision 1a: each seed confirms the candidate payload this many
+# times, not once, so a tail of a few percent per run is seen.
+CALIBRATION_CONFIRMATIONS = 10
 # T1 (spec section 3): one daemon at a time under libfaketime, its control
 # file stepped through these offsets relative to real time; monotonic time
 # is never faked. 0 at the end is the jump back.
@@ -193,7 +198,7 @@ def outside(args):
         inner = subprocess.run(
             ['unshare', '-rmnp', '--fork', '--kill-child', '--',
              sys.executable, '-B', __file__, '--inside', str(work), str(cert),
-             str(lab or ''), surface, profile, json.dumps(p0)])
+             str(lab or ''), surface, profile, json.dumps(p0), str(args.repeat)])
         cell_file = work / 'cell.json'
         if cell_file.exists():
             cell = json.loads(cell_file.read_text())
@@ -577,8 +582,10 @@ def pair(box, nodes=('a', 'b')):
 
 # --- surfaces ---------------------------------------------------------------
 
-def transfers(box, surface, profile, p0):
-    """S1 (encrypted TCP), S2 (QUIC), S3 (routed through Y, QUIC and TCP hops)."""
+def transfers(box, surface, profile, p0, repeat=1):
+    """S1 (encrypted TCP), S2 (QUIC), S3 (routed through Y, QUIC and TCP hops).
+    With `repeat`, the three seeds run in turn that many times (Stage34
+    decision 2a: 30 runs of S3-P2)."""
     routed = surface == 'S3'
     nodes = ('a', 'b', 'y') if routed else ('a', 'b')
     box.build_network(nodes)
@@ -603,8 +610,8 @@ def transfers(box, surface, profile, p0):
     baselines = {n: box.sample(n) for n in nodes}
     runs, times = [], []
     k = int(profile[1:])
-    for n in (1, 2, 3):
-        seed = 1000 * k + 10 * n
+    for n in range(1, 3 * repeat + 1):
+        seed = 1000 * k + 10 * ((n - 1) % 3 + 1)
         run = {'run': n, 'seed': seed, 'build': 'certification', 'impaired': list(links)}
         run['netem'] = {link: box.impair(link, profile, seed + 100 * i)
                         for i, link in enumerate(links)}
@@ -990,7 +997,8 @@ def calibration(box, profile, p0):
     The payload is the largest power-of-two KiB that all three seeds
     complete within half the 120 s bound (owner: KiB, not only MiB, since
     S3-P3): probe how much each seed echoes in that time, then confirm the
-    candidate, halving until all complete."""
+    candidate CALIBRATION_CONFIRMATIONS times per seed (Stage34), halving
+    until every confirmation completes."""
     half = 120 / 2
     box.build_network(('a', 'b', 'y'))
     b = f'{NODES["b"]}.2'
@@ -1006,9 +1014,9 @@ def calibration(box, profile, p0):
             relay = box.targets('y', 'chaos_relay.py', y, echo)['relay']
             address, links = f'{y}:{relay}', ('a', 'y')
 
-        def batch(size, stage):
+        def batch(size, stage, rounds=1):
             out = []
-            for seed in seeds:
+            for seed in seeds * rounds:
                 netem = {link: box.impair(link, profile, seed + 100 * i)
                          for i, link in enumerate(links)}
                 t = box.client('a', address, size, f'CAL-{profile}-{kind}-{seed}-{size}', half)
@@ -1029,7 +1037,7 @@ def calibration(box, profile, p0):
         require(least >= KIB, f'{kind}: under 1 KiB echoed within {half:.0f} s')
         confirmations = []
         while True:
-            confirm = batch(size, 'confirm')
+            confirm = batch(size, 'confirm', CALIBRATION_CONFIRMATIONS)
             confirmations += confirm
             if all(r['complete'] and r['match'] for r in confirm) or size == KIB:
                 break
@@ -1420,7 +1428,7 @@ def stalls(box, profile, p0):
 SURFACES['T2'] = stalls
 
 
-def inside(work, cert, lab, surface, profile, p0_json):
+def inside(work, cert, lab, surface, profile, p0_json, repeat='1'):
     box = Sandbox(pathlib.Path(work), pathlib.Path(cert),
                   pathlib.Path(lab) if lab else None)
     cell = {'surface': surface, 'profile': profile, 'netem': PROFILES.get(profile)}
@@ -1428,7 +1436,7 @@ def inside(work, cert, lab, surface, profile, p0_json):
         cell['sandbox'] = box.build_root()
         function = SURFACES[surface]
         p0 = json.loads(p0_json)
-        outcome = (function(box, surface, profile, p0) if function is transfers
+        outcome = (function(box, surface, profile, p0, int(repeat)) if function is transfers
                    else function(box, profile, p0))
         cell.update(outcome)
         results = [r['result'] for r in cell['runs']]
@@ -1445,14 +1453,22 @@ def inside(work, cert, lab, surface, profile, p0_json):
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == '--inside':
-        return inside(*sys.argv[2:8])
+        return inside(*sys.argv[2:9])
     parser = argparse.ArgumentParser()
     parser.add_argument('campaign', choices=['dry-run', 'network', 'calibrate', 'time'])
     parser.add_argument('--only', help='comma-separated surfaces, e.g. S1,S2')
     parser.add_argument('--from', dest='start', help='resume at a cell, e.g. S3:P0')
     parser.add_argument('--cells', help='exactly these cells, e.g. S2:P0,S5:P0 (smoke tests)')
+    parser.add_argument('--repeat', type=int, default=1,
+                        help='run S1-S3 cells this many rounds of their three seeds')
     parser.add_argument('--keep-temp', action='store_true')
-    return outside(parser.parse_args())
+    args = parser.parse_args()
+    if args.repeat != 1:
+        chosen = cells(args.campaign, None, args.start, args.cells)
+        if args.repeat < 1 or args.campaign != 'network' or any(
+                SURFACES.get(s) is not transfers for s, _ in chosen):
+            parser.error('--repeat needs the network campaign and S1-S3 cells only')
+    return outside(args)
 
 
 if __name__ == '__main__':

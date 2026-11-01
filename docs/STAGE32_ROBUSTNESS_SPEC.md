@@ -644,3 +644,26 @@ kernel TCP retransmission backoff on Y's last 60–130 KB toward A after
 lost ACKs. The certified 3 of 3 above stands as recorded; on the
 remediation commit S3-P2 is EXCLUDED (owner decision). Recalibrating the
 S3-P2 payload is left for later.
+
+### S3-P2 recalibration (Stage34, 2026-11-01)
+
+[Stage34](STAGE34_S3_P2_RECALIBRATION_SURVEY.md) decision 1a: the same
+rule on the same relayed path and seeds, with each seed confirming the
+candidate 10 times (`CALIBRATION_CONFIRMATIONS`). Raw TCP, so no
+Werewolf build is involved (run `20261101T102219Z-calibrate`, harness
+`b79640f`):
+
+| Payload | Within 60 s, of 30 (2010 / 2020 / 2030) | Completed: min, median, max |
+|---|---|---|
+| probe | 5.3, 4.9, 4.5 MB echoed | |
+| 4 MiB | 5 (1 / 3 / 1) | 49.8, 55.7, 59.4 s |
+| 2 MiB | 16 (6 / 5 / 5) | 22.3, 39.2, 59.8 s |
+| 1 MiB | 20 (6 / 6 / 8) | 3.3, 21.9, 51.4 s |
+| **512 KiB** | **30 (10 / 10 / 10)** | 1.9, 9.3, 58.6 s |
+
+**The S3-P2 payload is 512 KiB.** The old 1 MiB, confirmed once per seed
+in 2026-10-28, misses half the bound on raw TCP in 10 of 30 runs: the
+marginality seen in Stage33 is a property of the path, not of Werewolf.
+The slowest 512 KiB run (58.6 s) shows the same kind of tail is still
+possible at the smaller size; decision 2a's 30 Werewolf runs measure
+whether it fits the 120 s bound.
