@@ -249,7 +249,9 @@ stated.
 - **5a.** Every listed document brought up to the candidate in one
   docs-only pass before the audit.
 - **6a.** The Stage21 gate set on the candidate archive, plus one WAN
-  smoke with disposable daemons.
+  smoke with disposable daemons. *Changed by the owner, 2026-10-29, to
+  **6b**: the WAN smoke is skipped; the Stage22R and Stage26–31 real-host
+  records stay the WAN evidence, tied to the commits they ran on.*
 - **7a.** Upgrade test from the frozen rc.1 binaries, with the clean
   refusal of a schema-2 Den by rc.1; `releases/` is never touched.
 - **Section 8** out of scope as stated.

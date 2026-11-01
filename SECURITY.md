@@ -35,3 +35,11 @@ Before the rc.2 audit, four rustls advisories against 0.23.45
 (GHSA-c8m5-c952-6cm4, GHSA-h2v8-394m-p7vv, GHSA-w44r-93j7-qv28,
 GHSA-vp88-798v-h67f) were remediated by moving to rustls 0.23.46; see the
 [Stage33 rustls remediation](docs/STAGE33_RUSTLS_0_23_46_REMEDIATION.md).
+The candidate's advisory gate then reported five quinn-proto advisories
+(RUSTSEC-2026-0338 to -0342), rustls-webpki RUSTSEC-2026-0382 and
+webpki-root-certs RUSTSEC-2026-0383 (lockfile only); they were remediated
+by moving to quinn 0.11.12 / quinn-proto 0.11.18, rustls-webpki 0.103.16
+and webpki-root-certs 1.0.10. tokio's unsound-warning RUSTSEC-2026-0386
+(`AsyncFd`, not used by anything shipped) is accepted, with tokio held at
+1.52.3; see the
+[Stage33 QUIC and webpki remediation](docs/STAGE33_QUIC_TLS_DEPS_REMEDIATION.md).
