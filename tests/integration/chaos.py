@@ -31,6 +31,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 sys.dont_write_bytecode = True
@@ -71,6 +72,16 @@ OPEN_BOUND_S = 20
 # the last PROGRESS_WINDOW_S before the bound.
 F3_PROFILES = ('P4', 'P5', 'P6')
 PROGRESS_WINDOW_S = 10
+# Owner rule (2026-11-01, Stage34): a routed TCP-hop leg under P2 that reaches
+# the outer bound after Y's daemon has relayed everything and closed its
+# socket to A, so that only Y's kernel send queue toward A remains, is a
+# kernel retransmission tail: EXCLUDED, counted, never PASS. Y's sockets are
+# sampled every second during the leg; the verdict uses the last sample that
+# still shows the leg's socket toward A (Y's kernel may abort the orphaned
+# socket just before the bound: seed 2020, 119.3 s, target/stage34-diag).
+KERNEL_TAIL_PROFILES = ('P2',)
+# TCP states in which the application has closed (or shut down) the socket.
+APP_CLOSED_STATES = ('LAST-ACK', 'FIN-WAIT-1', 'CLOSING')
 FENCE_BOUND_S = 10
 # S6 fences only a session B has accepted: setup under loss can take
 # seconds (F1), so a fixed wait from the start could fence nothing
@@ -525,6 +536,43 @@ def judge_transfer(transfer, profile, reasons, label=''):
     return None
 
 
+def tcp_sockets(ss_output):
+    """(state, send-q, local, peer) of each socket line of `ss -tnH`."""
+    sockets = []
+    for line in ss_output.splitlines():
+        cols = line.split()
+        if len(cols) >= 5 and cols[0][:1].isupper() and cols[2].isdigit():
+            sockets.append((cols[0], int(cols[2]), cols[3], cols[4]))
+    return sockets
+
+
+def leg_sockets_to_a(before, sample):
+    """Y's sockets toward A in `sample` that this leg opened (not in `before`)."""
+    known = {(local, peer) for _, _, local, peer in tcp_sockets(before)}
+    return [s for s in tcp_sockets(sample)
+            if s[2] == f'{NODES["y"]}.2:{PORT}' and s[3].startswith(f'{NODES["a"]}.2:')
+            and (s[2], s[3]) not in known]
+
+
+def last_leg_sample(before, samples):
+    """The last of Y's samples that still shows the leg's socket toward A."""
+    return next((s for s in reversed(samples) if leg_sockets_to_a(before, s)), None)
+
+
+def kernel_tail(before, sample):
+    """A tail when every leg socket toward A is application-closed and some
+    still hold data to send."""
+    to_a = leg_sockets_to_a(before, sample or '')
+    return bool(to_a) and all(s[0] in APP_CLOSED_STATES for s in to_a) and any(
+        s[1] > 0 for s in to_a)
+
+
+def watch_sockets(box, node, stop, samples):
+    while not stop.is_set():
+        samples.append(box.in_net(node, 'ss', '-tnH', check=False).stdout)
+        stop.wait(1)
+
+
 def f3_progress(surface, profile, mode, transfer, bound):
     """Whether a leg's only fault falls under the owner's F3 rule."""
     return (surface == 'S3' and mode == 'quic' and profile in F3_PROFILES
@@ -623,8 +671,19 @@ def transfers(box, surface, profile, p0, repeat=1):
                 box.ctl('a', 'route.set', {'peer': 'wolf-b', 'via': 'wolf-y', 'hop': mode})
             fang = box.fang('a', 'wolf-b', '127.0.0.1:17001', f'127.0.0.1:{echo}',
                             'quic' if routed else mode)
+            watch = routed and mode == 'tcp' and profile in KERNEL_TAIL_PROFILES
+            if watch:
+                y_before = box.in_net('y', 'ss', '-tnH', check=False).stdout
+                stop, y_samples = threading.Event(), []
+                watcher = threading.Thread(target=watch_sockets,
+                                           args=(box, 'y', stop, y_samples))
+                watcher.start()
             transfer = box.client('a', '127.0.0.1:17001', size, f'{surface}-{profile}-{n}-{mode}',
                                   bound)
+            if watch:
+                stop.set()
+                watcher.join()
+                y_last = last_leg_sample(y_before, y_samples)
             box.close_fangs('a')
             run['legs'].append({'leg': label, 'fang': fang, 'transfer': transfer})
             leg_reasons = []
@@ -635,7 +694,16 @@ def transfers(box, surface, profile, p0, repeat=1):
                 f3.append(f'{label}: F3: outer bound reached while progressing '
                           f'({transfer["received"]} of {size} B, last echo at '
                           f'{transfer["last_echo_s"]} s)')
+            elif (watch and leg_reasons == [f'{label}: liveness: outer bound exceeded']
+                  and transfer.get('echo_in_order') is True
+                  and kernel_tail(y_before, y_last)):
+                transfer['y_sockets_last'] = y_last
+                f3.append(f'{label}: kernel tail: Y relayed everything and closed; '
+                          f'{transfer["received"]} of {size} B echoed, last echo at '
+                          f'{transfer["last_echo_s"]} s')
             else:
+                if watch:
+                    transfer['y_sockets_last'] = y_last
                 reasons.extend(leg_reasons)
             if profile == 'P0' and transfer.get('complete'):
                 times.append(transfer['elapsed_s'])
@@ -651,6 +719,7 @@ def transfers(box, surface, profile, p0, repeat=1):
             f'match={leg["transfer"].get("match")} error={leg["transfer"].get("error")}'
             for leg in run['legs']))
     return {'baselines': baselines, 'runs': runs,
+            'kernel_tail_runs': sum(1 for r in runs if 'kernel tail' in (r['reason'] or '')),
             'p0_time_s': max(times) if profile == 'P0' and times else None}
 
 
