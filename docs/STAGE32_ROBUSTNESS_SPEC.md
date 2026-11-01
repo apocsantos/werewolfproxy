@@ -667,3 +667,47 @@ marginality seen in Stage33 is a property of the path, not of Werewolf.
 The slowest 512 KiB run (58.6 s) shows the same kind of tail is still
 possible at the smaller size; decision 2a's 30 Werewolf runs measure
 whether it fits the 120 s bound.
+
+### S3-P2 at 512 KiB, the kernel-tail rule (Stage34, 2026-11-01)
+
+**30 runs on `main` `90b31cb`** (rc.2 production code, `werewolfd`
+`fe66ba76…5c5`; `chaos.py network --cells S3:P2 --repeat 10`, results
+`20261101T120104Z-network`): 29 PASS (nine with a clean early end on one
+hop) and **run 14 (seed 2020) FAIL**: the TCP hop reached the 120 s
+bound with 500,384 of 524,288 bytes echoed in order, last echo at
+93.0 s; daemons alive, no leaks. The cell records no packets, so the
+owner chose to capture before deciding.
+
+**Capture** (diagnostic, `target/stage34-diag/`; seed 2020 at 512 KiB as
+the cell runs it, tcpdump on A's and Y's links, Y's sockets every
+second; stopped at the first stall):
+
+| Run | TCP hop | Y's daemon closed toward B at | Y's send queue toward A then | Tail |
+|---|---|---|---|---|
+| 1 | complete, 118.2 s | 17.6 s | 80 KB | 100.7 s |
+| 2 | complete, 29.3 s | 9.3 s | 88 KB | 20.0 s |
+| 3 | clean early end, reset at 84.8 s | 7.2 s | 130 KB | 77.6 s |
+| 4 | **at the bound**, 490,048 of 524,288 B in order | 57.1 s | 68 KB | 62.9 s and more |
+
+Run 4 is the Stage33 tail: Y's daemon relayed everything and closed its
+socket to A (`LAST-ACK`), and Y's kernel held 63 KB toward A,
+retransmitting with backed-off timers (nothing sent in the last 29 s);
+A received nothing for the last 45 s; at 119.3 s Y's kernel abandoned
+the orphaned socket. The tail's length (20–100 s) does not depend on the
+payload, so a further halving (decision 5a) would not remove it.
+
+**Owner rule (2026-11-01):** a routed TCP-hop leg under P2 that reaches
+the outer bound, with every echoed byte in order, after Y's daemon has
+relayed everything and closed its socket to A, so that only Y's kernel
+send queue toward A remains, is **EXCLUDED as a kernel tail** and never
+PASS; any other stall is FAIL. The harness samples Y's sockets every
+second during the leg and judges the last sample that still shows the
+leg's socket toward A (`kernel_tail`, `KERNEL_TAIL_PROFILES`). The count
+of kernel-tail runs is recorded per cell (`kernel_tail_runs`), so that a
+later build is compared on that rate as well as on FAILs: the tokio
+1.53.3 regression appeared as more of these tails. S3-P2 is certified by
+30 runs with no FAIL, with the kernel-tail count stated.
+
+Smoke test of the harness rule (one round, results
+`20261101T135607Z-network`): 3 PASS, Y's sockets recorded on every TCP
+hop.

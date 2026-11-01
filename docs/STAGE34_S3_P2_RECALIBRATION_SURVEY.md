@@ -160,3 +160,14 @@ baseline.
 - **4a.** On `main`, rc.2 production code `e2ce899`.
 - **5a.** One further halving if failures show the same kernel tail;
   anything else stops for an owner decision.
+
+### Owner decision after step 3's first run (2026-11-01)
+
+Step 3's first 30 runs at 512 KiB had one FAIL (run 14, seed 2020, TCP
+hop at the bound). A capture confirmed the kernel tail and showed its
+length does not depend on the payload. The owner chose the **kernel-tail
+rule with its rate recorded** instead of the halving of 5a: such a run is
+EXCLUDED and counted; any other stall is FAIL; S3-P2 is certified by 30
+runs with no FAIL, the kernel-tail count stated (record in the
+[Stage32 spec](STAGE32_ROBUSTNESS_SPEC.md#s3-p2-at-512-kib-the-kernel-tail-rule-stage34-2026-11-01)).
+The 512 KiB payload stays.
