@@ -2,8 +2,8 @@
 
 **Version:** `1.0.0-rc.2`
 **Scope:** Linux x86_64, `x86_64-unknown-linux-gnu`
-**Result:** `STAGE33_CANDIDATE_AUDIT = PASS` (candidate; not tagged or
-frozen; step 5 is on the owner's word)
+**Result:** `STAGE33_CANDIDATE_AUDIT = PASS`; tagged `v1.0.0-rc.2` and
+frozen (step 5, [below](#step-5-tag-and-freeze))
 
 Step 4 of the [Stage33 survey](STAGE33_CLI_CANDIDATE_SURVEY.md): release
 inputs, the archive, the gates of decision 6 and the upgrade test of
@@ -175,9 +175,16 @@ reputation; real host clock changes and suspend/resume; the D09
 indeterminate commit on real storage; media-level erasure claims; public
 release.
 
-## Next: step 5
+## Step 5: tag and freeze
 
-Tag `v1.0.0-rc.2` and freeze, on the owner's word only: the tag on the
-commit containing this record after it reaches `main`, the README's
-"in preparation" line removed, and the archive above kept as the
-candidate's artifact. Nothing in `releases/` changes without the owner.
+On the owner's word, 2026-11-01, after #94 merged (`fcc0ec7`):
+
+- Annotated tag **`v1.0.0-rc.2`** on `b19215847a6f6b29cf6e017f31507af35677390d`,
+  the commit that adds this record (its parent is the archive source
+  commit `ebc8d6b`; the commit changes documentation only). The tag is
+  pushed.
+- The archive above (`62d35c13…89a3`) is the candidate's artifact; it is
+  not rebuilt. Its README and SECURITY still carry the pre-freeze
+  wording ("in preparation"), as built from `ebc8d6b`; the repository
+  copies are updated after the tag.
+- `releases/` is unchanged.

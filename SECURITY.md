@@ -1,7 +1,7 @@
 # Security reporting
 
-WerewolfProxy 1.0.0-rc.2, in preparation, is the next Linux x86_64 release
-candidate; 1.0.0-rc.1 is the frozen one. Please include
+WerewolfProxy 1.0.0-rc.2 is the current Linux x86_64 release candidate,
+frozen by the Stage33 candidate audit. Please include
 the version, platform, transport, relevant configuration shape, and a minimal
 reproduction. Do not include Pelt private files, session secrets, TLS key
 material, or application payloads.

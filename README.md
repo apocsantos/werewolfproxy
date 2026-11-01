@@ -1,8 +1,8 @@
 # WerewolfProxy 1.0.0-rc.2
 
-**Release candidate for Linux x86_64, in preparation (Stage33).** The
-frozen release is still [1.0.0-rc.1](RELEASE_NOTES_1.0.0-rc.1.md); rc.2 is
-frozen only when its audit passes. See [STATUS](docs/STATUS.md).
+**Release candidate for Linux x86_64.** The tag `v1.0.0-rc.2` is frozen
+by the [Stage33 candidate audit](docs/STAGE33_CANDIDATE_AUDIT.md). See
+[STATUS](docs/STATUS.md).
 
 WerewolfProxy provides authenticated TCP and QUIC forwarding between
 explicitly trusted peers. Trust uses exchanged public Ed25519 identity keys;
