@@ -1,7 +1,7 @@
 # Stage34 S3-P2 recalibration — survey
 
-**Status: survey, decisions pending.** Docs only. No code, harness or
-payload changes before the owner rules on the questions below.
+**Status: decisions accepted 2026-11-01, all as recommended (1a, 2a,
+3a, 4a, 5a; see [Decisions](#decisions-accepted-2026-11-01)).**
 
 The Stage32 cell **S3-P2** (routed Fang through `Y` under `loss 10%`,
 QUIC hop then TCP hop) was certified 3 of 3 with a 1 MiB payload. The
@@ -148,3 +148,15 @@ baseline.
 ## Recommendations in one line
 
 1a, 2a, 3a, 4a, 5a.
+
+## Decisions accepted 2026-11-01
+
+- **1a.** The S3-P2 payload is recalibrated by the existing rule with
+  each seed confirmed 10 times (30 raw-TCP runs) within half the bound.
+- **2a.** S3-P2 is certified by 30 Werewolf runs (three seeds × 10), all
+  PASS.
+- **3a.** S3-P2 only; the 10-fold confirmation is the rule for future
+  calibrations, and existing certified payloads stand as recorded.
+- **4a.** On `main`, rc.2 production code `e2ce899`.
+- **5a.** One further halving if failures show the same kernel tail;
+  anything else stops for an owner decision.
