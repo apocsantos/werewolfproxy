@@ -171,3 +171,10 @@ EXCLUDED and counted; any other stall is FAIL; S3-P2 is certified by 30
 runs with no FAIL, the kernel-tail count stated (record in the
 [Stage32 spec](STAGE32_ROBUSTNESS_SPEC.md#s3-p2-at-512-kib-the-kernel-tail-rule-stage34-2026-11-01)).
 The 512 KiB payload stays.
+
+### Outcome (2026-11-01)
+
+S3-P2 stays **EXCLUDED**: the second 30-run campaign failed on the QUIC
+hop, bisected to quinn-proto 0.11.18. The owner kept quinn-proto 0.11.18
+and the send window unchanged and closed the stage; see the
+[Stage34 record](STAGE34_S3_P2_RECORD.md).

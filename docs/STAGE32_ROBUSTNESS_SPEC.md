@@ -711,3 +711,10 @@ later build is compared on that rate as well as on FAILs: the tokio
 Smoke test of the harness rule (one round, results
 `20261101T135607Z-network`): 3 PASS, Y's sockets recorded on every TCP
 hop.
+
+### S3-P2 outcome (Stage34, 2026-11-01)
+
+The 30-run certification on `main` `8b8d521` failed on the QUIC hop
+(run 27, seed 2030), a regression of quinn-proto 0.11.18 under loss.
+**S3-P2 remains EXCLUDED**; findings, affected conditions and retest
+requirements are in the [Stage34 record](STAGE34_S3_P2_RECORD.md).

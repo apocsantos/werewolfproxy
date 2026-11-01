@@ -80,6 +80,19 @@ Documented limits found by Stage32:
   direction, cannot publish a contact record its peers accept, until
   its clock is back.
 
+Found by Stage34 ([record](docs/STAGE34_S3_P2_RECORD.md)):
+
+- with quinn-proto 0.11.18 (the security-remediated version rc.2 ships;
+  0.11.19 is the same), a routed QUIC hop under 10% random loss on both
+  links can fail at setup or crawl for some loss patterns, where
+  quinn-proto 0.11.17 and earlier completed in seconds; no corruption or
+  security failure. The Stage32 cell S3-P2 is EXCLUDED, not certified,
+  until a later quinn-proto release is retested;
+- under the same loss, a routed encrypted-TCP hop can stall for up to
+  about 100 s after the relay has forwarded everything, while the
+  relay's kernel retransmits its last data (kernel TCP backoff, on every
+  build).
+
 ## Discovery, services and routing
 
 - **Discovery (Stage24, Stage25)** is Pack-only: it finds addresses and
