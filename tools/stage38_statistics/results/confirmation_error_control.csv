@@ -1,0 +1,3 @@
+method,null_cells_ni_50,max_fa_ni_50,max_fa_cp_upper_ni_50,cells_cp_upper_gt_5pct_ni_50,cells_clearly_gt_5pct_ni_50,null_cells_ni_75,max_fa_ni_75,max_fa_cp_upper_ni_75,cells_cp_upper_gt_5pct_ni_75,cells_clearly_gt_5pct_ni_75,null_cells_ni_100,max_fa_ni_100,max_fa_cp_upper_ni_100,cells_cp_upper_gt_5pct_ni_100,cells_clearly_gt_5pct_ni_100,min_cov_u,cells_cov_u_cp_upper_lt_95,min_cov_l,cells_cov_l_cp_upper_lt_95,max_false_worsening,degenerate,failed,na,replicates
+C2,4656,0.1868,0.1914,1273,1168,3504,0.1686,0.2559,1330,1211,2304,0.1494,0.1536,1143,1081,0.8132,4777,0.8868,8,0.102,10708,0,0,115678842
+C6,4656,0.006,0.063,11,0,3504,0.0064,0.063,11,0,2304,0.0075,0.0086,0,0,0.9908,0,0.9884,0,0.005,10708,0,0,115678842

@@ -1,0 +1,9 @@
+{
+ "stage": "confirmation",
+ "scenarios": "confirmation",
+ "scenario_args": {"quartets": [8, 48]},
+ "reps": 20000,
+ "chunk": 2000,
+ "root_seed": 38002,
+ "methods": ["C6", "C2"]
+}

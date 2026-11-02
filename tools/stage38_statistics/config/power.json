@@ -1,0 +1,9 @@
+{
+ "stage": "power",
+ "scenarios": "power",
+ "scenario_args": {"quartets": [4, 8, 12, 16, 24, 32, 48, 64]},
+ "reps": 20000,
+ "chunk": 2000,
+ "root_seed": 38003,
+ "methods": ["C6", "C2", "C4"]
+}
