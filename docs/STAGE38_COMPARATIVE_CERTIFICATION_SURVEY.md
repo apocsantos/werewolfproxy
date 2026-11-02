@@ -861,3 +861,212 @@ None is authorised by this survey.
 
 Implementation authorised: **NO**. Tokio promotion authorised: **NO**.
 Release certification authorised: **NO**.
+
+## Owner decisions (2026-11-02)
+
+This section records the owner's decisions on D1–D9. The survey text
+above is unchanged. Where this section differs from it, **this section
+supersedes it**, and each superseded passage is named. The proposals
+first drafted in PR #104 ("Proposed revisions, awaiting owner
+confirmation") are replaced by the final decisions below.
+
+| Decision | Status |
+|---|---|
+| D1, machine-readable outcomes | **Final** (1a, with the classification rules of D1 below) |
+| D2, contemporaneous control, rc.2 as historical anchor | **Approved** (2d) |
+| D3, counterbalanced 15-run blocks | **Approved conditionally** (3c): subject to pilot evidence |
+| D4, margins | **Provisional**: E1 7.5 pp, E2 10 pp, one-sided α 5%, power at least 80%; not final acceptance thresholds |
+| D5, statistical method | **Not approved** as a certification method; 5a and the proposed 5a′ are both withdrawn as binding tests (D5 below) |
+| D6, fixed sample, harm-only interim | **Approved in principle** (6a): conditional on simulation |
+| D7, TCP and QUIC legs separate | **Approved** (7a) |
+| D8, preregistration and reproducible evidence | **Approved** (8a) |
+| D9, distinct remediation and release decisions | **Approved** (9a), with the controlled 9b emergency exception below |
+
+**Scope.** The only comparison-eligible limitation is the **S3-P2
+encrypted-TCP hop**. Kernel tails count in E1, while their raw outcome
+stays EXCLUDED.
+
+**Consequence.** No candidate can currently receive
+`LIVENESS_NONINFERIOR`, because D4 and D5 are unfinished. Until they
+are finished, a candidate trial may report estimates only (option 4d in
+effect). A separate statistical validation specification, to be proposed as
+`docs/STAGE38_STATISTICAL_VALIDATION_SPEC.md`, will design that
+remaining work. Implementation, tokio promotion and release certification are
+**not authorised**.
+
+### D1: classification rules (final)
+
+**Raw outcomes stay authoritative.**
+
+- Every leg keeps its raw `PASS`, `FAIL` or `EXCLUDED` from the
+  existing Stage32 and Stage34 rules. No comparative result changes a
+  raw outcome. A `CLOSE-WAIT` timeout stays FAIL.
+- **E1 events:** a valid TCP-hop leg is an E1 event when it reaches the
+  deadline and is either:
+  - `FAIL` for liveness (`failure_class` `liveness_bound`), or
+  - `EXCLUDED` under the existing kernel-tail rule
+    (`failure_signature` `kernel_tail`).
+- **Invalid runs:** a harness-invalid run enters neither E1's numerator
+  nor its denominator.
+  - Every invalidation needs an independently established validity
+    reason (D3 and D8): a detected suspend, a build mismatch or a
+    demonstrable harness defect.
+  - A run is never excluded because it failed.
+
+**Layer A vocabulary.** The values are `SATISFIED`, `VIOLATED`, `HELD`
+and `INCOMPLETE`.
+
+- **What `HELD` means:** a suspected security or correctness violation,
+  or a genuinely new, unexplained failure class, needs investigation.
+  It does not mean a violation is proven.
+- **What does not trigger `HELD`:**
+  - an ordinary S3-P2 liveness timeout without detailed tracing;
+  - a known failure whose precise kernel mechanism was not captured. It
+    stays in its established class.
+- **What does trigger it:** a genuinely new candidate-only failure kind.
+  It stops the trial for investigation.
+- **After a stop:** a stopped trial is never resumed. If the issue is
+  resolved, a new trial needs a new preregistration.
+- **Supersedes:** survey section 5, "A `candidate_only` failure with an
+  `unclassified` signature makes Layer A `VIOLATED`"; the stop-rule
+  table row "A `candidate_only` failure with an `unclassified`
+  signature"; and the first PR #104 proposal (`HELD` on any
+  unclassified candidate failure).
+
+**Failure signatures are descriptive, never acceptance criteria.**
+
+- `closewait_backpressure` is used only where trace, or packet and
+  socket evidence, supports that mechanism.
+- Otherwise the leg keeps its known broad failure class (for example,
+  `failure_class` `liveness_bound`), with `failure_signature`
+  `unclassified` for the unsupported mechanism. An unclassified
+  *cause* is not an unclassified *failure class*.
+- `candidate_only` means observed only in the candidate sample. It does
+  not establish causality.
+
+**Comparative results: two independent findings, both always
+reported.**
+
+Non-inferiority status, with U and L the prespecified one-sided
+confidence bounds of RD = p_B − p_A:
+
+| Condition | Result |
+|---|---|
+| U < δ | `LIVENESS_NONINFERIOR` |
+| L > δ | `LIVENESS_INFERIOR` |
+| neither | `LIVENESS_INCONCLUSIVE` |
+
+Observed deterioration: `WORSENING_DETECTED` whenever the prespecified
+lower bound L > 0. So a candidate can be non-inferior within δ and
+still show a smaller, statistically detectable deterioration, and both
+findings are visible.
+
+When Layer A is `HELD`, `VIOLATED` or `INCOMPLETE`, final comparative
+certification is blocked. Statistical estimates may be kept as
+diagnostic evidence but are never presented as an approved Layer B
+result.
+
+These two findings supersede survey section 6.3 and the first PR #104
+proposal for an ordered single result. In particular, `LIVENESS_INFERIOR`
+now means L > δ, not L > 0.
+
+### D4: provisional margins
+
+| Endpoint | Provisional margin |
+|---|---:|
+| E1: deadline liveness events, kernel tails included | 7.5 pp |
+| E2: clean early resets | 10 pp |
+
+- **Design intent:** one-sided α 5% and power at least 80%.
+- **Scope:** the eligible S3-P2 encrypted-TCP hop only.
+- **Not final:** these are not approval thresholds. Statistical
+  validation must show whether they can be evaluated reliably with a
+  practical experiment.
+- **Fallback:** if no defensible method or sample size is found,
+  comparative certification is withheld.
+
+### D5: direction approved, estimator not approved
+
+5a (the larger of two upper bounds) and the proposed 5a′ are **not
+approved** as binding tests. The owner's reasons:
+
+- an intraclass correlation estimate is not itself a design effect;
+- an upper 80% correlation estimate does not by itself give adequate
+  confidence-bound coverage;
+- a fallback design effect of 1.5 is not inherently conservative;
+- eight blocks per arm may be too few for a reliable cluster bootstrap;
+- an exact interval derived under independence does not account for
+  clustering.
+
+The research candidates are:
+
+- seed-stratified risk-difference score intervals with a defined
+  cluster adjustment;
+- cluster-aware or small-sample-corrected procedures;
+- methods respecting the randomised block and quartet design;
+- conservative procedures for sparse or zero-event samples.
+
+**Process:**
+
+- A single primary method is selected only after offline simulation
+  shows acceptable operating characteristics.
+- Sensitivity analyses never override the prespecified primary method.
+- **Supersedes:** survey sections 4 (D5, 5a), 6.2 (the "larger of the
+  two" rule), 6.5 (the interim boundary, now unvalidated) and 7 (the
+  sizing table, a planning illustration only), and the 5a′ proposal.
+
+### D9b: emergency security exception (final)
+
+Layer B may be bypassed as a prerequisite only when all of the following
+hold:
+
+1. there is a confirmed, actionable security vulnerability;
+2. exposure is reachable or cannot reasonably be ruled out;
+3. Layer A is fully `SATISFIED`;
+4. the owner authorises the exception explicitly in writing;
+5. the decision names the advisory and its security urgency;
+6. the unmeasured comparative liveness risk is documented;
+7. the exception has a review and expiry deadline;
+8. a follow-up preregistered comparative trial is required.
+
+**Limits of the exception:**
+
+- It waives no Layer A requirement.
+- It does not certify a release.
+- **Expiry without follow-up:** if the deadline passes without adequate
+  follow-up, further release approvals relying on the exception are
+  blocked pending owner review.
+
+RUSTSEC-2026-0386 does not qualify under the current assessment: it is
+an unsoundness warning judged unreachable.
+
+### Correction: historical probability explanation
+
+The survey's sections 1, 2 and 11 conflated two endpoints when they said
+that Stage35's gate "would have stopped the unchanged baseline itself in
+about 45–71%" of 30-run trials. The two endpoints are separated here.
+The original sentences stay as written above; this correction
+supersedes them.
+
+| Endpoint | Historical baseline (tokio 1.52.3, Stages 34–37) | P(at least 1 in 30), independent-run model |
+|---|---|---|
+| Raw deadline FAILs (the existing no-FAIL rule) | 3 in 150, about 2% | 1 − 0.98³⁰ ≈ 45% |
+| Combined E1 events (FAIL plus kernel tail; the proposed comparative endpoint) | 6 in 150, about 4% | 1 − 0.96³⁰ ≈ 71% |
+
+These figures need four caveats:
+
+1. **The rule counts only one endpoint.** The existing S3-P2 no-FAIL
+   rule counts raw FAILs only. The 45% figure is the relevant
+   illustration for it; the 71% figure concerns E1, which is a
+   comparative endpoint, not the rule.
+2. **Stage35 had a second stop.** It had a separately specified
+   kernel-tail stop threshold (more than one tail in 30), whose chance
+   under an independent-run model at a 2% tail rate is
+   1 − 0.98³⁰ − 30 × 0.02 × 0.98²⁹ ≈ 12%. Neither figure alone gives
+   the chance that the whole Stage35 gate stops.
+3. **These are illustrations, not validated probabilities.** Runs
+   within a block are dependent, and the pooled baseline mixes
+   campaigns, so these binomial figures are not the actual campaigns'
+   probabilities.
+4. **The verdict stands.** The historical Stage35 verdict (REJECTED) is
+   unchanged.
