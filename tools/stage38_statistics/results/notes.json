@@ -1,0 +1,14 @@
+{
+ "screening": {
+  "scenario_rows": 40448,
+  "skipped_infeasible": 16
+ },
+ "power": {
+  "scenario_rows": 1152,
+  "skipped_infeasible": 0
+ },
+ "confirmation": {
+  "scenario_rows": 11712,
+  "skipped_infeasible": 0
+ }
+}

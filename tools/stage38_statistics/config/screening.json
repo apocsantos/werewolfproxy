@@ -1,0 +1,8 @@
+{
+ "stage": "screening",
+ "scenarios": "screening",
+ "reps": 2000,
+ "chunk": 2000,
+ "root_seed": 38001,
+ "methods": ["C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7"]
+}

@@ -1,0 +1,10 @@
+{
+ "stage": "interim",
+ "scenarios": "interim",
+ "scenario_args": {"quartets": [48]},
+ "reps": 20000,
+ "chunk": 2000,
+ "root_seed": 38004,
+ "methods": ["C6", "C2"],
+ "interim": [0.005, 0.001]
+}
