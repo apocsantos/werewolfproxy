@@ -14,6 +14,13 @@ records and verdicts stand as written; the Stage35 report is in
 PR #100, still open, and its run-28 FAIL is unchanged. wolf-a and wolf-b
 were not touched.
 
+**Post-merge clarification (2026-11-02).** PR #100, the Stage35 report,
+was merged (`7a248ce`) before this record (#101, `4bcaaee`). The
+"still open" above describes the state when this record was written.
+The Stage35 REJECTED verdict and this record's conclusions are
+unchanged. The `CLOSE-WAIT` stall is examined further in
+[Stage37](STAGE37_RELAY_BACKPRESSURE_DIAGNOSIS.md).
+
 ## 1. Question and method
 
 The question: does tokio 1.54.1 materially worsen routed encrypted-TCP
