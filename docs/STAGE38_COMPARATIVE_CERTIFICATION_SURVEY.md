@@ -861,3 +861,131 @@ None is authorised by this survey.
 
 Implementation authorised: **NO**. Tokio promotion authorised: **NO**.
 Release certification authorised: **NO**.
+
+## Owner decisions (2026-11-02)
+
+The owner's verdicts, recorded as given. The survey text above is
+unchanged; where a verdict amends it, this section takes precedence.
+
+| Decision | Verdict |
+|---|---|
+| D1, separate machine-readable outcomes | **Approved 1a**, with a correction to the classification logic |
+| D2, contemporaneous baseline, rc.2 as historical anchor | **Approved 2d** |
+| D3, counterbalanced 15-run blocks | **Approved 3c**, conditional on validation by the pilot |
+| D4, E1 7.5 pp and E2 10 pp | **Provisional**; these are not final acceptance margins |
+| D5, stratified score interval and block bootstrap | **Revise 5a before approval** |
+| D6, fixed sample, harm-only interim | **Approved 6a in principle**, subject to simulation |
+| D7, TCP and QUIC separate | **Approved 7a** |
+| D8, preregistration and reproducible evidence | **Approved 8a** |
+| D9, distinct remediation and release decisions | **Approved 9a**, with a tightly controlled 9b emergency exception |
+
+The comparison-eligible scope is approved as the **S3-P2 encrypted-TCP
+hop only**. **Kernel tails count in E1**, even though their raw
+outcome stays EXCLUDED.
+
+What follows from the verdicts:
+
+- **No Layer B trial can issue `LIVENESS_NONINFERIOR` yet.** D4 is
+  provisional and D5 is not approved, so no final margins or analysis
+  method exist. Every candidate trial before then reports estimates
+  only (option 4d in effect).
+- **D3 and D6 need their own evidence first.** D3 depends on the A/A
+  pilot (milestone M4), and D6 on the sizing simulation (milestone M3).
+  Neither has been run.
+- **No authorisation changes.** Implementation, tokio promotion and
+  release certification remain **not authorised**.
+
+## Proposed revisions, awaiting owner confirmation
+
+The D1 and D5 verdicts call for changes that the verdicts do not spell
+out. Below are proposed readings. They are **not decisions** until the
+owner confirms or replaces them.
+
+### D1: classification logic (proposed correction)
+
+1. **The E1 event is defined from raw outcomes, without changing them.**
+   - **Events:** a valid TCP-hop leg is an E1 event if its
+     `run_outcome` is FAIL with `failure_class` `liveness_bound`, or
+     EXCLUDED with `failure_signature` `kernel_tail`.
+   - **Harness exclusions are not events:** an EXCLUDED leg for any
+     other reason (a harness defect, `failure_class` `harness`) is not
+     an event. It sets `run_validity` INVALID with that reason.
+   - **In the survey's terms:** this keeps "kernel tails count in E1"
+     apart from "EXCLUDED runs are excluded". The survey's section 5
+     conflated the two.
+2. **An unclassified candidate-only failure holds Layer A; it does not
+   violate it.** Section 5 of the survey said such a failure "makes
+   Layer A `VIOLATED`". The proposal:
+   - **Status:** add `HELD` to `layer_a_status`, with reason
+     `unclassified_candidate_failure`.
+   - **Effect:** the trial stops, and diagnosis is required.
+   - **Outcomes:** it becomes `VIOLATED` only if diagnosis finds a
+     Layer A breach. Otherwise the signature is assigned in a merged
+     record, and a new trial is pre-registered. The stopped trial is
+     never resumed.
+   - **Raw outcome:** the run's raw outcome is unchanged either way.
+3. **Signatures need evidence.**
+   - `closewait_backpressure` is assigned only with trace or capture
+     evidence of the Stage37 mechanism. Otherwise the signature is
+     `unclassified`.
+   - Provenance is per signature: an unclassified signature that occurs
+     in both arms is `baseline_and_candidate`, not candidate-only.
+4. **The comparison results are mutually exclusive, applied in this
+   order:**
+   - Layer A `VIOLATED` or `HELD`: `NOT_EVALUATED`;
+   - otherwise, if the lower bound L > 0: `LIVENESS_INFERIOR`;
+   - otherwise, if the upper bound U < δ: `LIVENESS_NONINFERIOR`;
+   - otherwise: `LIVENESS_INCONCLUSIVE`.
+
+   This replaces the overlapping wording of section 6.3 ("even if
+   U < δ").
+
+### D5: statistical method (proposed revision)
+
+**Problems with 5a as written:**
+
+- Taking the larger of two upper bounds is not a single pre-specified
+  test, and its coverage is unknown.
+- With 8 blocks per arm, a cluster bootstrap has too few clusters to be
+  reliable.
+
+**Proposal 5a′:**
+
+1. **Primary analysis:** one pre-specified test. It is the
+   seed-stratified Miettinen–Nurminen score upper bound for the risk
+   difference, with its variance inflated by a design effect fixed
+   before the trial.
+   - The design effect is the upper 80% bound of the block intraclass
+     correlation estimated in the A/A pilot.
+   - If the pilot's events are too few to estimate it, a conservative
+     pre-registered value is used, for example 1.5.
+2. **Validation:** before the trial, simulation must show that this
+   test's false-acceptance rate at RD = δ is at most 5%, under the
+   dependence observed in the pilot. If the simulation fails, the
+   method is not used.
+3. **Sensitivity analyses** (reported, not decisive):
+   - a block-level permutation test of RD that keeps the quartet
+     structure;
+   - the unadjusted (design effect 1) bound;
+   - the exact stratified bound (Chan–Zhang) if the total number of
+     events is below 10.
+
+   A disagreement between these and the primary analysis is reported,
+   and the owner decides.
+4. **Interim boundary:** the harm interim (section 6.5) uses the same
+   inflated variance.
+
+### D9: the 9b emergency exception (proposed controls)
+
+The exception would be used only when all of the following hold:
+
+- the advisory is a vulnerability, not a warning;
+- the exposure is reachable or not excluded;
+- the owner names the advisory, the unmeasured liveness risk and an
+  expiry date for the exception in a written decision;
+- Layer A is fully `SATISFIED` first;
+- a pre-registered Layer B trial follows within the stated expiry, and
+  its result is recorded against the exception.
+
+RUSTSEC-2026-0386, an unsoundness warning judged unreachable, does not
+qualify.
