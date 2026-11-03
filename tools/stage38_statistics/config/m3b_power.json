@@ -1,0 +1,9 @@
+{
+ "stage": "m3b-power",
+ "scenarios": "power",
+ "scenario_args": {"sizes": [16, 24, 32, 48, 64]},
+ "reps": 5000,
+ "chunk": 500,
+ "root_seed": 38104,
+ "methods": ["C6", "R1", "R1EB"]
+}

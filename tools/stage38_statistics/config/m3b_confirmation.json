@@ -1,0 +1,8 @@
+{
+ "stage": "m3b-confirmation",
+ "scenarios": "confirmation",
+ "reps": 20000,
+ "chunk": 1000,
+ "root_seed": 38102,
+ "methods": ["C6"]
+}

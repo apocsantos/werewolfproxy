@@ -1,0 +1,4 @@
+method,family,cells,max_fa_ni_50,max_fa_cp_upper_ni_50,cells_cp_upper_gt_5pct_ni_50,max_fa_ni_75,max_fa_cp_upper_ni_75,cells_cp_upper_gt_5pct_ni_75,max_fa_ni_100,max_fa_cp_upper_ni_100,cells_cp_upper_gt_5pct_ni_100,cov_u_adequate,cov_u_inconclusive,cov_u_under,cov_l_adequate,cov_l_inconclusive,cov_l_under,max_false_worsening,degenerate,failed
+C6,S,120,0.0,0.0006,0,0.0004,0.00126,0,,,0,120,0,0,120,0,0,0.0002,0,0
+R1,S,120,0.0,0.0006,0,0.0,0.0006,0,,,0,120,0,0,120,0,0,0.0,0,0
+R1EB,S,120,0.0,0.0006,0,0.0,0.0006,0,,,0,120,0,0,120,0,0,0.0,0,0

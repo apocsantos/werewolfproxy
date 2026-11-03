@@ -1,0 +1,8 @@
+{
+ "stage": "m3b-replacement",
+ "scenarios": "replacement",
+ "reps": 10000,
+ "chunk": 1000,
+ "root_seed": 38106,
+ "methods": ["C6"]
+}

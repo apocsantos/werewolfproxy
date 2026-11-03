@@ -1,0 +1,8 @@
+{
+ "stage": "m3b-hierarchy",
+ "scenarios": "hierarchy",
+ "reps": 20000,
+ "chunk": 1000,
+ "root_seed": 38105,
+ "methods": ["C6","R1"]
+}
