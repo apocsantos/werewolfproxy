@@ -1,0 +1,8 @@
+{
+ "stage": "m3b-r1_null",
+ "scenarios": "r1_null",
+ "reps": 20000,
+ "chunk": 500,
+ "root_seed": 38107,
+ "methods": ["R1"]
+}

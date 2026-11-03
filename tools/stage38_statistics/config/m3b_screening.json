@@ -1,0 +1,8 @@
+{
+ "stage": "m3b-screening",
+ "scenarios": "screening",
+ "reps": 2000,
+ "chunk": 1000,
+ "root_seed": 38101,
+ "methods": ["C0", "C2", "C6", "R1", "R1EB", "R2", "R3"]
+}
