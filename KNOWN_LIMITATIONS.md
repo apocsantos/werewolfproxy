@@ -60,7 +60,8 @@ the frozen 1.0.0-rc.1 archive is kept unchanged under
 - **Not run:** the Stage32 impairments over a real WAN; IPv6; real host
   (kernel) clock changes and suspend/resume; an indeterminate
   protected-state commit on real storage (unit-tested only, D09); path loss
-  between a relay and the destination; destruction under a full disk.
+  between a relay and the destination over a real WAN (sandbox only, Stage39);
+  destruction under a full disk.
 
 ## Transport and robustness
 
@@ -93,6 +94,22 @@ Found by Stage34 ([record](docs/STAGE34_S3_P2_RECORD.md)):
   relay's kernel retransmits its last data (kernel TCP backoff, on every
   build).
 
+Found by Stage39 ([M1](docs/STAGE39_M1_LIVENESS_REPRODUCTION.md)):
+
+- in 1.0.0-rc.2, the receiver's connection to its target has no keep-alive
+  or `TCP_USER_TIMEOUT`. On a relay that connection is the hop to the
+  destination, so if that path fails silently, or with routing errors, the
+  relay keeps the routed session, its target socket and its authority lease
+  (part of the requester's per-peer quota) long after the destination is
+  gone: beyond 390 s in every sandbox run, and in idle sessions with no
+  error at the requester. The kernel's retransmission limit eventually ends
+  it. Fixed on `main` after rc.2
+  ([M2](docs/STAGE39_M2_TARGET_LIVENESS_FIX.md), `3f1477a`): the target
+  connection now has the session sockets' liveness bounds, and the sandbox
+  shows release in 56–81 s with a reset at the requester
+  ([M3](docs/STAGE39_M3_REGRESSION.md)). The fix is not in the rc.2 archive
+  and has not been run over a real WAN.
+
 ## Discovery, services and routing
 
 - **Discovery (Stage24, Stage25)** is Pack-only: it finds addresses and
@@ -110,7 +127,8 @@ Found by Stage34 ([record](docs/STAGE34_S3_P2_RECORD.md)):
   session's timing and volume, but not the service, the target or the
   payload. Repeated blackholes and hard path loss between the requester and
   the relay were exercised over the real WAN on both hops (Stage26 record);
-  path loss between the relay and the destination was not.
+  path loss between the relay and the destination was exercised only in the
+  sandbox (Stage39, below), not over a real WAN.
 
 ## Governance
 

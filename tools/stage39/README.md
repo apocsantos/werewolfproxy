@@ -39,3 +39,18 @@ python3 -B tools/stage39/analyse.py target/stage39-m1/runs
 
 `S39_SMOKE=1` shortens the window, as a topology check only. A smoke run
 is never evidence.
+
+## M3: D07 target-failure equivalents (sandbox)
+
+`d07_sandbox.py` runs Stage22R D07's target behaviours (`d07_target.py` on
+D: `echo`, `rst`, `kill`, `fin`, `absent`) through a Fang from
+`d07_client.py` on A, with a 64 MiB upload and the target acting after
+8 MiB. It uses D07's series and its pass rules, which are fixed in the
+script header. Paths: `direct-tcp`, `direct-quic`, `routed-tcp` and
+`routed-quic`. After every run, the leases must clear within 10 s; after
+a settle, the Stage32 leak bounds apply.
+
+```sh
+python3 -B tools/stage39/d07_sandbox.py BIN_DIR target/stage39-m3/d07 \
+    direct-tcp direct-quic routed-tcp routed-quic
+```
