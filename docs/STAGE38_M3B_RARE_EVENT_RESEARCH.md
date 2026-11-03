@@ -21,6 +21,11 @@
   suspended (the owner's option a). Nothing here approves D4 or D5, and
   nothing is authorised.
 
+> **Closure (2026-11-03):** the final architectural disposition, and
+> the scientific qualifications that govern this report's use of
+> "valid", are recorded in [STAGE38_M3B_CLOSURE.md](STAGE38_M3B_CLOSURE.md).
+> The results below are unchanged.
+
 These are simulation findings, not observations of Werewolf. The M3
 report and its results are unchanged.
 
