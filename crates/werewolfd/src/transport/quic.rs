@@ -339,6 +339,9 @@ async fn server_handshake(
     )
     .await
     .map_err(|_| hs::rejected())??;
+    // As on the encrypted-TCP receiver: kernel liveness bounds on the target
+    // connection, fail closed before publication and the ACK (Stage39 M1).
+    super::tcp_encrypted::configure_liveness(&target).map_err(|_| hs::rejected())?;
     lease.publish()?;
     let ack = hs::QuicAck::new(&open, &retained, &receiver)?;
     let mut writer = AuthorityWriter::new(send, lease.clone());

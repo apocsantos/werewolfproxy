@@ -31,7 +31,7 @@ const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
 const KEEPALIVE_RETRIES: u32 = 3;
 const TCP_USER_TIMEOUT: Duration = Duration::from_secs(60);
 
-fn configure_liveness(stream: &TcpStream) -> io::Result<()> {
+pub(super) fn configure_liveness(stream: &TcpStream) -> io::Result<()> {
     let socket = socket2::SockRef::from(stream);
     socket.set_tcp_keepalive(
         &socket2::TcpKeepalive::new()
@@ -252,6 +252,12 @@ async fn server_handshake(
     )
     .await
     .map_err(|_| hs::rejected())??;
+    // The target connection gets the session sockets' kernel liveness bounds
+    // (not their TCP_NODELAY). On a relay it is the WAN hop to the
+    // destination: without them a dead path holds the session and its lease
+    // until the kernel's retransmission limit (Stage39 M1). Fails closed:
+    // no publication, no ACK.
+    configure_liveness(&remote).map_err(|_| hs::rejected())?;
     // Publication and every subsequent submission share the authority gate.
     // A target connected before a concurrent revoke is closed without an ACK.
     lease.publish()?;
