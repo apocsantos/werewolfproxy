@@ -67,3 +67,23 @@ $PY -B -m s38.analysis ../../target/stage38-m3/screening ../../target/stage38-m3
 | `s38/runner.py` | the resumable, deterministic runner |
 | `s38/analysis.py` | operating characteristics with Clopper–Pearson Monte Carlo bounds |
 | `s38/classify.py` | the Layer B findings (final D1 rules) |
+
+## M3b (rare-event research)
+
+The frozen plan is `M3B_VALIDATION_PLAN.md`, committed before any M3b
+estimator. The record is `docs/STAGE38_M3B_RARE_EVENT_RESEARCH.md`.
+
+| Module | Role |
+|---|---|
+| `s38/m3b.py` | generator families G1–G3 with E2, replacement policies, R1 (betting), R1EB (empirical Bernstein), R2 (bootstrap-t), R3 (studentised randomisation), the E1→E2 hierarchy, the all-or-nothing floor |
+| `s38/m3b_scenarios.py` | the screening, power, confirmation, R1-null, hierarchy and replacement grids |
+| `s38/m3b_runner.py` | resumable runner over both endpoints, with per-method streams |
+| `s38/m3b_analysis.py`, `s38/m3b_summarise.py` | three-way coverage, error control, summaries |
+
+```sh
+$PY -B -m s38.m3b_runner config/m3b_screening.json ../../target/stage38-m3b/screening --workers 4
+$PY -B -m s38.m3b_analysis ../../target/stage38-m3b/screening ../../target/stage38-m3b/screening.csv
+$PY -B -m s38.m3b_summarise ../../target/stage38-m3b results
+```
+
+The M3 modules and results are unchanged.
