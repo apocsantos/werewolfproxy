@@ -128,9 +128,35 @@ Found by Stage41 ([M1](docs/STAGE41_M1_INITIATOR_EXPOSURE.md)):
   window (1.25 MB) and send window (10 MB) remain above the receiver's
   bounds, by design: they are local throughput choices, and the send
   window is the Stage34 surface. The number of Fang connections, and so
-  the initiator's total memory, is not bounded. Any host that can reach a
-  Fang's bind address can open connections: local processes for a
-  loopback bind, more for any other address (Stage42 survey).
+  the initiator's total memory, was not bounded in rc.2; Stage42 bounds it
+  on `main` (below).
+
+Found by Stage42 ([M1](docs/STAGE42_M1_FANG_FLOOD_REPRODUCTION.md)):
+
+- in 1.0.0-rc.2, a Fang accepts every local connection without limit. Any
+  host that can reach a Fang's bind address can open connections: local
+  processes for a loopback bind, more for any other address. A flood takes
+  the peer's whole 64-session quota at the receiver, so the operator's own
+  sessions through that peer fail. A plain-TCP Fang has no remote quota
+  and grew to 1017 descriptors under 500 connections. On descriptor
+  exhaustion (`EMFILE`) the encrypted-TCP, plain-TCP, routed and failover
+  Fangs stop listening for good while the daemon keeps running, and the
+  QUIC Fang retries `accept` in a tight loop, holding a core and logging
+  every failure (in M1 it filled a 3.9 GB `/tmp` in about 10 minutes).
+  Fixed on `main` after rc.2
+  ([M2](docs/STAGE42_M2_FANG_CEILING_FIX.md), `e9fb6e2`): every Fang kind
+  allows 64 concurrent local connections, with 1024 across all Fangs; a
+  connection over either ceiling is accepted and reset at once; an accept
+  error backs off 100 ms and keeps listening; both are logged at most once
+  per 10 s per Fang. Fangs survive descriptor exhaustion and recover, and
+  a plain-TCP flood is held at 64 sessions and 145 descriptors
+  ([M3](docs/STAGE42_M3_REGRESSION.md)). The fix is not in the rc.2
+  archive. **What remains:** a flood on one Fang still denies that Fang's
+  other users while it lasts (its 64 slots are full, so new connections
+  are reset), and Fangs to the same peer still share that peer's
+  64-session quota. There is no per-client fairness within a Fang. A Fang
+  bound to a non-loopback address accepts from that whole network; this is
+  documented behaviour and was not changed (S42-D5).
 
 ## Discovery, services and routing
 
