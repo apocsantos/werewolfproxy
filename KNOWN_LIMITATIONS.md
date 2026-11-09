@@ -110,6 +110,26 @@ Found by Stage39 ([M1](docs/STAGE39_M1_LIVENESS_REPRODUCTION.md)):
   ([M3](docs/STAGE39_M3_REGRESSION.md)). The fix is not in the rc.2 archive
   and has not been run over a real WAN.
 
+Found by Stage41 ([M1](docs/STAGE41_M1_INITIATOR_EXPOSURE.md)):
+
+- in 1.0.0-rc.2, the QUIC initiator (every outbound QUIC connection:
+  direct and failover Fangs, the routed hop to a relay, discovery) runs
+  Quinn's default transport limits. An authenticated receiver can open up
+  to 200 streams toward it that it never reads, and send it datagrams:
+  249 MB was accepted unread on one connection in 8 s in a unit
+  measurement. Only a Pack peer the initiator chose and pinned can do
+  this. Fixed on `main` after rc.2
+  ([M2](docs/STAGE41_M2_INITIATOR_BOUNDS_FIX.md), `5449261`): the
+  receiver gets no stream credit and no datagram buffer, and the
+  connection receive window is 1.25 MB (1.29 MB accepted in the same
+  measurement). The data-path windows are unchanged, and the Stage32
+  QUIC cells keep their verdicts ([M3](docs/STAGE41_M3_REGRESSION.md)).
+  The fix is not in the rc.2 archive. The initiator's stream receive
+  window (1.25 MB) and send window (10 MB) remain above the receiver's
+  bounds, by design: they are local throughput choices, and the send
+  window is the Stage34 surface. The number of Fang connections, and so
+  the initiator's total memory, is not bounded (local clients only).
+
 ## Discovery, services and routing
 
 - **Discovery (Stage24, Stage25)** is Pack-only: it finds addresses and
