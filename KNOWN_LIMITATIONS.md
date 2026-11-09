@@ -128,7 +128,9 @@ Found by Stage41 ([M1](docs/STAGE41_M1_INITIATOR_EXPOSURE.md)):
   window (1.25 MB) and send window (10 MB) remain above the receiver's
   bounds, by design: they are local throughput choices, and the send
   window is the Stage34 surface. The number of Fang connections, and so
-  the initiator's total memory, is not bounded (local clients only).
+  the initiator's total memory, is not bounded. Any host that can reach a
+  Fang's bind address can open connections: local processes for a
+  loopback bind, more for any other address (Stage42 survey).
 
 ## Discovery, services and routing
 
