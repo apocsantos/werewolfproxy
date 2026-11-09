@@ -1,0 +1,8 @@
+# cargo-audit configuration, read automatically by `cargo audit`.
+# Every ignored advisory must cite the record that accepted it (Stage40 spec §4).
+[advisories]
+ignore = [
+    # tokio 1.52.3 `AsyncFd` I/O safety (unsound). Accepted in
+    # docs/STAGE33_CANDIDATE_AUDIT.md; tokio stays 1.52.3 (Stage35/36).
+    "RUSTSEC-2026-0386",
+]

@@ -1,90 +1,102 @@
-# Stage40 — CI coverage spec (for owner review)
+# Stage40 — local CI coverage (spec and record)
 
-**Status: DRAFT, documentation only.** Nothing in this spec is
-implemented until the owner approves the decisions in §6.
+**Status: IMPLEMENTED in this PR, for owner review.** The first draft of
+this spec targeted GitHub Actions. The owner then decided **not to use
+GitHub for CI** (2026-11-09), and chose a local script plus the pre-push
+hook. PRs on GitHub continue as before. The existing
+`.github/workflows/rust.yml` is unchanged.
 
 Source: Stage39 survey §11 (testing gaps) and §13.3 (recommendation 3).
 
 ## 1. Problem
 
-`.github/workflows/rust.yml` runs only `cargo fmt`, `clippy`,
-`cargo test` and a release build. These checks run only at stage gates,
-by hand, on the owner's host:
+These checks ran only at stage gates, by hand:
 
-| Check | Size | Needs | Runs in CI today |
-|---|---|---|---|
-| Python unit tests (`tests/integration/test_*.py`) | 64 tests, ~2 s, stdlib only | Python 3.11+ | no |
-| Acceptance (`tests/integration/run.py`) | 12 assertions | Rust build, loopback TCP/UDP, Unix sockets | no |
-| Ten lab gates (`tests/integration/*_gate.py`) | activation, auto_sync, death, discovery, governance, provider, routed_fang, service, service_discovery, sync | as acceptance | no |
-| Advisory audit (`cargo audit`) | — | `cargo-audit` | no |
-| Stage32 chaos campaigns (`chaos.py`) | hours | `unshare -rmnp`, netem, faketime | no, **and out of scope** |
+| Check | Size | Needs |
+|---|---|---|
+| Python unit tests (`tests/integration/test_*.py`) | 64 tests, ~2 s, stdlib only | Python 3.11+ |
+| Acceptance (`tests/integration/run.py`) | 12 assertions | Rust build, loopback TCP/UDP, Unix sockets |
+| Ten lab gates (`tests/integration/*_gate.py`) | activation, auto_sync, death, discovery, governance, provider, routed_fang, service, service_discovery, sync | as acceptance |
+| Advisory audit (`cargo audit`) | — | `cargo-audit` |
 
 A regression in the authorization matrices, transport policy or the lab
-gates is therefore caught only at the next stage gate.
+gates was therefore caught only at the next stage gate. The Stage32 chaos
+campaigns (`chaos.py`, namespaces, hours) stay out of scope.
 
-## 2. Feasibility (from the code, to be confirmed in step 1)
+## 2. Design (owner decisions, 2026-11-09)
 
-- The unit tests read JSON fixtures and use only the standard library.
-- No lab gate uses `unshare`, `sudo`, `ip link` or `tc` (checked by
-  grep). They use `127.0.0.1` ports and Unix sockets, which hosted
-  `ubuntu-latest` runners allow.
-- Only `chaos.py` needs namespaces. It stays local.
-- The gates build `werewolfd` with `--locked --offline`. CI must fetch
-  dependencies first (`cargo fetch --locked`).
-- **Unknown:** wall-clock time and timing flakiness on shared runners.
-  Step 1 measures this before any job is made required.
+- **`scripts/ci-local.sh`** runs the checks in sequence. The gates
+  allocate loopback ports, so they must not overlap.
+  - `--fast`: the Python unit tests and `cargo audit` (~5 s).
+  - Default (full): `--fast` plus acceptance and the ten lab gates
+    (~6 min with builds cached).
+  - Each run writes `meta.txt` (commit, dirty files, tool versions),
+    `summary.tsv` and one log per check to `target/ci-local/<UTC>/`.
+    The script exits nonzero if any check fails.
+- **The pre-push hook** (`scripts/install-git-hooks.sh`) adds
+  `ci-local.sh --fast` after its existing steps. The full set runs on
+  demand, before merges, and at stage gates.
+- **`.cargo/audit.toml`** is the single ignore list. Each entry cites the
+  record that accepted it (today only RUSTSEC-2026-0386, tokio 1.52.3,
+  Stage33). The audit runs with `--deny warnings`, so a new unsound,
+  unmaintained or yanked advisory also fails it.
 
-## 3. Proposed jobs (additions only; existing jobs unchanged)
+The first draft's decisions S40-D0–D6 assumed GitHub Actions. D2–D6 (job
+promotion, hosted runners) no longer apply. D1 carries over: the unit
+tests block, now through the hook.
 
-1. **`python-unit`**: runs `python3 -B -m unittest discover -s
-   tests/integration -p 'test_*.py'`. Blocking.
-2. **`acceptance`**: runs `cargo fetch --locked`, then
-   `python3 -B tests/integration/run.py`. Blocking after step 1 shows it
-   is stable.
-3. **`lab-gates`**: a matrix with one job per gate, each with its own
-   timeout. Non-blocking at first (`continue-on-error`). Each gate is
-   promoted to blocking only after N consecutive green runs (D4).
-4. **`audit`**: `cargo audit` with an explicit ignore list that matches
-   the documented acceptances (today: RUSTSEC-2026-0386, tokio 1.52.3,
-   Stage33). A new advisory fails the job. Runs on PRs, plus a weekly
-   schedule (D5).
-
-Each job uploads its stdout JSON result line as an artifact. No job
-uploads private identity keys: `--keep-temp` is never used in CI.
-
-## 4. Invariants
+## 3. Invariants
 
 - No production source, harness rule, test assertion or bound changes.
-  If a gate needs a change to run in CI, that is a separate,
-  owner-reviewed PR.
-- Pin actions by version as the workflow does today (`actions/checkout@v4`
-  and so on).
-- `permissions: contents: read` stays. No secrets, no network beyond
-  crates.io and the GitHub action sources.
-- No live wolves, no `scripts/` gates, no `tests/stage22_private`.
-- The audit ignore list lives in one file. Each entry cites the record
-  that accepted it.
+- No live wolves, no `scripts/*-gate.sh`, no `tests/stage22_private`.
+  The gates kill only their own process groups.
+- `--keep-temp` is never used, so no private test identity keys are kept.
 
-## 5. Steps
+## 4. Evidence
 
-1. **Measure (no merge):** a throwaway branch runs the new jobs 5 times
-   on hosted runners. It records duration and failures per job.
-2. **Implement:** one PR adds the jobs in the §3 states, with a short
-   record of the step 1 numbers.
-3. **Promote:** after D4 is met, a one-line PR per gate removes
-   `continue-on-error`.
+### 4.1 Timing (step 1, before the script)
 
-## 6. Owner decisions
+Five sequential repetitions of all 13 checks on DarkSide (`main`
+`e86a5db`, rustc 1.96.0, Python 3.13.5). Results:
+`target/stage40-measure/20261109T100716Z/`.
 
-| # | Decision | Options | Recommended |
+| Check | Runs | Seconds (min–max) | Notes |
 |---|---|---|---|
-| S40-D0 | Approve Stage40 as scoped | approve, amend, reject | approve |
-| S40-D1 | Python unit tests blocking from the start | yes, no | yes |
-| S40-D2 | Acceptance (`run.py`) in CI | blocking after step 1; non-blocking; not at all | blocking after step 1 |
-| S40-D3 | Lab gates in CI | all ten as a matrix; a subset; none | all ten, non-blocking first |
-| S40-D4 | Promotion rule for a gate | N consecutive green runs (N = 10); owner decides per gate | N = 10 |
-| S40-D5 | `cargo audit` | on PRs + weekly; weekly only; not at all | PRs + weekly |
-| S40-D6 | Step 1 throwaway branch pushes to GitHub (runs on hosted runners) | yes; no (measure locally only) | yes |
+| python-unit | PASS 5/5 | 2.0–2.2 | |
+| audit | PASS 5/5 | 1.1–2.3 | |
+| acceptance | PASS 5/5 | 28–130 | first run includes its own build |
+| gate-routed_fang | PASS 5/5 | 196–199 | the longest check; runtime, not build |
+| gate-auto_sync | PASS 5/5 | 48–151 | first run includes the `lab-faults` build |
+| gate-sync | PASS 5/5 | 23.8–23.9 | |
+| gate-death | PASS 5/5 | 19.7–20.0 | |
+| gate-provider | PASS 5/5 | 14.7–14.8 | |
+| gate-service | PASS 5/5 | 10.9–11.0 | |
+| gate-governance | PASS 5/5 | 7.1 | |
+| gate-discovery | PASS 5/5 | 6.4–6.6 | |
+| gate-activation | PASS 5/5 | 5.6–5.7 | |
+| gate-service_discovery | PASS 5/5 | 5.1–5.2 | |
 
-**Not authorised by this spec:** any workflow change, any test or harness
-change, tokio promotion, rc.3, release certification.
+A warm repetition took ~370 s, the first 577 s; a cold workspace build
+took 112 s. No check failed and the gates varied by under 3 s.
+
+### 4.2 Script checks
+
+- `--fast`: PASS, rc 0.
+- Negative audit check: with RUSTSEC-2026-0386 removed from the ignore
+  list, the audit FAILS and the script returns rc 1. The list was
+  restored.
+- An unknown argument returns rc 2 with a usage line.
+- Full run: see §4.3.
+
+### 4.3 Full run
+
+- **First run** (`target/ci-local/20261109T135742Z`): 12 of 13 PASS.
+  Acceptance FAILED its source-preservation check because this spec was
+  edited during the run. That is the check working as intended: the full
+  set must run on a tree nobody is editing.
+- **Rerun** (`target/ci-local/20261109T140401Z`, tree untouched): **13 of
+  13 PASS**, rc 0, 368 s.
+
+## 5. Not authorised
+
+GitHub Actions changes, tokio promotion, rc.3, release certification.
