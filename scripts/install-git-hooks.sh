@@ -35,6 +35,10 @@ echo "🧬 Schema gate"
 ./scripts/schema-gate.sh
 
 echo
+echo "🔬 Local CI (fast: Python unit tests, cargo audit)"
+./scripts/ci-local.sh --fast
+
+echo
 echo "✅ pre-push checks passed"
 HOOK
 
