@@ -821,3 +821,65 @@ async fn open_waits_for_receiver_to_confirm_the_handshake() {
     .await
     .unwrap();
 }
+
+/// Stage41 M1: the remote peer controls no initiator resource the initiator
+/// never uses. The initiator opens its own streams and never accepts one, and
+/// Werewolf has no QUIC DATAGRAM protocol, so a receiver must not be able to
+/// open streams toward it or have datagrams buffered there. Its own stream
+/// still works (the data path is unchanged).
+#[tokio::test]
+#[ignore = "Stage41 M1: fails on main by design; M2 removes this"]
+async fn initiator_grants_the_receiver_no_streams_or_datagrams() {
+    let receiver = generate_identity();
+    let (server, _) = server_endpoint(&receiver);
+    let address = server.local_addr().unwrap();
+    let client = client_endpoint(&expected(&receiver)).unwrap();
+    let connecting = client.connect(address, &address.ip().to_string()).unwrap();
+    let (server_side, client_side) = tokio::join!(
+        async { server.accept().await.unwrap().await.unwrap() },
+        async {
+            timeout(Duration::from_secs(3), connecting)
+                .await
+                .unwrap()
+                .unwrap()
+        },
+    );
+
+    // The initiator's own bidirectional stream still carries data.
+    let (mut send, _recv) = client_side.open_bi().await.unwrap();
+    send.write_all(b"ok").await.unwrap();
+    send.finish().unwrap();
+    let (_s, mut r) = timeout(Duration::from_secs(2), server_side.accept_bi())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(r.read_to_end(16).await.unwrap(), b"ok");
+
+    // Every exposure is checked, so a failure names all of them.
+    let mut exposed = Vec::new();
+    // The initiator's transport parameters grant the receiver no stream
+    // credit: opening blocks (bounded here by a fixed test timeout).
+    if timeout(Duration::from_millis(200), server_side.open_uni())
+        .await
+        .is_ok()
+    {
+        exposed.push("receiver can open unidirectional streams toward the initiator");
+    }
+    if timeout(Duration::from_millis(200), server_side.open_bi())
+        .await
+        .is_ok()
+    {
+        exposed.push("receiver can open bidirectional streams toward the initiator");
+    }
+    // The initiator does not advertise DATAGRAM support.
+    if let Some(size) = server_side.max_datagram_size() {
+        exposed.push("initiator accepts QUIC datagrams it never reads");
+        assert!(server_side
+            .send_datagram(vec![0; size.min(1000)].into())
+            .is_ok());
+    }
+    assert!(exposed.is_empty(), "initiator exposure: {exposed:#?}");
+
+    client_side.close(0u32.into(), b"");
+    server.close(0u32.into(), b"");
+}
