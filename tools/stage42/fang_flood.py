@@ -249,7 +249,10 @@ def scenario_quota(lab, kind, count):
     for s in socks:
         s.close()
     lab.wait(5)
-    result.update(fds_released=lab.fds(), legit_echo_after=echo_ok(port, 10),
+    result.update(fds_released=lab.fds(), legit_echo_after=echo_ok(port, 10))
+    # Stage42 M3: a longer settle, to tell slow teardown from a leak.
+    lab.wait(25)
+    result.update(fds_released_30s=lab.fds(),
                   daemon_alive=lab.wolves[1].poll() is None)
     return result
 
