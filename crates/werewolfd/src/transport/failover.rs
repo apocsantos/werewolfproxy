@@ -169,14 +169,16 @@ pub(crate) async fn run_failover_forwarder(
     );
     let prepared = std::sync::Arc::new(prepared);
 
+    let mut acceptor = super::fang_accept::FangAcceptor::new(listener, fang_id);
     loop {
-        let (mut inbound, _) = listener.accept().await?;
+        let (mut inbound, _, slot) = acceptor.accept().await;
         if super::arm_reset_on_close(&inbound).is_err() {
             continue;
         }
         let prepared = prepared.clone();
         let identity = identity.clone();
         cancellation.spawn(async move {
+            let _slot = slot;
             if select_and_serve(&mut inbound, &prepared, &identity).await {
                 let _ = super::disarm_reset_on_close(&inbound);
             }
