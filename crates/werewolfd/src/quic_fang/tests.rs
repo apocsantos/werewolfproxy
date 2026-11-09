@@ -828,7 +828,6 @@ async fn open_waits_for_receiver_to_confirm_the_handshake() {
 /// open streams toward it or have datagrams buffered there. Its own stream
 /// still works (the data path is unchanged).
 #[tokio::test]
-#[ignore = "Stage41 M1: fails on main by design; M2 removes this"]
 async fn initiator_grants_the_receiver_no_streams_or_datagrams() {
     let receiver = generate_identity();
     let (server, _) = server_endpoint(&receiver);

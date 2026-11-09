@@ -21,6 +21,18 @@ const QUIC_KEEP_ALIVE: Duration = Duration::from_secs(10);
 /// How often the initiator checks for the receiver's handshake confirmation.
 const CONFIRM_POLL: Duration = Duration::from_millis(5);
 
+// Resources the remote receiver controls on the initiator (Stage41). The
+// initiator opens its own streams and never accepts one, and Werewolf has no
+// QUIC DATAGRAM protocol, so the receiver gets no stream credit and no
+// datagram buffer. The connection receive window equals Quinn's default
+// stream receive window, so the one stream's data path is unchanged while
+// the total the receiver can make the initiator hold is bounded. The stream
+// receive and send windows stay at Quinn's defaults (the send window is the
+// Stage34 surface). The receiver's own bounds are in `transport/quic.rs`.
+const PEER_BIDI_STREAMS: u32 = 0;
+const PEER_UNI_STREAMS: u32 = 0;
+const CONNECTION_RECEIVE_WINDOW: u32 = 1_250_000;
+
 pub async fn open_quic_fang(
     local_addr: String,
     quic_server: String,
@@ -138,7 +150,12 @@ pub(crate) fn client_endpoint(expected_peer: &ExpectedPeerIdentity) -> std::io::
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().map_err(|_| hs::rejected())?)
         .map_err(|_| hs::rejected())?;
     let mut transport = quinn::TransportConfig::default();
-    transport.keep_alive_interval(Some(QUIC_KEEP_ALIVE));
+    transport
+        .keep_alive_interval(Some(QUIC_KEEP_ALIVE))
+        .max_concurrent_bidi_streams(quinn::VarInt::from_u32(PEER_BIDI_STREAMS))
+        .max_concurrent_uni_streams(quinn::VarInt::from_u32(PEER_UNI_STREAMS))
+        .receive_window(quinn::VarInt::from_u32(CONNECTION_RECEIVE_WINDOW))
+        .datagram_receive_buffer_size(None);
     let mut config = ClientConfig::new(Arc::new(quic_crypto));
     config.transport_config(Arc::new(transport));
     endpoint.set_default_client_config(config);
