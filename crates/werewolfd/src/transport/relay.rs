@@ -144,8 +144,9 @@ pub(crate) async fn run_routed_forwarder(
         fang_id, local, routed.destination, routed.via
     );
 
+    let mut acceptor = super::fang_accept::FangAcceptor::new(listener, fang_id);
     loop {
-        let (mut inbound, _) = listener.accept().await?;
+        let (mut inbound, _, slot) = acceptor.accept().await;
         if super::arm_reset_on_close(&inbound).is_err() {
             continue;
         }
@@ -155,6 +156,7 @@ pub(crate) async fn run_routed_forwarder(
         let destination = destination.clone();
         let endpoint = endpoint.clone();
         cancellation.spawn(async move {
+            let _slot = slot;
             let result = routed_session(
                 &mut inbound,
                 &routed,

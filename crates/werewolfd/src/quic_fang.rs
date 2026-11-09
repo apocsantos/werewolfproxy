@@ -68,14 +68,9 @@ pub async fn open_quic_fang(
             local_addr, quic_server, remote_addr
         );
 
+        let mut acceptor = crate::transport::fang_accept::FangAcceptor::new(listener, &local_addr);
         loop {
-            let (tcp, _) = match listener.accept().await {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("accept failed: {}", e);
-                    continue;
-                }
-            };
+            let (tcp, _, slot) = acceptor.accept().await;
             if crate::transport::arm_reset_on_close(&tcp).is_err() {
                 continue;
             }
@@ -87,6 +82,7 @@ pub async fn open_quic_fang(
             let endpoint = endpoint.clone();
 
             cancellation.spawn(async move {
+                let _slot = slot;
                 let server_addr: SocketAddr = match quic_server.parse() {
                     Ok(v) => v,
                     Err(e) => {

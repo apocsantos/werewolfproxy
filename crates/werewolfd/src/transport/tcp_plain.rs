@@ -24,12 +24,14 @@ pub(super) async fn run_plain_tcp_forwarder(
     cancellation.await_activation().await?;
     println!("🦷 {} plain TCP listening locally on {}", fang_id, local);
 
+    let mut acceptor = super::fang_accept::FangAcceptor::new(listener, fang_id);
     loop {
-        let (mut inbound, client_addr) = listener.accept().await?;
+        let (mut inbound, client_addr, slot) = acceptor.accept().await;
         let remote = remote.to_string();
         let fang_id = fang_id.to_string();
 
         cancellation.spawn(async move {
+            let _slot = slot;
             match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&remote)).await {
                 Ok(Ok(mut outbound)) => {
                     if let Err(e) = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await

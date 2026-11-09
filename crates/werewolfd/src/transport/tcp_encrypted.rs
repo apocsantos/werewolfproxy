@@ -297,8 +297,9 @@ pub(super) async fn run_local_fang_forwarder(
     cancellation.await_activation().await?;
     println!("🦷 {} listening locally on {}", fang_id, local);
 
+    let mut acceptor = super::fang_accept::FangAcceptor::new(listener, fang_id);
     loop {
-        let (mut inbound, _) = listener.accept().await?;
+        let (mut inbound, _, slot) = acceptor.accept().await;
         if super::arm_reset_on_close(&inbound).is_err() {
             continue;
         }
@@ -308,6 +309,7 @@ pub(super) async fn run_local_fang_forwarder(
         let expected_peer = expected_peer.clone();
 
         cancellation.spawn(async move {
+            let _slot = slot;
             let result = pipe_one_fang_connection(
                 &mut inbound,
                 &peer_addr,
