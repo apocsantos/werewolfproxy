@@ -6,7 +6,10 @@ use crate::transport::fang_accept::Tracked;
 use quinn::{ClientConfig, Endpoint, RecvStream, SendStream};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{error::Error, net::SocketAddr};
+use std::{
+    error::Error,
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr},
+};
 use tokio::{
     io::{copy, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -44,7 +47,7 @@ pub async fn open_quic_fang(
     expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> Result<JoinHandle<()>, Box<dyn Error + Send + Sync>> {
     let handle = tokio::spawn(async move {
-        let endpoint = match client_endpoint(&expected_peer) {
+        let endpoint = match client_endpoint(&expected_peer, quic_server.parse().ok()) {
             Ok(endpoint) => endpoint,
             Err(error) => {
                 let _ = ready.send(Err(std::io::Error::new(error.kind(), error.to_string())));
@@ -134,11 +137,27 @@ pub(super) async fn connect_v3(
     identity: &PeltIdentity,
     expected_peer: &ExpectedPeerIdentity,
 ) -> std::io::Result<(quinn::Connection, SendStream, RecvStream)> {
-    let endpoint = client_endpoint(expected_peer)?;
+    let endpoint = client_endpoint(expected_peer, Some(address))?;
     connect_v3_on(&endpoint, address, remote, identity, expected_peer).await
 }
 
-pub(crate) fn client_endpoint(expected_peer: &ExpectedPeerIdentity) -> std::io::Result<Endpoint> {
+/// The local address of a QUIC client endpoint that will dial `destination`
+/// (Stage44 V1). Quinn refuses an IPv6 destination on an IPv4 endpoint, so an
+/// IPv6 destination gets an IPv6 endpoint (dual-stack where the host allows).
+/// Every other case, including a destination that is not a literal socket
+/// address, keeps the IPv4 endpoint exactly as before: binding IPv6 on a host
+/// with IPv6 disabled would fail.
+pub(crate) fn client_bind(destination: Option<SocketAddr>) -> SocketAddr {
+    match destination {
+        Some(address) if address.is_ipv6() => (Ipv6Addr::UNSPECIFIED, 0).into(),
+        _ => (Ipv4Addr::UNSPECIFIED, 0).into(),
+    }
+}
+
+pub(crate) fn client_endpoint(
+    expected_peer: &ExpectedPeerIdentity,
+    destination: Option<SocketAddr>,
+) -> std::io::Result<Endpoint> {
     // A selected peer's full Pack key is required before creating an endpoint
     // or emitting a QUIC datagram. Fingerprints remain transcript identifiers,
     // not TLS trust material.
@@ -148,8 +167,7 @@ pub(crate) fn client_endpoint(expected_peer: &ExpectedPeerIdentity) -> std::io::
     .map_err(|_| hs::rejected())?;
     let quic_crypto =
         quinn::crypto::rustls::QuicClientConfig::try_from(crypto).map_err(|_| hs::rejected())?;
-    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().map_err(|_| hs::rejected())?)
-        .map_err(|_| hs::rejected())?;
+    let mut endpoint = Endpoint::client(client_bind(destination)).map_err(|_| hs::rejected())?;
     let mut transport = quinn::TransportConfig::default();
     transport
         .keep_alive_interval(Some(QUIC_KEEP_ALIVE))

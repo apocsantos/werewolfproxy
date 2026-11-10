@@ -119,7 +119,10 @@ pub(crate) async fn run_routed_forwarder(
 ) -> io::Result<()> {
     // One QUIC endpoint per activation, as a direct QUIC Fang does.
     let endpoint = match routed.hop {
-        RouteHop::Quic => match crate::quic_fang::client_endpoint(&routed.relay) {
+        RouteHop::Quic => match crate::quic_fang::client_endpoint(
+            &routed.relay,
+            routed.relay_address.parse().ok(),
+        ) {
             Ok(endpoint) => Some(endpoint),
             Err(error) => {
                 let _ = ready.send(Err(io::Error::new(error.kind(), error.to_string())));
@@ -287,7 +290,7 @@ where
     match routed.hop {
         RouteHop::Quic => {
             let relay: SocketAddr = routed.relay_address.parse().map_err(|_| hs::rejected())?;
-            let endpoint = crate::quic_fang::client_endpoint(&routed.relay)?;
+            let endpoint = crate::quic_fang::client_endpoint(&routed.relay, Some(relay))?;
             let (connection, send, recv) =
                 crate::quic_fang::connect_v3_on(&endpoint, relay, &target, identity, &routed.relay)
                     .await?;

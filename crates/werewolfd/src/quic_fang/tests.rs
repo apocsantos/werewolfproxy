@@ -57,15 +57,16 @@ fn reserve_udp() -> SocketAddr {
 }
 
 fn server_endpoint(identity: &PeltIdentity) -> (Endpoint, Vec<u8>) {
+    server_endpoint_at(identity, "127.0.0.1:0".parse().unwrap())
+}
+
+fn server_endpoint_at(identity: &PeltIdentity, bind: SocketAddr) -> (Endpoint, Vec<u8>) {
     let identity = RuntimeTlsIdentity::from_pelt(identity).unwrap();
     let certificate = identity.certificate().as_ref().to_vec();
     let crypto = tls_identity::server_config(&identity).unwrap();
     let crypto = quinn::crypto::rustls::QuicServerConfig::try_from(crypto).unwrap();
     let config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
-    (
-        Endpoint::server(config, "127.0.0.1:0".parse().unwrap()).unwrap(),
-        certificate,
-    )
+    (Endpoint::server(config, bind).unwrap(), certificate)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -832,7 +833,7 @@ async fn initiator_grants_the_receiver_no_streams_or_datagrams() {
     let receiver = generate_identity();
     let (server, _) = server_endpoint(&receiver);
     let address = server.local_addr().unwrap();
-    let client = client_endpoint(&expected(&receiver)).unwrap();
+    let client = client_endpoint(&expected(&receiver), Some(address)).unwrap();
     let connecting = client.connect(address, &address.ip().to_string()).unwrap();
     let (server_side, client_side) = tokio::join!(
         async { server.accept().await.unwrap().await.unwrap() },
@@ -881,4 +882,62 @@ async fn initiator_grants_the_receiver_no_streams_or_datagrams() {
 
     client_side.close(0u32.into(), b"");
     server.close(0u32.into(), b"");
+}
+
+/// Stage44 V1: a QUIC client endpoint takes the family of its destination.
+/// IPv4 (and anything that is not a literal socket address) keeps the
+/// IPv4 endpoint unchanged.
+#[test]
+fn client_endpoint_family_follows_the_destination() {
+    let bind = |d: Option<&str>| client_bind(d.map(|d| d.parse().unwrap()));
+    assert_eq!(bind(Some("192.0.2.1:4433")), "0.0.0.0:0".parse().unwrap());
+    assert_eq!(bind(None), "0.0.0.0:0".parse().unwrap());
+    assert_eq!(bind(Some("[fd43::1]:4433")), "[::]:0".parse().unwrap());
+    assert_eq!(
+        bind(Some("[::ffff:192.0.2.1]:4433")),
+        "[::]:0".parse().unwrap()
+    );
+}
+
+/// Stage44 M1 H1: QUIC to an IPv6 peer failed before a packet was sent,
+/// because the endpoint was IPv4. With V1 the handshake completes.
+#[tokio::test]
+async fn quic_reaches_an_ipv6_receiver() {
+    let receiver = generate_identity();
+    let Ok(server) =
+        std::panic::catch_unwind(|| server_endpoint_at(&receiver, "[::1]:0".parse().unwrap()).0)
+    else {
+        eprintln!("skipped: no IPv6 loopback on this host");
+        return;
+    };
+    let address = server.local_addr().unwrap();
+
+    // The IPv4 endpoint (what every destination got before V1) refuses it
+    // outright, before any packet: the M1 cause.
+    let old = client_endpoint(&expected(&receiver), None).unwrap();
+    assert!(matches!(
+        old.connect(address, "::1"),
+        Err(quinn::ConnectError::InvalidRemoteAddress(_))
+    ));
+
+    let client = client_endpoint(&expected(&receiver), Some(address)).unwrap();
+    assert!(client.local_addr().unwrap().is_ipv6());
+    let connecting = client.connect(address, &address.ip().to_string()).unwrap();
+    let (server_side, client_side) = tokio::join!(
+        async { server.accept().await.unwrap().await.unwrap() },
+        async {
+            timeout(Duration::from_secs(3), connecting)
+                .await
+                .unwrap()
+                .unwrap()
+        },
+    );
+    let (mut send, _recv) = client_side.open_bi().await.unwrap();
+    send.write_all(b"v6").await.unwrap();
+    send.finish().unwrap();
+    let (_s, mut r) = timeout(Duration::from_secs(2), server_side.accept_bi())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(r.read_to_end(16).await.unwrap(), b"v6");
 }

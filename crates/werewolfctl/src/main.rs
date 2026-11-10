@@ -684,7 +684,7 @@ fn request_for(command: Commands) -> Result<(String, Value), CliError> {
                 },
         } => {
             // The daemon resolves the name to its registered peer and target.
-            let local = format!("{bind}:{local_port}");
+            let local = local_listener(&bind, local_port);
             (
                 "service.connect",
                 json!({"name":name,"local":local,"transport":transport}),
@@ -840,6 +840,16 @@ fn print_local(json_output: bool, command: &str, result: Value) -> Result<(), Cl
         );
     }
     Ok(())
+}
+
+/// `--bind` plus the port. An unbracketed IPv6 address is bracketed, so the
+/// Fang's listener is recorded as `[::1]:PORT` rather than `::1:PORT`
+/// (Stage44 V3). Anything else is passed through unchanged, as before.
+fn local_listener(bind: &str, port: u16) -> String {
+    match bind.parse::<std::net::Ipv6Addr>() {
+        Ok(ip) => std::net::SocketAddr::from((ip, port)).to_string(),
+        Err(_) => format!("{bind}:{port}"),
+    }
 }
 
 #[cfg(test)]
@@ -1198,6 +1208,32 @@ mod tests {
             ],
         ] {
             assert!(Cli::try_parse_from(bad).is_err());
+        }
+    }
+
+    #[test]
+    fn service_connect_brackets_an_ipv6_bind() {
+        for (bind, local) in [
+            ("::1", "[::1]:18087"),
+            ("[::1]", "[::1]:18087"),
+            ("fd43::2", "[fd43::2]:18087"),
+            ("127.0.0.1", "127.0.0.1:18087"),
+            ("0.0.0.0", "0.0.0.0:18087"),
+        ] {
+            assert_eq!(
+                request(&[
+                    "service",
+                    "connect",
+                    "web",
+                    "--local-port",
+                    "18087",
+                    "--bind",
+                    bind
+                ])
+                .1["local"],
+                local,
+                "{bind}"
+            );
         }
     }
 

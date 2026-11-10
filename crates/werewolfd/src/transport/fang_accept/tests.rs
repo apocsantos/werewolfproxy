@@ -374,6 +374,38 @@ fn only_non_loopback_sources_are_shared() {
     assert_eq!((IDLE_EVICT_AFTER.as_secs(), SOURCE_SHARE), (60, 16));
 }
 
+/// Stage44 V2: one IPv6 host holds a /64, so IPv6 sources share by /64.
+#[test]
+fn ipv6_sources_share_by_slash_64() {
+    let policy = Policy::default();
+    let key = |a: &str| policy.share_key(a.parse().unwrap());
+    let prefix = Some("fd43::".parse().unwrap());
+    for same in [
+        "[fd43::10]:1",
+        "[fd43::13]:2",
+        "[fd43::ffff:ffff:ffff:ffff]:3",
+    ] {
+        assert_eq!(key(same), prefix, "{same}");
+    }
+    assert_eq!(
+        key("[fd43:0:0:1::2]:1"),
+        Some("fd43:0:0:1::".parse().unwrap())
+    );
+    assert_ne!(
+        key("[fd43:0:0:1::2]:1"),
+        prefix,
+        "another /64 is another source"
+    );
+    // IPv4 and IPv4-mapped keep their exact address.
+    assert_eq!(key("10.43.0.2:1"), Some("10.43.0.2".parse().unwrap()));
+    assert_eq!(
+        key("[::ffff:10.43.0.2]:1"),
+        Some("10.43.0.2".parse().unwrap())
+    );
+    assert_ne!(key("10.43.0.2:1"), key("10.43.0.3:1"));
+    assert_eq!(key("[::1]:1"), None);
+}
+
 #[tokio::test]
 async fn tracked_records_activity_only_inside_a_fang_session() {
     let activity = Arc::new(Activity::new());
