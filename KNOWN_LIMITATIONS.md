@@ -57,7 +57,14 @@ the frozen 1.0.0-rc.1 archive is kept unchanged under
   stalls (`SIGSTOP` 30 s and 300 s). See
   [docs/STAGE32_ROBUSTNESS_SPEC.md](docs/STAGE32_ROBUSTNESS_SPEC.md) and
   [docs/STAGE32_TIME_CERTIFICATION.md](docs/STAGE32_TIME_CERTIFICATION.md).
-- **Not run:** the Stage32 impairments over a real WAN; IPv6; real host
+- **Stage44, sandbox** (unprivileged network namespace, unique-local IPv6
+  addresses on loopback): QUIC, encrypted-TCP and plain-TCP Fangs, routed
+  Fangs over QUIC and TCP hops, discovery and governance sync over both
+  transports, a dual-stack receiver, and the per-source share, all over
+  IPv6. See [docs/STAGE44_M3_REGRESSION.md](docs/STAGE44_M3_REGRESSION.md).
+- **Not run:** the Stage32 impairments over a real WAN; IPv6 on a real
+  network (router advertisements, path MTU, a WAN) or with the Stage32
+  impairments; real host
   (kernel) clock changes and suspend/resume; an indeterminate
   protected-state commit on real storage (unit-tested only, D09); path loss
   between a relay and the destination over a real WAN (sandbox only, Stage39);
@@ -193,6 +200,45 @@ Found by Stage43 ([M1](docs/STAGE43_M1_FAIRNESS_REPRODUCTION.md)):
     evicted);
   - not done: a per-local-user share (F2), an operator-set ceiling per
     Fang (F4) and a per-Fang share of a peer's quota (F5).
+
+Found by Stage44 ([M1](docs/STAGE44_M1_IPV6_REPRODUCTION.md)):
+
+- in 1.0.0-rc.2 and on `main` before Stage44, QUIC to an IPv6 peer fails
+  everywhere, before a packet is sent: the QUIC client endpoint is bound
+  to `0.0.0.0:0`, and quinn refuses an IPv6 destination on it. That breaks:
+  - QUIC Fangs and the QUIC legs of routed and failover Fangs, which reset
+    every session. The Fang still shows `active` and nothing is logged;
+  - discovery and governance sync over QUIC, which report the peer as
+    `rejected`.
+
+  QUIC is the default transport, so an IPv6-only peer was reachable only
+  over TCP. Also, the Stage43 per-source share counted each IPv6 address
+  separately. One host holding a /64 could therefore take all 64 slots of
+  a Fang bound to an IPv6 address.
+
+  Fixed on `main` after rc.2 ([M2](docs/STAGE44_M2_IPV6_FIX.md),
+  `716ec8a`):
+  - a QUIC client endpoint dialling an IPv6 destination binds `[::]:0`.
+    Every other destination keeps the IPv4 endpoint unchanged, so a host
+    with IPv6 disabled is unaffected;
+  - IPv6 sources share by /64;
+  - `werewolfctl service connect --bind ::1` is recorded as `[::1]:PORT`.
+
+  Every IPv6 scenario passes in three rounds, and the IPv4 results hold
+  ([M3](docs/STAGE44_M3_REGRESSION.md)). The fix is not in the rc.2
+  archive.
+
+  **What remains:**
+  - IPv6 was run only in a namespace sandbox on unique-local loopback
+    addresses, never on a real IPv6 network or a WAN;
+  - a peer address that is a hostname is dialled at its first resolved
+    address only, with no fallback between addresses or families;
+  - the /64 share is a heuristic. A host holding a larger prefix (a /56 or
+    /48) can still take more than 16 slots, and hosts sharing one /64
+    share 16;
+  - a QUIC dial failure is still not logged, and discovery and sync still
+    report a local connection error as `rejected`, the status of a trust
+    refusal.
 
 ## Discovery, services and routing
 
