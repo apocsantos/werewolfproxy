@@ -175,7 +175,7 @@ async fn short_lived_local_fang_connections_finish_quic_and_release_authority() 
         let fang = AbortOnDrop(
             open_quic_fang(
                 local_address.to_string(),
-                quic_address.to_string(),
+                quic_address,
                 target_address.to_string(),
                 sender,
                 crate::fang_registry::FangCancellation::default(),
@@ -571,7 +571,7 @@ async fn target_reset_right_after_accept_reaches_local_client_as_reset() {
         let fang = AbortOnDrop(
             open_quic_fang(
                 local_address.to_string(),
-                quic_address.to_string(),
+                quic_address,
                 target_address.to_string(),
                 sender,
                 crate::fang_registry::FangCancellation::default(),
@@ -613,6 +613,11 @@ struct Rig {
 }
 
 async fn rig() -> Rig {
+    rig_with(true).await
+}
+
+/// `grant`: whether the receiver grants the sender the target.
+async fn rig_with(grant: bool) -> Rig {
     let sender = generate_identity();
     let receiver = generate_identity();
     let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -621,10 +626,11 @@ async fn rig() -> Rig {
         pelt: Some(receiver.clone()),
         runtime_tls_identity: Some(Arc::new(RuntimeTlsIdentity::from_pelt(&receiver).unwrap())),
         peers: vec![peer(&sender, "sender")],
-        target_policy: TargetPolicy::Grants(HashMap::from([(
-            sender.fingerprint.clone(),
-            [target_address].into(),
-        )])),
+        target_policy: TargetPolicy::Grants(if grant {
+            HashMap::from([(sender.fingerprint.clone(), [target_address].into())])
+        } else {
+            HashMap::new()
+        }),
         ..Default::default()
     }));
     let quic_address = reserve_udp();
@@ -640,7 +646,7 @@ async fn rig() -> Rig {
     let fang = AbortOnDrop(
         open_quic_fang(
             local_address.to_string(),
-            quic_address.to_string(),
+            quic_address,
             target_address.to_string(),
             sender,
             cancellation.clone(),
@@ -940,4 +946,96 @@ async fn quic_reaches_an_ipv6_receiver() {
         .unwrap()
         .unwrap();
     assert_eq!(r.read_to_end(16).await.unwrap(), b"v6");
+}
+
+// --- Stage45: failed session setups are recorded -----------------------------
+
+/// Waits until the Fang has recorded `count` failed setups.
+async fn failures(
+    cancellation: &crate::fang_registry::FangCancellation,
+    count: u64,
+) -> serde_json::Value {
+    let health = cancellation.health();
+    timeout(Duration::from_secs(15), async {
+        while health.sessions_failed() < count {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(health.sessions_failed(), count);
+    health.last_failure()
+}
+
+/// The receiver does not grant the target: the session fails as
+/// `handshake` and the client sees a reset. A granted session is not a
+/// failure.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_refused_quic_session_is_a_handshake_failure() {
+    let refused = rig_with(false).await;
+    let mut client = tokio::net::TcpStream::connect(refused.local).await.unwrap();
+    let _ = client.write_all(b"hello").await;
+    let (_, reset) = crate::transport::drain_until_closed(&mut client).await;
+    assert!(reset);
+    assert_eq!(
+        failures(&refused.cancellation, 1).await["class"],
+        "handshake"
+    );
+
+    let granted = rig().await;
+    let mut client = tokio::net::TcpStream::connect(granted.local).await.unwrap();
+    client.write_all(b"hello").await.unwrap();
+    let (mut target, _) = granted.target.accept().await.unwrap();
+    let mut first = [0u8; 5];
+    target.read_exact(&mut first).await.unwrap();
+    drop((client, target));
+    sleep(Duration::from_millis(100)).await;
+    assert_eq!(granted.cancellation.health().sessions_failed(), 0);
+}
+
+/// Nothing answers at the peer's address: the session fails as `dial` once
+/// the read window passes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_unanswered_quic_session_is_a_dial_failure() {
+    let (sender, receiver) = (generate_identity(), generate_identity());
+    let local = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let local_address = local.local_addr().unwrap();
+    drop(local);
+    let cancellation = crate::fang_registry::FangCancellation::default();
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let _fang = AbortOnDrop(
+        open_quic_fang(
+            local_address.to_string(),
+            reserve_udp(),
+            "127.0.0.1:8080".into(),
+            sender,
+            cancellation.clone(),
+            ready_tx,
+            expected(&receiver),
+        )
+        .await
+        .unwrap(),
+    );
+    ready_rx.await.unwrap().unwrap();
+    let _client = tokio::net::TcpStream::connect(local_address).await.unwrap();
+    assert_eq!(failures(&cancellation, 1).await["class"], "dial");
+}
+
+/// H1: literals pass through; a hostname resolves to its first address; a
+/// name that does not resolve is an error.
+#[tokio::test]
+async fn quic_server_addresses_resolve_once() {
+    assert_eq!(
+        resolve_server("192.0.2.1:9560").await.unwrap(),
+        "192.0.2.1:9560".parse::<SocketAddr>().unwrap()
+    );
+    assert_eq!(
+        resolve_server("[::1]:9560").await.unwrap(),
+        "[::1]:9560".parse::<SocketAddr>().unwrap()
+    );
+    let local = resolve_server("localhost:9560").await.unwrap();
+    assert!(local.ip().is_loopback() && local.port() == 9560, "{local}");
+    assert!(resolve_server("werewolf-stage45.invalid:9560")
+        .await
+        .is_err());
 }

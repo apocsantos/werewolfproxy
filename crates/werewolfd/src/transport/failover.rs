@@ -11,6 +11,7 @@
 //! for one connection has `hs::CLIENT_WINDOW` (decision 4a); when every
 //! provider fails, or the window ends, the local connection is reset.
 
+use super::fang_health::FailureClass;
 use super::relay::{self, Routed};
 use super::tcp_encrypted::{connect_tcp_session, secure_copy_client_side};
 use crate::{
@@ -178,12 +179,18 @@ pub(crate) async fn run_failover_forwarder(
         }
         let prepared = prepared.clone();
         let identity = identity.clone();
+        let health = cancellation.health();
         cancellation.spawn(async move {
             let served = slot
                 .serve(select_and_serve(&mut inbound, &prepared, &identity))
                 .await;
-            if served == Some(true) {
-                let _ = super::disarm_reset_on_close(&inbound);
+            match served {
+                Some(Served::Clean) => {
+                    let _ = super::disarm_reset_on_close(&inbound);
+                }
+                // No provider established a session (Stage45).
+                Some(Served::NoProvider(class, detail)) => health.record(class, &detail),
+                Some(Served::Failed) | None => {}
             }
             // Otherwise (failed, or evicted in Stage43) the socket stays
             // armed: the application sees a reset, never a session that
@@ -192,39 +199,64 @@ pub(crate) async fn run_failover_forwarder(
     }
 }
 
-/// Tries the providers in order for one local connection. Returns whether
-/// the session ended cleanly.
+/// How one local connection's provider selection ended.
+#[derive(Debug, PartialEq)]
+enum Served {
+    /// A provider's session ended cleanly.
+    Clean,
+    /// A provider's session failed after it was established.
+    Failed,
+    /// No provider established a session (every one failed, or the window
+    /// ended): `handshake` if any provider was reached, otherwise `dial`;
+    /// and each provider's error, in order.
+    NoProvider(FailureClass, String),
+}
+
+/// Tries the providers in order for one local connection.
 async fn select_and_serve(
     inbound: &mut TcpStream,
     providers: &[Ready],
     identity: &PeltIdentity,
-) -> bool {
+) -> Served {
     let deadline = Instant::now() + hs::CLIENT_WINDOW;
+    let mut class = FailureClass::Dial;
+    let mut errors = Vec::new();
     for ready in providers {
         let (established_tx, mut established) = oneshot::channel();
         let attempt = attempt(inbound, ready, identity, established_tx);
         tokio::pin!(attempt);
         tokio::select! {
             result = &mut attempt => {
-                if result.is_ok() {
-                    return true;
-                }
+                let error = match result {
+                    Ok(()) => return Served::Clean,
+                    Err(error) => error,
+                };
                 if established.try_recv().is_ok() {
                     // Failed after the session was established: bytes may
                     // have moved, so never try another provider.
-                    return false;
+                    return Served::Failed;
                 }
                 // Failed before establishment: nothing was read from the
                 // local socket; try the next provider.
+                if FailureClass::of_setup(&error) == FailureClass::Handshake {
+                    class = FailureClass::Handshake;
+                }
+                errors.push(format!("{}: {error}", ready.provider.peer));
             }
             Ok(()) = &mut established => {
                 // Committed to this provider for the rest of the session.
-                return attempt.await.is_ok();
+                return match attempt.await {
+                    Ok(()) => Served::Clean,
+                    Err(_) => Served::Failed,
+                };
             }
-            _ = sleep_until(deadline) => return false,
+            _ = sleep_until(deadline) => {
+                errors.push(format!("{}: selection window ended", ready.provider.peer));
+                break;
+            }
         }
     }
-    false
+    Served::NoProvider(class, errors.join("; "))
 }
 
 /// One ordinary session to one provider. `established` fires after the

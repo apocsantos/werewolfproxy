@@ -1,3 +1,4 @@
+use super::fang_health::FailureClass;
 use std::time::Duration;
 use tokio::{
     io,
@@ -28,9 +29,12 @@ pub(super) async fn run_plain_tcp_forwarder(
     loop {
         let (mut inbound, client_addr, slot) = acceptor.accept().await;
         let remote = remote.to_string();
-        let fang_id = fang_id.to_string();
+        let health = cancellation.health();
 
         cancellation.spawn(async move {
+            // Failures are counted and logged at a bounded rate (Stage45
+            // S45-D2): a client retrying against a dead target cannot grow
+            // the log.
             let session = async {
                 match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&remote))
                     .await
@@ -41,22 +45,16 @@ pub(super) async fn run_plain_tcp_forwarder(
                         if let Err(e) =
                             tokio::io::copy_bidirectional(&mut local, &mut outbound).await
                         {
-                            eprintln!(
-                                "🦷 {} plain client {} pipe error: {}",
-                                fang_id, client_addr, e
-                            );
+                            health.pipe_error(&format_args!("client {client_addr}: {e}"));
                         }
                     }
                     Ok(Err(e)) => {
-                        eprintln!(
-                            "🦷 {} plain target connect error {}: {}",
-                            fang_id, remote, e
-                        );
+                        health.record(FailureClass::Target, &format_args!("{remote}: {e}"));
                     }
                     Err(_) => {
-                        eprintln!(
-                            "🦷 {} plain target connect timed out after 5s: {}",
-                            fang_id, remote
+                        health.record(
+                            FailureClass::Target,
+                            &format_args!("{remote}: no answer within 5 s"),
                         );
                     }
                 }

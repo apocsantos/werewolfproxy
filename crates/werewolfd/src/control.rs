@@ -724,6 +724,9 @@ async fn dispatch_request(
                         .started_at(&f.id)
                         .map(|t| t.elapsed().as_secs())
                         .unwrap_or(0);
+                    // Stage45 C1: failed session setups since the Fang
+                    // opened, and the last one's class and age.
+                    let health = st.fang_registry.health_of(&f.id);
 
                     json!({
                         "id": f.id,
@@ -732,7 +735,9 @@ async fn dispatch_request(
                         "remote": f.remote,
                         "state": f.state,
                         "transport": transport,
-                        "uptime_seconds": uptime_seconds
+                        "uptime_seconds": uptime_seconds,
+                        "sessions_failed": health.as_ref().map_or(0, |h| h.sessions_failed()),
+                        "last_failure": health.as_ref().map_or(serde_json::Value::Null, |h| h.last_failure()),
                     })
                 })
                 .collect();
@@ -2572,5 +2577,113 @@ mod characterization_tests {
             std::fs::read(fixture.0.join("pelt.json")).unwrap(),
             b"invalid existing identity"
         );
+    }
+
+    // --- Stage45: Fang failure visibility ----------------------------------
+
+    async fn fang_open(
+        state: &Arc<Mutex<DaemonState>>,
+        home: &std::path::Path,
+        local: &str,
+        remote: &str,
+        transport: &str,
+    ) -> ControlResponse {
+        let request = ControlRequest {
+            id: "open".into(),
+            cmd: "fang.open".into(),
+            args: json!({"peer": "wolf-a", "local": local, "remote": remote, "transport": transport}),
+        };
+        handle_request(request, state.clone(), home.to_path_buf()).await
+    }
+
+    async fn fang_entries(
+        state: &Arc<Mutex<DaemonState>>,
+        home: &std::path::Path,
+    ) -> Vec<serde_json::Value> {
+        let request = ControlRequest {
+            id: "active".into(),
+            cmd: "fang.list".into(),
+            args: json!({}),
+        };
+        let response = handle_request(request, state.clone(), home.to_path_buf()).await;
+        response.result.unwrap().as_array().unwrap().clone()
+    }
+
+    fn free_port() -> String {
+        let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        socket.local_addr().unwrap().to_string()
+    }
+
+    fn stage45_state(fixture: &Fixture, address: &str) -> Arc<Mutex<DaemonState>> {
+        let peer = generate_identity();
+        Arc::new(Mutex::new(DaemonState {
+            pelt: Some(generate_identity()),
+            peers: vec![werewolf_core::pack::PeerRecord {
+                name: "wolf-a".into(),
+                fingerprint: peer.fingerprint.clone(),
+                public_key_b64: Some(peer.public_key_b64.clone()),
+                address: address.into(),
+                trust: werewolf_core::pack::TrustLevel::Packmate,
+            }],
+            ..fixture.state()
+        }))
+    }
+
+    /// C1: setup failures are counted per Fang with the last one's class;
+    /// a fresh Fang reports none.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fang_list_reports_failed_session_setups() {
+        let fixture = Fixture::new();
+        let state = stage45_state(&fixture, "tcp://127.0.0.1:1");
+        // A port nothing listens on: the plain target refuses.
+        let (local, dead) = (free_port(), free_port());
+        let opened = fang_open(&state, &fixture.0, &local, &dead, "tcp-plain").await;
+        assert!(opened.ok, "{opened:?}");
+        let entry = &fang_entries(&state, &fixture.0).await[0];
+        assert_eq!(entry["sessions_failed"], 0);
+        assert!(entry["last_failure"].is_null());
+
+        for _ in 0..3 {
+            let mut client = TcpStream::connect(&local).await.unwrap();
+            let mut byte = [0u8; 1];
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), client.read(&mut byte))
+                .await;
+        }
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        let entry = loop {
+            let entry = fang_entries(&state, &fixture.0).await.remove(0);
+            if entry["sessions_failed"] == 3 || tokio::time::Instant::now() > deadline {
+                break entry;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        };
+        assert_eq!(entry["sessions_failed"], 3, "{entry}");
+        assert_eq!(entry["last_failure"]["class"], "target");
+        assert!(entry["last_failure"]["seconds_ago"].as_u64().unwrap() < 5);
+        assert_eq!(entry["state"], "Active");
+        state.lock().await.fang_registry.abort_all();
+    }
+
+    /// H1: a QUIC Fang resolves a hostname peer once at open, and fails the
+    /// open when it does not resolve.
+    #[tokio::test]
+    async fn quic_fang_resolves_a_hostname_peer_at_open() {
+        let fixture = Fixture::new();
+        let state = stage45_state(&fixture, "quic://werewolf-stage45.invalid:9560");
+        let refused = fang_open(&state, &fixture.0, &free_port(), "127.0.0.1:8080", "quic").await;
+        let error = refused.error.unwrap();
+        assert_eq!(error.code, "QUIC_FANG_FAILED");
+        assert!(
+            error.message.contains("does not resolve"),
+            "{}",
+            error.message
+        );
+        assert!(state.lock().await.fang_registry.records().is_empty());
+
+        let state = stage45_state(&fixture, "quic://localhost:9560");
+        let opened = fang_open(&state, &fixture.0, &free_port(), "127.0.0.1:8080", "quic").await;
+        assert!(opened.ok, "{opened:?}");
+        assert_eq!(opened.result.unwrap()["transport"], "quic");
+        state.lock().await.fang_registry.abort_all();
     }
 }

@@ -28,6 +28,19 @@ pub(super) const V3_REJECT_CODE: u32 = 0x575703;
 pub(super) fn rejected() -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, "handshake rejected")
 }
+/// A dial that heard nothing back within its window: no connection was made
+/// (Stage45 S1a; reported `unreachable`, logged as `dial`).
+pub(super) fn no_answer() -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, "no answer from peer")
+}
+/// A dial refused locally before any packet was sent, for example an address
+/// the local socket cannot reach (Stage45 S1a).
+pub(super) fn local_dial_failed(error: impl std::fmt::Display) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::AddrNotAvailable,
+        format!("dial failed locally: {error}"),
+    )
+}
 pub(super) fn require(value: bool) -> io::Result<()> {
     if value {
         Ok(())

@@ -1,5 +1,6 @@
 pub(super) mod failover;
 pub(crate) mod fang_accept;
+pub(crate) mod fang_health;
 pub(super) mod quic;
 pub(super) mod relay;
 pub(super) mod tcp_encrypted;
