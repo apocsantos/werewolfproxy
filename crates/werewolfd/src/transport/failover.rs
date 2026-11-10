@@ -133,13 +133,14 @@ pub(crate) async fn run_failover_forwarder(
     let mut prepared = Vec::with_capacity(providers.len());
     for provider in providers {
         let expected = match &provider.path {
-            Path::Quic(_) => Some(&provider.expected),
+            Path::Quic(address) => Some((&provider.expected, Some(*address))),
             Path::Routed(routed) if routed.hop == werewolf_core::route::RouteHop::Quic => {
-                Some(&routed.relay)
+                Some((&routed.relay, routed.relay_address.parse().ok()))
             }
             _ => None,
         };
-        let endpoint = match expected.map(client_endpoint) {
+        let endpoint = match expected.map(|(peer, destination)| client_endpoint(peer, destination))
+        {
             None => None,
             Some(Ok(endpoint)) => Some(endpoint),
             Some(Err(error)) => {

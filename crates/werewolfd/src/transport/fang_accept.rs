@@ -19,8 +19,9 @@
 //!   evicts. Activity is recorded by [`Tracked`] on the local side of the
 //!   copy paths, through a task-local set by [`FangSlot::serve`].
 //! - **Per-source share.** At most [`SOURCE_SHARE`] of a Fang's slots per
-//!   non-loopback source address. Loopback clients all share one address
-//!   and are exempt.
+//!   non-loopback source: an IPv4 address, or an IPv6 /64 (Stage44 V2), the
+//!   prefix one host or link normally holds. Loopback clients all share one
+//!   address and are exempt.
 //!
 //! A connection that cannot be admitted is accepted and reset at once, so
 //! the client fails fast and never sees a session that looks complete. These
@@ -30,7 +31,7 @@ use std::{
     collections::HashMap,
     future::Future,
     io,
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr, Ipv6Addr, SocketAddr},
     pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -59,6 +60,8 @@ pub(crate) const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 pub(crate) const IDLE_EVICT_AFTER: Duration = Duration::from_secs(60);
 /// Slots per Fang one non-loopback source address may hold (S43-D2).
 pub(crate) const SOURCE_SHARE: usize = 16;
+/// IPv6 sources share by /64: the low 64 bits are ignored (Stage44 V2).
+const IPV6_SHARE_HOST_BITS: u32 = 64;
 /// How long a newcomer waits for an evicted connection to release its slot.
 const EVICT_WAIT: Duration = Duration::from_secs(1);
 /// At most one log line per event kind per Fang in this interval.
@@ -304,10 +307,20 @@ impl Default for Policy {
 }
 
 impl Policy {
-    /// The address a connection's per-source share is counted under, if any.
+    /// The source a connection's share is counted under, if any: the IPv4
+    /// address (an IPv4-mapped address counts as its IPv4 form), or the /64
+    /// of an IPv6 address.
     fn share_key(&self, address: SocketAddr) -> Option<IpAddr> {
         let ip = address.ip().to_canonical();
-        (!(self.exempt_loopback && ip.is_loopback())).then_some(ip)
+        if self.exempt_loopback && ip.is_loopback() {
+            return None;
+        }
+        Some(match ip {
+            IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(
+                u128::from(v6) & !((1u128 << IPV6_SHARE_HOST_BITS) - 1),
+            )),
+            v4 => v4,
+        })
     }
 }
 

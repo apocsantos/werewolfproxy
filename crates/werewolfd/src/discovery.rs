@@ -473,7 +473,7 @@ async fn rpc_quic<T>(
     request: &RpcRequest,
     check: impl FnOnce(&hs::QuicRpcResult, &hs::QuicRpc, &[u8]) -> io::Result<T>,
 ) -> io::Result<T> {
-    let endpoint = crate::quic_fang::client_endpoint(expected)?;
+    let endpoint = crate::quic_fang::client_endpoint(expected, Some(address))?;
     let connecting = endpoint
         .connect(address, &address.ip().to_string())
         .map_err(|_| hs::rejected())?;
