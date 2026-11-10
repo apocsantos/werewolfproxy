@@ -156,7 +156,43 @@ Found by Stage42 ([M1](docs/STAGE42_M1_FANG_FLOOD_REPRODUCTION.md)):
   are reset), and Fangs to the same peer still share that peer's
   64-session quota. There is no per-client fairness within a Fang. A Fang
   bound to a non-loopback address accepts from that whole network; this is
-  documented behaviour and was not changed (S42-D5).
+  documented behaviour and was not changed (S42-D5). Stage43 (below)
+  addresses part of this on `main`.
+
+Found by Stage43 ([M1](docs/STAGE43_M1_FAIRNESS_REPRODUCTION.md)):
+
+- in 1.0.0-rc.2 and on `main` after Stage42, a Fang has no fairness
+  among its clients. Connections that sit idle keep their slots
+  indefinitely, so a local client that leaks 64 idle connections locks
+  every other client out of that Fang until it exits. On a Fang bound to
+  a non-loopback address, one source address can take all 64 slots and
+  lock out every other host. Fixed on `main` after rc.2
+  ([M2](docs/STAGE43_M2_FAIRNESS_FIX.md), `faa1da2`): when a Fang is
+  full, its longest-idle connection is ended (RST to its client) to
+  admit a newcomer, if no byte has passed either way for 60 s; and a
+  non-loopback source address holds at most 16 of a Fang's 64 slots
+  (loopback is exempt). Activity is recorded in the shared copy paths;
+  the Stage32 cells that exercise them keep their verdicts, and both
+  scenarios stay fixed in three rounds for QUIC, encrypted-TCP and
+  plain-TCP Fangs ([M3](docs/STAGE43_M3_REGRESSION.md)). A Fang bound to
+  a non-loopback address now logs one startup line saying it is
+  reachable from that network; the bind behaviour is unchanged. The fix
+  is not in the rc.2 archive. **What remains:**
+  - an **active** flood from loopback (the operator's own user, or
+    another local user on a multi-user host) still fills a Fang and
+    resets its other clients while it lasts: loopback clients share one
+    address, and active connections are never evicted;
+  - while a Fang is full, a legitimate session idle for 60 s or more (an
+    idle SSH session, say) can be ended to admit a newcomer. A Fang
+    under its ceiling never evicts;
+  - Fangs to the same peer still share that peer's 64-session quota, first
+    come, first served (S43-D4, recorded only);
+  - when the target closes first, QUIC and plain-TCP Fangs keep the
+    half-closed session, and its slot, until the client closes (existing
+    TCP half-close behaviour; such a session counts as idle and can be
+    evicted);
+  - not done: a per-local-user share (F2), an operator-set ceiling per
+    Fang (F4) and a per-Fang share of a peer's quota (F5).
 
 ## Discovery, services and routing
 
