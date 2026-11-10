@@ -39,7 +39,7 @@ const CONNECTION_RECEIVE_WINDOW: u32 = 1_250_000;
 
 pub async fn open_quic_fang(
     local_addr: String,
-    quic_server: String,
+    quic_server: SocketAddr,
     remote_addr: String,
     identity: PeltIdentity,
     cancellation: crate::fang_registry::FangCancellation,
@@ -47,7 +47,7 @@ pub async fn open_quic_fang(
     expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> Result<JoinHandle<()>, Box<dyn Error + Send + Sync>> {
     let handle = tokio::spawn(async move {
-        let endpoint = match client_endpoint(&expected_peer, quic_server.parse().ok()) {
+        let endpoint = match client_endpoint(&expected_peer, Some(quic_server)) {
             Ok(endpoint) => endpoint,
             Err(error) => {
                 let _ = ready.send(Err(std::io::Error::new(error.kind(), error.to_string())));
@@ -79,7 +79,7 @@ pub async fn open_quic_fang(
                 continue;
             }
 
-            let quic_server = quic_server.clone();
+            let health = cancellation.health();
             let remote_addr = remote_addr.clone();
             let identity = identity.clone();
             let expected_peer = expected_peer.clone();
@@ -89,24 +89,20 @@ pub async fn open_quic_fang(
                 // Evicted (Stage43): the session is dropped and the armed
                 // local socket closes with a reset.
                 slot.serve(async move {
-                    let server_addr: SocketAddr = match quic_server.parse() {
-                        Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("bad server addr: {}", e);
-                            return;
-                        }
-                    };
-
                     let result = connect_v3_on(
                         &endpoint,
-                        server_addr,
+                        quic_server,
                         &remote_addr,
                         &identity,
                         &expected_peer,
                     )
                     .await;
-                    let Ok((connection, send, recv)) = result else {
-                        return;
+                    let (connection, send, recv) = match result {
+                        Ok(session) => session,
+                        Err(error) => {
+                            health.setup_failed(&error);
+                            return;
+                        }
                     };
                     let _connection_close = CloseClientConnection(connection);
                     let mut tcp = tcp;
@@ -198,6 +194,48 @@ pub(crate) async fn handshake_confirmed(connection: &quinn::Connection) -> std::
     Ok(())
 }
 
+/// The QUIC dial shared by Fang sessions, discovery and sync: the TLS
+/// handshake to `address`, within `hs::READ_WINDOW`. Only the error kind
+/// changes with Stage45 (S1a): a dial refused locally before any packet is
+/// `AddrNotAvailable` and one that hears nothing back is `TimedOut`, both
+/// "no connection was made"; a peer that answered and refused stays
+/// `hs::rejected()`. Nothing on the wire changes.
+pub(crate) async fn dial(
+    endpoint: &Endpoint,
+    address: SocketAddr,
+) -> std::io::Result<quinn::Connection> {
+    // Quinn parses this textual IP as ServerName::IpAddress, which suppresses
+    // SNI. No synthetic DNS identity is introduced.
+    let connecting = endpoint
+        .connect(address, &address.ip().to_string())
+        .map_err(hs::local_dial_failed)?;
+    tokio::time::timeout(hs::READ_WINDOW, connecting)
+        .await
+        .map_err(|_| hs::no_answer())?
+        .map_err(|error| match error {
+            quinn::ConnectionError::TimedOut => hs::no_answer(),
+            _ => hs::rejected(),
+        })
+}
+
+/// Resolves a QUIC peer's Pack address once, when its Fang opens (Stage45
+/// H1): a literal is used as is; a hostname takes its first address, as
+/// discovery and sync do (S44-D4). Bounded by `hs::READ_WINDOW`.
+pub(crate) async fn resolve_server(address: &str) -> std::io::Result<SocketAddr> {
+    if let Ok(literal) = address.parse() {
+        return Ok(literal);
+    }
+    tokio::time::timeout(hs::READ_WINDOW, tokio::net::lookup_host(address))
+        .await
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "name resolution timed out")
+        })??
+        .next()
+        .ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "name resolved to no address")
+        })
+}
+
 pub(crate) async fn connect_v3_on(
     endpoint: &Endpoint,
     address: SocketAddr,
@@ -205,16 +243,7 @@ pub(crate) async fn connect_v3_on(
     identity: &PeltIdentity,
     expected_peer: &ExpectedPeerIdentity,
 ) -> std::io::Result<(quinn::Connection, SendStream, RecvStream)> {
-    // Quinn parses this textual IP as ServerName::IpAddress, which suppresses
-    // SNI. No synthetic DNS identity is introduced.
-    let server_name = address.ip().to_string();
-    let connecting = endpoint
-        .connect(address, &server_name)
-        .map_err(|_| hs::rejected())?;
-    let connection = tokio::time::timeout(hs::READ_WINDOW, connecting)
-        .await
-        .map_err(|_| hs::rejected())?
-        .map_err(|_| hs::rejected())?;
+    let connection = dial(endpoint, address).await?;
     let deadline = tokio::time::Instant::now() + hs::CLIENT_WINDOW;
     let result = tokio::time::timeout_at(deadline, async {
         handshake_confirmed(&connection).await?;

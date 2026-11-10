@@ -158,7 +158,9 @@ pub(crate) async fn run_routed_forwarder(
         let identity = identity.clone();
         let destination = destination.clone();
         let endpoint = endpoint.clone();
+        let health = cancellation.health();
         cancellation.spawn(async move {
+            let (established_tx, mut established) = tokio::sync::oneshot::channel();
             let result = slot
                 .serve(routed_session(
                     &mut inbound,
@@ -167,9 +169,16 @@ pub(crate) async fn run_routed_forwarder(
                     &remote,
                     &identity,
                     &destination,
-                    None,
+                    Some(established_tx),
                 ))
                 .await;
+            // Only a failure before the destination's ACK verified is a
+            // failed setup (Stage45); one after it is the application's.
+            if let Some(Err(error)) = &result {
+                if established.try_recv().is_err() {
+                    health.setup_failed(error);
+                }
+            }
             // Any failure or an eviction (Stage43) leaves the local socket
             // armed, so the application sees a reset, never a session that
             // looks complete.

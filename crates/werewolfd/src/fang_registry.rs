@@ -1,3 +1,4 @@
+use crate::transport::fang_health::FangHealth;
 use std::{
     collections::HashMap,
     future::Future,
@@ -25,13 +26,27 @@ impl Default for ChildTasks {
     }
 }
 
+/// One Fang's task context, handed to its forwarder: its child sessions,
+/// its activation, and (Stage45) its failure record.
 #[derive(Clone, Default)]
 pub(super) struct FangCancellation {
     children: Arc<Mutex<ChildTasks>>,
     activation: Option<tokio::sync::watch::Receiver<bool>>,
+    health: Arc<FangHealth>,
 }
 
 impl FangCancellation {
+    /// Labels this Fang's failure record (Stage45).
+    pub(super) fn with_health(mut self, health: FangHealth) -> Self {
+        self.health = Arc::new(health);
+        self
+    }
+
+    /// Where the forwarder records failed session setups (Stage45).
+    pub(crate) fn health(&self) -> Arc<FangHealth> {
+        self.health.clone()
+    }
+
     pub(super) fn prepared() -> (Self, tokio::sync::watch::Sender<bool>) {
         let (release, activation) = tokio::sync::watch::channel(false);
         (
@@ -299,6 +314,10 @@ impl FangRegistry {
     }
     pub(super) fn started_at(&self, id: &str) -> Option<&Instant> {
         self.started.get(id).map(|started| &started.at)
+    }
+    /// The Fang's failure record, for `fang list` (Stage45 C1).
+    pub(super) fn health_of(&self, id: &str) -> Option<Arc<FangHealth>> {
+        self.cancellations.get(id).map(FangCancellation::health)
     }
     pub(super) fn transport_of(&self, id: &str) -> Option<&str> {
         self.started

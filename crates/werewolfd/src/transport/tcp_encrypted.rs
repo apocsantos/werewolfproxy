@@ -307,6 +307,7 @@ pub(super) async fn run_local_fang_forwarder(
         let remote = remote.to_string();
         let identity = identity.clone();
         let expected_peer = expected_peer.clone();
+        let health = cancellation.health();
 
         cancellation.spawn(async move {
             // Evicted (Stage43) or failed: the socket stays armed and the
@@ -318,6 +319,7 @@ pub(super) async fn run_local_fang_forwarder(
                     &remote,
                     identity,
                     expected_peer,
+                    &health,
                 ))
                 .await;
             if matches!(result, Some(Ok(()))) {
@@ -333,8 +335,11 @@ async fn pipe_one_fang_connection(
     remote: &str,
     identity: PeltIdentity,
     expected_peer: crate::policy::ExpectedPeerIdentity,
+    health: &super::fang_health::FangHealth,
 ) -> io::Result<()> {
-    let (outbound, key) = connect_tcp_session(peer_addr, remote, &identity, &expected_peer).await?;
+    let (outbound, key) = connect_tcp_session(peer_addr, remote, &identity, &expected_peer)
+        .await
+        .inspect_err(|error| health.setup_failed(error))?;
     secure_copy_client_side(inbound, outbound, key).await
 }
 

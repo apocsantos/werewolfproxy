@@ -15,8 +15,13 @@ measured; B and C are receivers.
                    target)
   flood:tcp-plain  V2: FLOOD connections to a plain-TCP Fang whose target is
                    dead; A's log growth
-  hostname:<kind>  V4: B's Pack address on A is `<scheme>://localhost:PORT`;
-                   B grants the target; quic and tcp
+  hostname:<kind>  V4: B's Pack address on A is `<scheme>://HOSTNAME:PORT`
+                   (--hostname, default localhost); B grants the target;
+                   quic and tcp. B listens on 127.0.0.1 only, so with
+                   `localhost` (::1 first on Debian) a QUIC Fang, which
+                   dials the first address (S44-D4), gets no answer. For a
+                   name that resolves to 127.0.0.1 only, run under a private
+                   /etc/hosts (see README).
 
 Records, per scenario: what A logged during the attempts (lines and bytes),
 whether every client was reset, and A's `fang.list` entry before and after.
@@ -202,12 +207,12 @@ def scenario_flood(lab, count):
     return result
 
 
-def scenario_hostname(lab, kind, attempts):
+def scenario_hostname(lab, kind, attempts, hostname):
     lab.boot()
     port = lab.ports['b_quic']
-    added = lab.pack('a', 'b', f'{"quic" if kind == "quic" else "tcp"}://localhost:{port}')
+    added = lab.pack('a', 'b', f'{"quic" if kind == "quic" else "tcp"}://{hostname}:{port}')
     lab.pack('b', 'a', f'quic://{lab.address("a_quic")}')
-    result = {'scenario': f'hostname:{kind}', 'pack_add': {k: added[k] for k in ('exit', 'stderr')}}
+    result = {'scenario': f'hostname:{kind}', 'hostname': hostname, 'pack_add': {k: added[k] for k in ('exit', 'stderr')}}
     if added['exit'] != 0:
         return result
     lab.ctl('a', 'service', 'add', 'echo', 'wolf-b', lab.echo, 'tcp')
@@ -219,15 +224,64 @@ def scenario_hostname(lab, kind, attempts):
     return result
 
 
+def sh(*argv):
+    import subprocess
+    subprocess.run([str(a) for a in argv], check=True)
+
+
+def enter_sandbox(hostname):
+    """Re-exec in a fresh user, mount and network namespace in which
+    `hostname` resolves to 127.0.0.1 only, as tools/stage44/ipv6.py does: a
+    private root the namespace owns (the daemon refuses a home whose
+    ancestors belong to an unmapped owner), the checkout's /home, the host's
+    /proc and /dev, a private 512 MB /tmp, and a private /etc/hosts. Nothing
+    on the host changes.
+    """
+    if os.environ.get('WWP_STAGE45_SANDBOX') != '1':
+        env = dict(os.environ, WWP_STAGE45_SANDBOX='1')
+        argv = ['unshare', '-rmn', '--fork', '--kill-child', '--',
+                sys.executable, '-B', str(pathlib.Path(__file__).resolve()), *sys.argv[1:]]
+        os.execvpe('unshare', argv, env)
+    root = pathlib.Path('/mnt')
+    sh('mount', '--make-rprivate', '/')
+    sh('mount', '-t', 'tmpfs', '-o', 'size=512m,mode=755', 'none', root)
+    for name in ('usr', 'etc', 'bin', 'sbin', 'lib', 'lib32', 'lib64', 'libx32', 'opt', 'var',
+                 'home', 'dev', 'proc'):
+        host = pathlib.Path('/', name)
+        if not host.exists():
+            continue
+        if host.is_symlink():
+            (root / name).symlink_to(os.readlink(host))
+            continue
+        (root / name).mkdir()
+        sh('mount', '--rbind', host, root / name)
+        if name not in ('home', 'dev', 'proc'):
+            sh('mount', '-o', 'remount,bind,ro', root / name)
+    hosts = root / 'hosts'
+    hosts.write_text(f'127.0.0.1\tlocalhost {hostname}\n::1\tip6-localhost\n')
+    sh('mount', '--bind', hosts, root / 'etc/hosts')
+    (root / 'tmp').mkdir()
+    sh('mount', '-t', 'tmpfs', '-o', 'size=512m,mode=1777', 'none', root / 'tmp')
+    os.chroot(root)
+    os.chdir(ROOT)
+    sh('ip', 'link', 'set', 'lo', 'up')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('scenarios', nargs='+', help='e.g. grant:quic dial:tcp-plain')
     parser.add_argument('--attempts', type=int, default=10)
     parser.add_argument('--flood', type=int, default=500)
+    parser.add_argument('--hostname', default='localhost')
+    parser.add_argument('--sandbox-hosts', action='store_true',
+                        help='run in a namespace where --hostname resolves to 127.0.0.1 only')
     parser.add_argument('--out', required=True)
     parser.add_argument('--keep-temp', action='store_true')
     args = parser.parse_args()
+    out = pathlib.Path(args.out).resolve()
+    if args.sandbox_hosts:
+        enter_sandbox(args.hostname)
 
     results = []
     for scenario in args.scenarios:
@@ -240,7 +294,7 @@ def main():
             elif cause == 'flood':
                 result = scenario_flood(lab, args.flood)
             elif cause == 'hostname':
-                result = scenario_hostname(lab, kind, args.attempts)
+                result = scenario_hostname(lab, kind, args.attempts, args.hostname)
             else:
                 raise SystemExit(f'unknown scenario {scenario}')
         except LogCap as exc:
@@ -255,7 +309,7 @@ def main():
                 result['cleanup_error'] = str(exc)
         print(json.dumps(result), flush=True)
         results.append(result)
-    pathlib.Path(args.out).write_text(json.dumps(results, indent=1) + '\n')
+    out.write_text(json.dumps(results, indent=1) + '\n')
 
 
 if __name__ == '__main__':

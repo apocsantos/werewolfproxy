@@ -21,6 +21,7 @@ mod tls_identity;
 mod transport;
 use fang_registry::FangCancellation;
 use state::DaemonState;
+use transport::fang_health::FangHealth;
 mod cli;
 use cli::Args;
 mod quic_fang;
@@ -475,6 +476,52 @@ fn generate_fang_id(peer: &str, local: &str, remote: &str, existing_count: usize
     format!("fang_{}", &hex[..16])
 }
 
+/// The text of `peer`'s QUIC address and, if it is not a literal, what it
+/// resolved to (Stage45 H1). `None` when the open will not dial QUIC
+/// directly (unknown peer, a route, another transport) or the address is a
+/// literal; the open then decides as before.
+async fn resolve_quic_peer(
+    state: &Arc<Mutex<DaemonState>>,
+    peer: &str,
+    transport: &str,
+) -> Option<(String, std::io::Result<std::net::SocketAddr>)> {
+    let address = {
+        let st = state.lock().await;
+        if st.routes.iter().any(|route| route.peer == peer) {
+            return None;
+        }
+        let record = st.peers.iter().find(|p| p.name == peer)?;
+        match select_peer_transport(transport, &record.address) {
+            Ok(transport::FangTransport::Quic(address)) => address,
+            _ => return None,
+        }
+    };
+    if address.parse::<std::net::SocketAddr>().is_ok() {
+        return None;
+    }
+    let resolved = quic_fang::resolve_server(&address).await;
+    Some((address, resolved))
+}
+
+/// The QUIC Fang's server address: a literal as is, otherwise what
+/// `resolve_quic_peer` found for this same text. The text can change between
+/// the two locks (a concurrent `pack set-address`); the open then fails and
+/// can be retried.
+fn quic_server_for(
+    address: &str,
+    resolved: Option<(String, std::io::Result<std::net::SocketAddr>)>,
+) -> Result<std::net::SocketAddr, String> {
+    if let Ok(literal) = address.parse() {
+        return Ok(literal);
+    }
+    match resolved {
+        Some((text, result)) if text == address => {
+            result.map_err(|error| format!("does not resolve: {error}"))
+        }
+        _ => Err("changed while the Fang was opening; retry".into()),
+    }
+}
+
 async fn open_fang_from_parts(
     req_id: String,
     state: Arc<Mutex<DaemonState>>,
@@ -495,6 +542,9 @@ async fn open_fang_with_profile(
     transport: String,
     activation: Option<(std::path::PathBuf, String)>,
 ) -> ControlResponse {
+    // Stage45 H1: a QUIC peer's hostname is resolved once, here, before the
+    // state lock is taken, so a slow resolver never holds the daemon.
+    let resolved = resolve_quic_peer(&state, &peer, &transport).await;
     let st = state.lock().await;
 
     if matches!(st.status.mode, WolfMode::Silver) {
@@ -563,13 +613,24 @@ async fn open_fang_with_profile(
     let peer_addr = match select_peer_transport(&transport, &peer_record.address) {
         _ if routed.is_some() => String::new(),
         Ok(transport::FangTransport::Quic(a)) => {
+            let server = match quic_server_for(&a, resolved) {
+                Ok(server) => server,
+                Err(reason) => {
+                    return ControlResponse::err(
+                        req_id,
+                        "QUIC_FANG_FAILED",
+                        format!("peer QUIC address {a}: {reason}"),
+                    );
+                }
+            };
             let fang_id = generate_fang_id(&peer, &local, &remote, st.fang_registry.len());
 
             let (cancellation, release) = FangCancellation::prepared();
+            let cancellation = cancellation.with_health(FangHealth::new(&fang_id, &peer));
             let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
             let handle = match open_quic_fang(
                 local.clone(),
-                a.clone(),
+                server,
                 remote.clone(),
                 identity.clone(),
                 cancellation.clone(),
@@ -681,6 +742,7 @@ async fn open_fang_with_profile(
     let task_identity = identity.clone();
     let task_transport = transport.clone();
     let (cancellation, release) = FangCancellation::prepared();
+    let cancellation = cancellation.with_health(FangHealth::new(&fang_id, &peer));
     let task_cancellation = cancellation.clone();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let task_expected_peer = expected_peer_identity;
@@ -840,6 +902,10 @@ async fn open_provider_fang(
         st.fang_registry.len(),
     );
     let (cancellation, release) = FangCancellation::prepared();
+    let cancellation = cancellation.with_health(FangHealth::new(
+        &fang_id,
+        &format!("service {}", service.name),
+    ));
     let (ready_tx, ready_rx) = oneshot::channel();
     let (task_id, task_local, task_cancellation) =
         (fang_id.clone(), local.clone(), cancellation.clone());

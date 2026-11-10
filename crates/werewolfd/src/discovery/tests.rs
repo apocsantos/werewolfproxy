@@ -864,13 +864,12 @@ async fn discovery_reaches_a_routed_member_through_its_relay() {
     .unwrap();
 }
 
-/// Stage45 M1 (P4): a QUIC dial that fails locally, before any packet is
-/// sent, made no connection, so the documented status is `unreachable`
-/// (docs/V1_CLI_CONTRACT.md). Port 0 makes quinn refuse the destination
-/// locally, as an IPv6 destination on an IPv4 endpoint did before Stage44.
-/// Today it is reported `rejected`; ignored until M2.
+/// Stage45 S1a (P4): a QUIC dial that fails locally, before any packet is
+/// sent, made no connection, so it is reported `unreachable`
+/// (docs/V1_CLI_CONTRACT.md); before Stage45 it was `rejected`. Port 0 makes
+/// quinn refuse the destination locally, as an IPv6 destination on an IPv4
+/// endpoint did before Stage44.
 #[tokio::test]
-#[ignore = "Stage45 M1: reproduces P4; enabled by M2"]
 async fn a_local_quic_dial_failure_is_unreachable() {
     let (sender, peer) = (generate_identity(), generate_identity());
     let expected = ExpectedPeerIdentity {

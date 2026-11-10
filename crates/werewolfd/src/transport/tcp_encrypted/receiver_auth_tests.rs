@@ -609,6 +609,7 @@ async fn production_forwarder_sends_no_open_to_fake_receiver() {
             "192.0.2.41:28769",
             sender,
             selected(&selected_peer),
+            &Default::default(),
         )
         .await
     });
@@ -1109,6 +1110,7 @@ async fn full_production_open_ack_is_absent_from_passive_tcp_wire() {
                 &target_text,
                 client_sender,
                 expected,
+                &Default::default(),
             )
             .await
         });

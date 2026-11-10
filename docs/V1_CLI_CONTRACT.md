@@ -72,6 +72,19 @@ the packaged systemd unit does not restart on 64, 65, 66, 67 or 69.
 `version` runs locally and reports the version and commit the binary was
 built with.
 
+`fang active` lists each open Fang with `id`, `peer`, `local`, `remote`,
+`state` (the local listener's state), `transport`, `uptime_seconds` and
+(Stage45) `sessions_failed`, the number of sessions that failed to set up
+since the Fang opened, and `last_failure`, `null` or `{"class",
+"seconds_ago"}`. The class is `dial` (no connection was made), `handshake`
+(the peer was reached but no session was established; a receiver's
+refusal, whatever its reason, is one) or, for plain TCP, `target`. A
+session that fails after it is established is not counted. The daemon
+logs setup failures at most once per 10 s per Fang and class, with the
+number suppressed in between. A QUIC Fang to a peer whose address is a
+hostname resolves it once when it opens (first address); if it does not
+resolve the open fails with `QUIC_FANG_FAILED`.
+
 Fang's transport argument selects quic, secure TCP, or explicit tcp-plain for
 that profile; it is not a fallback selector. The local Stage11A automatic
 selector defaults to secure (an alias for strict): QUIC secure, encrypted TCP

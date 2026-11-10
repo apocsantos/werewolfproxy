@@ -474,18 +474,9 @@ async fn rpc_quic<T>(
     check: impl FnOnce(&hs::QuicRpcResult, &hs::QuicRpc, &[u8]) -> io::Result<T>,
 ) -> io::Result<T> {
     let endpoint = crate::quic_fang::client_endpoint(expected, Some(address))?;
-    let connecting = endpoint
-        .connect(address, &address.ip().to_string())
-        .map_err(|_| hs::rejected())?;
-    // A handshake that never hears back is reported as unreachable; one the
-    // peer answered and refused stays rejected.
-    let connection = tokio::time::timeout(hs::READ_WINDOW, connecting)
-        .await
-        .map_err(|_| no_answer())?
-        .map_err(|error| match error {
-            quinn::ConnectionError::TimedOut => no_answer(),
-            _ => hs::rejected(),
-        })?;
+    // A dial that never sent a packet or never heard back is reported as
+    // unreachable; one the peer answered and refused stays rejected.
+    let connection = crate::quic_fang::dial(&endpoint, address).await?;
     let deadline = Instant::now() + hs::CLIENT_WINDOW;
     let result = timeout_at(deadline, async {
         crate::quic_fang::handshake_confirmed(&connection).await?;
@@ -503,10 +494,6 @@ async fn rpc_quic<T>(
     .and_then(|result| result);
     connection.close(0u32.into(), b"");
     result
-}
-
-fn no_answer() -> io::Error {
-    io::Error::new(io::ErrorKind::TimedOut, "no answer from peer")
 }
 
 /// Requester side over encrypted TCP: one TLS connection, one RPC.

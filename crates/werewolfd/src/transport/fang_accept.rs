@@ -247,14 +247,14 @@ impl Drop for FangSlot {
 
 /// Logs the first event, then at most one line per [`LOG_INTERVAL`] with the
 /// number of events suppressed in between.
-struct RateLimitedLog {
+pub(crate) struct RateLimitedLog {
     what: &'static str,
     last: Option<Instant>,
     suppressed: u64,
 }
 
 impl RateLimitedLog {
-    fn new(what: &'static str) -> Self {
+    pub(crate) fn new(what: &'static str) -> Self {
         Self {
             what,
             last: None,
@@ -262,7 +262,7 @@ impl RateLimitedLog {
         }
     }
 
-    fn event(&mut self, fang: &str, detail: &dyn std::fmt::Display) {
+    pub(crate) fn event(&mut self, fang: &str, detail: &dyn std::fmt::Display) {
         let now = Instant::now();
         if !self.due(now) {
             self.suppressed += 1;
@@ -278,6 +278,11 @@ impl RateLimitedLog {
         }
         self.last = Some(now);
         self.suppressed = 0;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn suppressed(&self) -> u64 {
+        self.suppressed
     }
 
     fn due(&self, now: Instant) -> bool {
