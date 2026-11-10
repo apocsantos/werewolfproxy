@@ -309,16 +309,18 @@ pub(super) async fn run_local_fang_forwarder(
         let expected_peer = expected_peer.clone();
 
         cancellation.spawn(async move {
-            let _slot = slot;
-            let result = pipe_one_fang_connection(
-                &mut inbound,
-                &peer_addr,
-                &remote,
-                identity,
-                expected_peer,
-            )
-            .await;
-            if result.is_ok() {
+            // Evicted (Stage43) or failed: the socket stays armed and the
+            // application sees a reset.
+            let result = slot
+                .serve(pipe_one_fang_connection(
+                    &mut inbound,
+                    &peer_addr,
+                    &remote,
+                    identity,
+                    expected_peer,
+                ))
+                .await;
+            if matches!(result, Some(Ok(()))) {
                 let _ = super::disarm_reset_on_close(&inbound);
             }
         });
@@ -572,7 +574,8 @@ where
     I: AsyncRead + AsyncWrite + Unpin,
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let (mut in_r, mut in_w) = tokio::io::split(inbound);
+    // Local activity, for Stage43 idle eviction.
+    let (mut in_r, mut in_w) = tokio::io::split(super::fang_accept::Tracked::new(inbound));
     let (mut out_r, mut out_w) = tokio::io::split(outbound);
 
     let client_to_server = async {

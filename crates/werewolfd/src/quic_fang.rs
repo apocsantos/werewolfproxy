@@ -2,6 +2,7 @@
 
 use crate::handshake as hs;
 use crate::policy::ExpectedPeerIdentity;
+use crate::transport::fang_accept::Tracked;
 use quinn::{ClientConfig, Endpoint, RecvStream, SendStream};
 use std::sync::Arc;
 use std::time::Duration;
@@ -82,29 +83,33 @@ pub async fn open_quic_fang(
             let endpoint = endpoint.clone();
 
             cancellation.spawn(async move {
-                let _slot = slot;
-                let server_addr: SocketAddr = match quic_server.parse() {
-                    Ok(v) => v,
-                    Err(e) => {
-                        eprintln!("bad server addr: {}", e);
-                        return;
-                    }
-                };
+                // Evicted (Stage43): the session is dropped and the armed
+                // local socket closes with a reset.
+                slot.serve(async move {
+                    let server_addr: SocketAddr = match quic_server.parse() {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("bad server addr: {}", e);
+                            return;
+                        }
+                    };
 
-                let result = connect_v3_on(
-                    &endpoint,
-                    server_addr,
-                    &remote_addr,
-                    &identity,
-                    &expected_peer,
-                )
+                    let result = connect_v3_on(
+                        &endpoint,
+                        server_addr,
+                        &remote_addr,
+                        &identity,
+                        &expected_peer,
+                    )
+                    .await;
+                    let Ok((connection, send, recv)) = result else {
+                        return;
+                    };
+                    let _connection_close = CloseClientConnection(connection);
+                    let mut tcp = tcp;
+                    let _ = proxy_streams(&mut tcp, send, recv).await;
+                })
                 .await;
-                let Ok((connection, send, recv)) = result else {
-                    return;
-                };
-                let _connection_close = CloseClientConnection(connection);
-                let mut tcp = tcp;
-                let _ = proxy_streams(&mut tcp, send, recv).await;
             });
         }
     });
@@ -254,7 +259,9 @@ pub(crate) async fn proxy_streams(
     };
     // Borrowed halves do not shut down on drop, so a failed session closes
     // the armed socket with RST instead of an implicit FIN.
-    let (mut rd, mut wr) = tcp.split();
+    let (rd, wr) = tcp.split();
+    // Local activity, for Stage43 idle eviction.
+    let (mut rd, mut wr) = (Tracked::new(rd), Tracked::new(wr));
 
     let up = async {
         copy(&mut rd, &mut send.stream).await?;

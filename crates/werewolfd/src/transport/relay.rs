@@ -156,20 +156,21 @@ pub(crate) async fn run_routed_forwarder(
         let destination = destination.clone();
         let endpoint = endpoint.clone();
         cancellation.spawn(async move {
-            let _slot = slot;
-            let result = routed_session(
-                &mut inbound,
-                &routed,
-                endpoint.as_ref(),
-                &remote,
-                &identity,
-                &destination,
-                None,
-            )
-            .await;
-            // Any failure leaves the local socket armed, so the application
-            // sees a reset, never a session that looks complete.
-            if result.is_ok() {
+            let result = slot
+                .serve(routed_session(
+                    &mut inbound,
+                    &routed,
+                    endpoint.as_ref(),
+                    &remote,
+                    &identity,
+                    &destination,
+                    None,
+                ))
+                .await;
+            // Any failure or an eviction (Stage43) leaves the local socket
+            // armed, so the application sees a reset, never a session that
+            // looks complete.
+            if matches!(result, Some(Ok(()))) {
                 let _ = super::disarm_reset_on_close(&inbound);
             }
         });
