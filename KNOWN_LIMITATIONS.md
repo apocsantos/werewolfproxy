@@ -238,7 +238,62 @@ Found by Stage44 ([M1](docs/STAGE44_M1_IPV6_REPRODUCTION.md)):
     share 16;
   - a QUIC dial failure is still not logged, and discovery and sync still
     report a local connection error as `rejected`, the status of a trust
-    refusal.
+    refusal. Stage45 (below) fixes both on `main`.
+
+Found by Stage45 ([M1](docs/STAGE45_M1_VISIBILITY_REPRODUCTION.md)):
+
+- in 1.0.0-rc.2 and on `main` before Stage45, a Fang whose sessions fail
+  to set up looks healthy. That covers a peer that is down, that does not
+  grant the target, or that the Fang cannot reach:
+  - QUIC, encrypted-TCP, routed and failover Fangs log nothing; the
+    client sees only a reset;
+  - `fang active` still shows the Fang `Active`, with no failure field;
+  - a plain-TCP Fang whose target is down logs one line per connection
+    (500 connections: 501 lines, 52.6 kB, in 0.1 s);
+  - discovery and sync report a local QUIC dial failure as `rejected`,
+    the status of a trust refusal;
+  - a QUIC Fang to a peer whose Pack address is a hostname opens, then
+    resets every session and logs `bad server addr` per connection, with
+    no Fang id.
+
+  Fixed on `main` after rc.2 ([M2](docs/STAGE45_M2_VISIBILITY_FIX.md),
+  `35f0e3f`):
+  - every Fang kind logs a failed session setup with its Fang id, peer and
+    class (`dial`, `handshake` or `target`): the first failure, then at
+    most one line per 10 s per Fang and class, with the number skipped;
+  - the plain-TCP lines go through the same limiter, so the 500-connection
+    flood logs one line;
+  - `fang active` shows `sessions_failed` and `last_failure` (class and
+    age);
+  - discovery and sync report a QUIC dial that is refused locally or not
+    answered as `unreachable`. Every refusal by a reached node still
+    reports `rejected`;
+  - a QUIC Fang resolves a hostname peer once, when it opens, and fails
+    the open with `QUIC_FANG_FAILED` if the name does not resolve.
+
+  The results hold in three rounds; the Stage42 flood scenarios and the
+  Stage32 S2, S3, S4 and S7 P0 cells pass
+  ([M3](docs/STAGE45_M3_REGRESSION.md)). The fix is not in the rc.2
+  archive.
+
+  **What remains:**
+  - a hostname is still dialled at its first resolved address only (QUIC
+    Fangs, discovery and sync). Where `localhost` resolves to `::1` first
+    and the peer listens on `127.0.0.1` only, as on the test host, a QUIC
+    Fang to `localhost` fails every session. The failure is now logged as
+    `dial` and counted; a TCP Fang to the same address works. Use an
+    address literal, or a name that resolves to the listener's address;
+  - a setup failure caused by a local resource limit (`EMFILE`, `ENFILE`,
+    `ENOBUFS`, `ENOMEM`) is labelled `handshake`, not `dial`. Only the
+    label in the log line and in `last_failure` is wrong; the count, the
+    rate limit and the session outcome are correct, and the Stage42
+    accept line logged with it names the cause. Discovery still reports
+    such an error as `rejected`;
+  - the initiator cannot tell why a receiver refused a session (no grant,
+    Silver, key mismatch): all are `handshake`. This is by design; the
+    receiver does not disclose its reasons;
+  - each client of a QUIC Fang whose peer does not answer still waits the
+    5 s read window before its reset.
 
 ## Discovery, services and routing
 
