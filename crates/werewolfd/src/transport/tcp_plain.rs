@@ -31,29 +31,40 @@ pub(super) async fn run_plain_tcp_forwarder(
         let fang_id = fang_id.to_string();
 
         cancellation.spawn(async move {
-            let _slot = slot;
-            match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&remote)).await {
-                Ok(Ok(mut outbound)) => {
-                    if let Err(e) = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await
-                    {
+            let session = async {
+                match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&remote))
+                    .await
+                {
+                    Ok(Ok(mut outbound)) => {
+                        // Local activity, for Stage43 idle eviction.
+                        let mut local = super::fang_accept::Tracked::new(&mut inbound);
+                        if let Err(e) =
+                            tokio::io::copy_bidirectional(&mut local, &mut outbound).await
+                        {
+                            eprintln!(
+                                "🦷 {} plain client {} pipe error: {}",
+                                fang_id, client_addr, e
+                            );
+                        }
+                    }
+                    Ok(Err(e)) => {
                         eprintln!(
-                            "🦷 {} plain client {} pipe error: {}",
-                            fang_id, client_addr, e
+                            "🦷 {} plain target connect error {}: {}",
+                            fang_id, remote, e
+                        );
+                    }
+                    Err(_) => {
+                        eprintln!(
+                            "🦷 {} plain target connect timed out after 5s: {}",
+                            fang_id, remote
                         );
                     }
                 }
-                Ok(Err(e)) => {
-                    eprintln!(
-                        "🦷 {} plain target connect error {}: {}",
-                        fang_id, remote, e
-                    );
-                }
-                Err(_) => {
-                    eprintln!(
-                        "🦷 {} plain target connect timed out after 5s: {}",
-                        fang_id, remote
-                    );
-                }
+            };
+            if slot.serve(session).await.is_none() {
+                // Evicted (Stage43): close with a reset, not a FIN that
+                // would look like a completed session.
+                let _ = super::arm_reset_on_close(&inbound);
             }
         });
     }

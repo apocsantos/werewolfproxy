@@ -178,12 +178,15 @@ pub(crate) async fn run_failover_forwarder(
         let prepared = prepared.clone();
         let identity = identity.clone();
         cancellation.spawn(async move {
-            let _slot = slot;
-            if select_and_serve(&mut inbound, &prepared, &identity).await {
+            let served = slot
+                .serve(select_and_serve(&mut inbound, &prepared, &identity))
+                .await;
+            if served == Some(true) {
                 let _ = super::disarm_reset_on_close(&inbound);
             }
-            // Otherwise the socket stays armed: the application sees a
-            // reset, never a session that looks complete.
+            // Otherwise (failed, or evicted in Stage43) the socket stays
+            // armed: the application sees a reset, never a session that
+            // looks complete.
         });
     }
 }
