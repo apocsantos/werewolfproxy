@@ -50,7 +50,7 @@ class FloodLab(Lab):
             argv = ['/usr/bin/prlimit', f'--nofile={self.nofile}:{self.nofile}', '--', *argv]
         return super().spawn(argv, label, env)
 
-    def setup(self, kind):
+    def setup(self, kind, bind='127.0.0.1', echo_port=None):
         self.prepare_binaries()
         self.reserve_wolf_ports()
         self.reserve('fang')
@@ -61,7 +61,7 @@ class FloodLab(Lab):
                                'targets')
         ready = self.wait_for(lambda: json.loads((target_dir / 'ready.json').read_text()),
                               'targets', target)
-        self.ports.update(target=ready['http'], echo=ready['echo'])
+        self.ports.update(target=ready['http'], echo=echo_port or ready['echo'])
         self.start_wolves()
         identities = {}
         for wolf in ('a', 'b'):
@@ -85,11 +85,11 @@ class FloodLab(Lab):
         self.start_wolves()
         self.release('fang')
         self.control('b', 'fang.profile.add', dict(
-            name='flood', peer='wolf-a', local=self.address('fang'),
+            name='flood', peer='wolf-a', local=f"{bind}:{self.ports['fang']}",
             remote=self.address('echo'), transport=kind))
         self.control('b', 'fang.open_profile', {'name': 'flood'})
-        self.wait_for(lambda: self.listener('fang'), 'flood Fang', self.wolves[1])
-        require(echo_ok(self.ports['fang'], 5), 'baseline echo through the Fang failed')
+        self.wait_for(lambda: listening(self.ports['fang'], bind), 'flood Fang', self.wolves[1])
+        require(echo_ok(self.ports['fang'], 5, bind), 'baseline echo through the Fang failed')
 
     @property
     def b_pid(self):
@@ -145,9 +145,10 @@ class FloodLab(Lab):
             return f'control failed: {exc}'
 
 
-def echo_ok(port, timeout):
+def echo_ok(port, timeout, host='127.0.0.1', source=None):
     try:
-        with socket.create_connection(('127.0.0.1', port), timeout=timeout) as s:
+        with socket.create_connection((host, port), timeout=timeout,
+                                      source_address=(source, 0) if source else None) as s:
             s.settimeout(timeout)
             payload = os.urandom(1024)
             s.sendall(payload)
@@ -162,10 +163,10 @@ def echo_ok(port, timeout):
         return False
 
 
-def listening(port):
+def listening(port, host='127.0.0.1'):
     """True if a new connection completes at all (kernel backlog included)."""
     try:
-        with socket.create_connection(('127.0.0.1', port), timeout=2):
+        with socket.create_connection((host, port), timeout=2):
             return True
     except OSError:
         return False
