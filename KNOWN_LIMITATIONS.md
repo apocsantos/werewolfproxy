@@ -341,9 +341,14 @@ Found by Stage46 ([M1](docs/STAGE46_M1_DIAL_REPRODUCTION.md)):
 
   **What remains:**
   - while an encrypted-TCP Fang's daemon is out of file descriptors, it
-    uses more CPU than before Stage46: 0.8–8.8% of a core in six runs,
-    against 1.2–1.8% in five runs before (M3 §5). It ends with the
-    exhaustion, and the Fang recovers. The cause was not investigated;
+    used about 12% more CPU per episode than before Stage46 (1.82 s
+    against 1.63 s; none on a QUIC Fang, none in steady state). Stage46 M3
+    stated 0.8–8.8% against 1.2–1.8%; that came from a 5 s sample that
+    depends on when the work ends (Stage47
+    [survey](docs/STAGE47_FLOOD_CPU_SURVEY.md),
+    [M1](docs/STAGE47_M1_CPU_REPRODUCTION.md)). Stage47 removed it on
+    `main`: a single address is now dialled without the race's task
+    machinery ([M2](docs/STAGE47_M2_CPU_FIX.md));
   - an encrypted-TCP Fang where no address answers still takes 10 s per
     client: the Stage32 F1 retry repeats the whole race;
   - QUIC resolves a name only when the Fang opens: after a DNS change the
