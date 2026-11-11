@@ -64,3 +64,19 @@ fn established_session_errors_are_logged_but_not_counted() {
     assert_eq!(health.sessions_failed(), 0);
     assert!(health.last_failure().is_null());
 }
+
+/// Stage46 D5 (M1): a dial that fails for lack of a local resource made no
+/// connection, so it is `dial`, as Stage46 L1 approves; before Stage46 these
+/// carry no dial `ErrorKind` and are labelled `handshake` (Stage45 M3 §3).
+/// Linux errno values: EMFILE 24, ENFILE 23, ENOBUFS 105, ENOMEM 12.
+#[test]
+#[ignore = "Stage46 M2 (L1): local resource errors on the dial are `dial`"]
+fn local_resource_errors_on_the_dial_are_dial_failures() {
+    for errno in [24, 23, 105, 12] {
+        assert_eq!(
+            FailureClass::of_setup(&io::Error::from_raw_os_error(errno)),
+            FailureClass::Dial,
+            "errno {errno}"
+        );
+    }
+}

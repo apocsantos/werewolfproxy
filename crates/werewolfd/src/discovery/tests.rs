@@ -886,3 +886,18 @@ async fn a_local_quic_dial_failure_is_unreachable() {
     .unwrap_err();
     assert_eq!(operator::failure_status(error), "unreachable");
 }
+
+/// Stage46 D5 (M1): discovery and sync report a dial that failed for lack of
+/// a local resource (EMFILE 24, ENFILE 23, ENOBUFS 105, ENOMEM 12 on Linux)
+/// as `unreachable`, as Stage46 L1 approves; before Stage46, `rejected`.
+#[test]
+#[ignore = "Stage46 M2 (L1): local resource errors are `unreachable`"]
+fn a_local_resource_error_is_unreachable() {
+    for errno in [24, 23, 105, 12] {
+        assert_eq!(
+            operator::failure_status(io::Error::from_raw_os_error(errno)),
+            "unreachable",
+            "errno {errno}"
+        );
+    }
+}
