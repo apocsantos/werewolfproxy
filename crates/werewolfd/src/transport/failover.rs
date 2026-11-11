@@ -17,7 +17,7 @@ use super::tcp_encrypted::{connect_tcp_session, secure_copy_client_side};
 use crate::{
     handshake as hs,
     policy::{select_peer_transport, ExpectedPeerIdentity},
-    quic_fang::{client_endpoint, connect_v3_on, proxy_streams, CloseClientConnection},
+    quic_fang::{connect_v3_on, proxy_streams, CloseClientConnection},
 };
 use std::net::SocketAddr;
 use tokio::{
@@ -34,7 +34,8 @@ use werewolf_core::{
 /// opens.
 #[derive(Clone)]
 pub(crate) enum Path {
-    Quic(SocketAddr),
+    /// Every address the provider's QUIC address names, resolved at open.
+    Quic(Vec<SocketAddr>),
     Tcp(String),
     Routed(Box<Routed>),
 }
@@ -66,6 +67,7 @@ pub(crate) fn resolve(
     peers: &[PeerRecord],
     routes: &[Route],
     requested: &str,
+    resolved: &super::dial::Resolved,
 ) -> Result<Vec<Provider>, (&'static str, String)> {
     if requested == "tcp-plain" {
         return Err((
@@ -85,15 +87,16 @@ pub(crate) fn resolve(
                 public_key_b64: record.public_key_b64.clone(),
             };
             let path = match routes.iter().find(|route| route.peer == peer) {
-                Some(route) => {
-                    Path::Routed(Box::new(relay::resolve(route, record, peers, requested)?))
-                }
+                Some(route) => Path::Routed(Box::new(relay::resolve(
+                    route, record, peers, requested, resolved,
+                )?)),
                 None => match select_peer_transport(requested, &record.address) {
                     Ok(super::FangTransport::Quic(address)) => {
-                        Path::Quic(address.parse().map_err(|_| {
+                        // Stage46 A1: a name is resolved before the open.
+                        Path::Quic(resolved.addresses(&address).map_err(|reason| {
                             (
                                 "FANG_BAD_QUIC_ADDRESS",
-                                format!("{peer}: QUIC address invalid"),
+                                format!("{peer}: QUIC address {address} {reason}"),
                             )
                         })?)
                     }
@@ -116,11 +119,11 @@ pub(crate) fn resolve(
         .collect()
 }
 
-/// A provider with the QUIC endpoint its attempts reuse, as a direct QUIC
-/// Fang reuses one endpoint per activation.
+/// A provider with the QUIC peer (its endpoints) its attempts reuse, as a
+/// direct QUIC Fang reuses one per activation.
 struct Ready {
     provider: Provider,
-    endpoint: Option<quinn::Endpoint>,
+    endpoint: Option<crate::quic_fang::QuicPeer>,
 }
 
 pub(crate) async fn run_failover_forwarder(
@@ -133,17 +136,19 @@ pub(crate) async fn run_failover_forwarder(
 ) -> io::Result<()> {
     let mut prepared = Vec::with_capacity(providers.len());
     for provider in providers {
-        let expected = match &provider.path {
-            Path::Quic(address) => Some((&provider.expected, Some(*address))),
+        let peer = match &provider.path {
+            Path::Quic(addresses) => Some(crate::quic_fang::QuicPeer::open(
+                &provider.expected,
+                addresses.clone(),
+            )),
             Path::Routed(routed) if routed.hop == werewolf_core::route::RouteHop::Quic => {
-                Some((&routed.relay, routed.relay_address.parse().ok()))
+                Some(relay::relay_peer(routed).await)
             }
             _ => None,
         };
-        let endpoint = match expected.map(|(peer, destination)| client_endpoint(peer, destination))
-        {
+        let endpoint = match peer {
             None => None,
-            Some(Ok(endpoint)) => Some(endpoint),
+            Some(Ok(peer)) => Some(peer),
             Some(Err(error)) => {
                 let _ = ready.send(Err(io::Error::new(error.kind(), error.to_string())));
                 return Err(error);
@@ -276,15 +281,9 @@ async fn attempt(
             let _ = established.send(());
             secure_copy_client_side(inbound, outbound, key).await
         }
-        (Path::Quic(address), Some(endpoint)) => {
-            let (connection, send, recv) = connect_v3_on(
-                endpoint,
-                *address,
-                &provider.remote,
-                identity,
-                &provider.expected,
-            )
-            .await?;
+        (Path::Quic(_), Some(peer)) => {
+            let (connection, send, recv) =
+                connect_v3_on(peer, &provider.remote, identity, &provider.expected).await?;
             let _close = CloseClientConnection(connection);
             let _ = established.send(());
             proxy_streams(inbound, send, recv)
@@ -363,15 +362,15 @@ mod tests {
         }];
         let mut quic = peers();
         quic[1].address = "quic://198.51.100.3:9560".into();
-        let providers = resolve(&web(), &quic, &routes, "quic").unwrap();
+        let providers = resolve(&web(), &quic, &routes, "quic", &Default::default()).unwrap();
         let order: Vec<_> = providers.iter().map(|p| p.peer.as_str()).collect();
         assert_eq!(order, ["wolf-b", "wolf-c", "wolf-d"]);
         assert!(
-            matches!(&providers[0].path, Path::Quic(a) if a.to_string() == "198.51.100.2:9560")
+            matches!(&providers[0].path, Path::Quic(a) if a == &["198.51.100.2:9560".parse::<SocketAddr>().unwrap()])
         );
         // A tcp:// provider is never dialled as QUIC: requesting quic for it
         // fails the whole open rather than skipping it.
-        assert!(resolve(&web(), &peers(), &[], "quic").is_err());
+        assert!(resolve(&web(), &peers(), &[], "quic", &Default::default()).is_err());
         assert!(matches!(&providers[2].path, Path::Routed(r) if r.via == "wolf-r"));
         assert_eq!(providers[1].remote, "127.0.0.1:8002");
         assert_eq!(providers[2].uses(), ["wolf-d", "wolf-r"]);
@@ -387,10 +386,21 @@ mod tests {
                 p
             })
             .collect();
-        assert_eq!(resolve(&web(), &all_tcp, &[], "tcp").unwrap().len(), 3);
+        assert_eq!(
+            resolve(&web(), &all_tcp, &[], "tcp", &Default::default())
+                .unwrap()
+                .len(),
+            3
+        );
         let code = |r: Result<Vec<Provider>, (&'static str, String)>| r.err().unwrap().0;
         assert_eq!(
-            code(resolve(&web(), &all_tcp, &[], "tcp-plain")),
+            code(resolve(
+                &web(),
+                &all_tcp,
+                &[],
+                "tcp-plain",
+                &Default::default()
+            )),
             "FANG_INVALID"
         );
         let missing: Vec<_> = all_tcp
@@ -399,8 +409,41 @@ mod tests {
             .cloned()
             .collect();
         assert_eq!(
-            code(resolve(&web(), &missing, &[], "tcp")),
+            code(resolve(&web(), &missing, &[], "tcp", &Default::default())),
             "FANG_UNKNOWN_PEER"
         );
+    }
+
+    /// Stage46 D3: a QUIC provider given by name takes every address
+    /// resolved at open; a name that did not resolve, or was not resolved,
+    /// fails the open with its reason.
+    #[test]
+    fn a_named_quic_provider_is_resolved_at_open() {
+        let mut named = peers();
+        named[0].address = "quic://provider.stage46:9560".into();
+        named[1].address = "quic://198.51.100.3:9560".into();
+        named[2].address = "quic://10.0.0.4:9560".into();
+        let both: Vec<SocketAddr> = vec![
+            "[fd46::2]:9560".parse().unwrap(),
+            "198.51.100.2:9560".parse().unwrap(),
+        ];
+        let resolved = super::super::dial::Resolved::from_entries([(
+            "provider.stage46:9560",
+            Ok(both.clone()),
+        )]);
+        let providers = resolve(&web(), &named, &[], "quic", &resolved).unwrap();
+        assert!(matches!(&providers[0].path, Path::Quic(a) if a == &both));
+
+        let failed = super::super::dial::Resolved::from_entries([(
+            "provider.stage46:9560",
+            Err("no such host".into()),
+        )]);
+        let error = resolve(&web(), &named, &[], "quic", &failed).err().unwrap();
+        assert_eq!(error.0, "FANG_BAD_QUIC_ADDRESS");
+        assert!(error.1.contains("does not resolve"), "{}", error.1);
+        let error = resolve(&web(), &named, &[], "quic", &Default::default())
+            .err()
+            .unwrap();
+        assert!(error.1.contains("retry"), "{}", error.1);
     }
 }

@@ -1,9 +1,6 @@
 use super::fang_health::FailureClass;
 use std::time::Duration;
-use tokio::{
-    io,
-    net::{TcpListener, TcpStream},
-};
+use tokio::{io, net::TcpListener};
 
 pub(super) async fn run_plain_tcp_forwarder(
     fang_id: &str,
@@ -36,8 +33,12 @@ pub(super) async fn run_plain_tcp_forwarder(
             // S45-D2): a client retrying against a dead target cannot grow
             // the log.
             let session = async {
-                match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&remote))
-                    .await
+                // Every address the target names, raced (Stage46 T1).
+                match tokio::time::timeout(
+                    Duration::from_secs(5),
+                    super::dial::connect_tcp(&remote),
+                )
+                .await
                 {
                     Ok(Ok(mut outbound)) => {
                         // Local activity, for Stage43 idle eviction.

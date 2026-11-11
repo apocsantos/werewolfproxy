@@ -30,8 +30,12 @@ use werewolf_core::{pack::PeerRecord, pelt::PeltIdentity, route::RouteHop};
 pub(crate) struct Routed {
     pub(crate) via: String,
     pub(crate) hop: RouteHop,
-    /// The relay's address for `hop`, `IP:port`.
+    /// The relay's address for `hop`, `HOST:port`, as in the Pack.
     pub(crate) relay_address: String,
+    /// For a QUIC hop, every address `relay_address` names, resolved when
+    /// the Fang opened (Stage46 A1); empty when it was not (discovery), and
+    /// then resolved when used.
+    pub(crate) relay_quic: Vec<SocketAddr>,
     pub(crate) relay: ExpectedPeerIdentity,
     /// The destination's encrypted-TCP listener, a literal address: the
     /// relay's OPEN target and the inner TLS server name.
@@ -55,6 +59,7 @@ pub(crate) fn resolve(
     destination: &PeerRecord,
     peers: &[PeerRecord],
     requested: &str,
+    resolved: &super::dial::Resolved,
 ) -> Result<Routed, (&'static str, String)> {
     if requested == "tcp-plain" {
         return Err((
@@ -94,10 +99,24 @@ pub(crate) fn resolve(
             "a routed peer needs a literal tcp:// IP:port address".into(),
         )
     })?;
+    let relay_quic = match (route.hop, resolved.get(&relay_address)) {
+        (RouteHop::Quic, Some(Ok(addresses))) => addresses,
+        (RouteHop::Quic, Some(Err(reason))) => {
+            return Err((
+                "FANG_ROUTE_INVALID",
+                format!(
+                    "relay {} address {relay_address} does not resolve: {reason}",
+                    route.via
+                ),
+            ))
+        }
+        _ => Vec::new(),
+    };
     Ok(Routed {
         via: route.via.clone(),
         hop: route.hop,
         relay_address,
+        relay_quic,
         relay: ExpectedPeerIdentity {
             fingerprint: relay.fingerprint.clone(),
             public_key_b64: relay.public_key_b64.clone(),
@@ -117,13 +136,10 @@ pub(crate) async fn run_routed_forwarder(
     cancellation: crate::fang_registry::FangCancellation,
     ready: tokio::sync::oneshot::Sender<io::Result<()>>,
 ) -> io::Result<()> {
-    // One QUIC endpoint per activation, as a direct QUIC Fang does.
+    // One QUIC peer (its endpoints) per activation, as a direct QUIC Fang.
     let endpoint = match routed.hop {
-        RouteHop::Quic => match crate::quic_fang::client_endpoint(
-            &routed.relay,
-            routed.relay_address.parse().ok(),
-        ) {
-            Ok(endpoint) => Some(endpoint),
+        RouteHop::Quic => match relay_peer(&routed).await {
+            Ok(peer) => Some(peer),
             Err(error) => {
                 let _ = ready.send(Err(io::Error::new(error.kind(), error.to_string())));
                 return Err(error);
@@ -195,7 +211,7 @@ pub(crate) async fn run_routed_forwarder(
 pub(crate) async fn routed_session(
     inbound: &mut TcpStream,
     routed: &Routed,
-    endpoint: Option<&quinn::Endpoint>,
+    endpoint: Option<&crate::quic_fang::QuicPeer>,
     remote: &str,
     identity: &PeltIdentity,
     destination: &ExpectedPeerIdentity,
@@ -203,11 +219,9 @@ pub(crate) async fn routed_session(
 ) -> io::Result<()> {
     let target = routed.destination.to_string();
     match (routed.hop, endpoint) {
-        (RouteHop::Quic, Some(endpoint)) => {
-            let relay: SocketAddr = routed.relay_address.parse().map_err(|_| hs::rejected())?;
+        (RouteHop::Quic, Some(relay)) => {
             let (connection, send, mut recv) =
-                crate::quic_fang::connect_v3_on(endpoint, relay, &target, identity, &routed.relay)
-                    .await?;
+                crate::quic_fang::connect_v3_on(relay, &target, identity, &routed.relay).await?;
             let _close = CloseClientConnection(connection);
             let mut send = AbortiveSend {
                 stream: send,
@@ -275,6 +289,21 @@ pub(crate) async fn routed_session(
     }
 }
 
+/// The relay of a QUIC hop as a QUIC peer: the addresses resolved at open,
+/// or, when there are none (discovery builds its routes without resolving),
+/// every address resolved now. A name that does not resolve is a dial that
+/// made no connection.
+pub(crate) async fn relay_peer(routed: &Routed) -> io::Result<crate::quic_fang::QuicPeer> {
+    let addresses = if routed.relay_quic.is_empty() {
+        super::dial::resolve_all(&routed.relay_address)
+            .await
+            .map_err(hs::local_dial_failed)?
+    } else {
+        routed.relay_quic.clone()
+    };
+    crate::quic_fang::QuicPeer::open(&routed.relay, addresses)
+}
+
 /// The byte stream to the destination's listener through the relay, as
 /// handed to `over_relay`'s closure.
 pub(crate) type RelayStream = Box<dyn RelayIo>;
@@ -298,11 +327,9 @@ where
     let target = routed.destination.to_string();
     match routed.hop {
         RouteHop::Quic => {
-            let relay: SocketAddr = routed.relay_address.parse().map_err(|_| hs::rejected())?;
-            let endpoint = crate::quic_fang::client_endpoint(&routed.relay, Some(relay))?;
+            let relay = relay_peer(routed).await?;
             let (connection, send, recv) =
-                crate::quic_fang::connect_v3_on(&endpoint, relay, &target, identity, &routed.relay)
-                    .await?;
+                crate::quic_fang::connect_v3_on(&relay, &target, identity, &routed.relay).await?;
             let _close = CloseClientConnection(connection);
             exchange(Box::new(tokio::io::join(recv, send))).await
         }
@@ -374,7 +401,14 @@ mod tests {
             member("wolf-b", "quic://198.51.100.2:9560"),
             member("wolf-d", "tcp://10.0.0.4:8443"),
         ];
-        let routed = resolve(&route(RouteHop::Quic), &peers[1], &peers, "quic").unwrap();
+        let routed = resolve(
+            &route(RouteHop::Quic),
+            &peers[1],
+            &peers,
+            "quic",
+            &Default::default(),
+        )
+        .unwrap();
         assert_eq!(routed.relay_address, "198.51.100.2:9560");
         assert_eq!(routed.relay.fingerprint, "wwp1:wolf-b");
         assert_eq!(routed.relay.public_key_b64.as_deref(), Some("key-wolf-b"));
@@ -386,7 +420,14 @@ mod tests {
             member("wolf-b", "quic://198.51.100.2:9560"),
             member("wolf-d", "quic://10.0.0.4:9560"),
         ];
-        let routed = resolve(&route(RouteHop::Tcp), &peers[1], &peers, "tcp").unwrap();
+        let routed = resolve(
+            &route(RouteHop::Tcp),
+            &peers[1],
+            &peers,
+            "tcp",
+            &Default::default(),
+        )
+        .unwrap();
         assert_eq!(routed.relay_address, "198.51.100.2:9560");
         assert_eq!(routed.destination, "10.0.0.4:9560".parse().unwrap());
     }
@@ -403,7 +444,8 @@ mod tests {
                 &route(RouteHop::Tcp),
                 &peers[1],
                 &peers,
-                "tcp-plain"
+                "tcp-plain",
+                &Default::default(),
             )),
             "FANG_ROUTE_INVALID"
         );
@@ -412,21 +454,68 @@ mod tests {
                 &route(RouteHop::Tcp),
                 &peers[1],
                 &peers[1..],
-                "quic"
+                "quic",
+                &Default::default(),
             )),
             "FANG_ROUTE_INVALID"
         );
         // A tcp:// relay is never dialled as QUIC.
         assert_eq!(
-            code(resolve(&route(RouteHop::Quic), &peers[1], &peers, "quic")),
+            code(resolve(
+                &route(RouteHop::Quic),
+                &peers[1],
+                &peers,
+                "quic",
+                &Default::default()
+            )),
             "FANG_ROUTE_INVALID"
         );
         // The destination must be a literal IP: it is the relay's target and
         // the inner TLS server name.
         let named = member("wolf-d", "tcp://wolf-d.internal:8443");
         assert_eq!(
-            code(resolve(&route(RouteHop::Tcp), &named, &peers, "quic")),
+            code(resolve(
+                &route(RouteHop::Tcp),
+                &named,
+                &peers,
+                "quic",
+                &Default::default()
+            )),
             "FANG_BAD_TCP_ADDRESS"
         );
+    }
+
+    /// Stage46 D2: a QUIC hop to a relay given by name takes every address
+    /// resolved at open; a name that did not resolve fails the open, never
+    /// each session. A TCP hop keeps the name: TCP resolves when it dials.
+    #[test]
+    fn a_named_quic_relay_is_resolved_at_open() {
+        let peers = [
+            member("wolf-b", "quic://relay.stage46:9560"),
+            member("wolf-d", "tcp://10.0.0.4:8443"),
+        ];
+        let both: Vec<SocketAddr> = vec![
+            "[fd46::2]:9560".parse().unwrap(),
+            "198.51.100.2:9560".parse().unwrap(),
+        ];
+        let resolved =
+            super::super::dial::Resolved::from_entries([("relay.stage46:9560", Ok(both.clone()))]);
+        let routed = resolve(&route(RouteHop::Quic), &peers[1], &peers, "quic", &resolved).unwrap();
+        assert_eq!(routed.relay_quic, both);
+        assert_eq!(routed.relay_address, "relay.stage46:9560");
+
+        let routed = resolve(&route(RouteHop::Tcp), &peers[1], &peers, "tcp", &resolved).unwrap();
+        assert!(routed.relay_quic.is_empty());
+        assert_eq!(routed.relay_address, "relay.stage46:9560");
+
+        let failed = super::super::dial::Resolved::from_entries([(
+            "relay.stage46:9560",
+            Err("no such host".into()),
+        )]);
+        let error = resolve(&route(RouteHop::Quic), &peers[1], &peers, "quic", &failed)
+            .err()
+            .unwrap();
+        assert_eq!(error.0, "FANG_ROUTE_INVALID");
+        assert!(error.1.contains("does not resolve"), "{}", error.1);
     }
 }

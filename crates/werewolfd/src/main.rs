@@ -476,50 +476,43 @@ fn generate_fang_id(peer: &str, local: &str, remote: &str, existing_count: usize
     format!("fang_{}", &hex[..16])
 }
 
-/// The text of `peer`'s QUIC address and, if it is not a literal, what it
-/// resolved to (Stage45 H1). `None` when the open will not dial QUIC
-/// directly (unknown peer, a route, another transport) or the address is a
-/// literal; the open then decides as before.
-async fn resolve_quic_peer(
-    state: &Arc<Mutex<DaemonState>>,
-    peer: &str,
-    transport: &str,
-) -> Option<(String, std::io::Result<std::net::SocketAddr>)> {
-    let address = {
-        let st = state.lock().await;
-        if st.routes.iter().any(|route| route.peer == peer) {
-            return None;
-        }
-        let record = st.peers.iter().find(|p| p.name == peer)?;
-        match select_peer_transport(transport, &record.address) {
-            Ok(transport::FangTransport::Quic(address)) => address,
-            _ => return None,
-        }
+/// The QUIC address text an open of a Fang to `peer` would dial: the peer's
+/// own (`transport` QUIC, no route) or its relay's (a route with a QUIC
+/// hop). `None` otherwise.
+fn quic_address_for(st: &DaemonState, peer: &str, transport: &str) -> Option<String> {
+    let quic = |address: &str, requested: &str| match select_peer_transport(requested, address) {
+        Ok(transport::FangTransport::Quic(text)) => Some(text),
+        _ => None,
     };
-    if address.parse::<std::net::SocketAddr>().is_ok() {
-        return None;
+    match st.routes.iter().find(|route| route.peer == peer) {
+        Some(route) if route.hop == werewolf_core::route::RouteHop::Quic => {
+            let relay = st.peers.iter().find(|p| p.name == route.via)?;
+            quic(&relay.address, "quic")
+        }
+        Some(_) => None,
+        None => {
+            let record = st.peers.iter().find(|p| p.name == peer)?;
+            quic(&record.address, transport)
+        }
     }
-    let resolved = quic_fang::resolve_server(&address).await;
-    Some((address, resolved))
 }
 
-/// The QUIC Fang's server address: a literal as is, otherwise what
-/// `resolve_quic_peer` found for this same text. The text can change between
-/// the two locks (a concurrent `pack set-address`); the open then fails and
-/// can be retried.
-fn quic_server_for(
-    address: &str,
-    resolved: Option<(String, std::io::Result<std::net::SocketAddr>)>,
-) -> Result<std::net::SocketAddr, String> {
-    if let Ok(literal) = address.parse() {
-        return Ok(literal);
-    }
-    match resolved {
-        Some((text, result)) if text == address => {
-            result.map_err(|error| format!("does not resolve: {error}"))
-        }
-        _ => Err("changed while the Fang was opening; retry".into()),
-    }
+/// Resolves every QUIC hostname an open of Fangs to `peers` would dial
+/// (Stage45 H1, Stage46 A1: once, at open, keeping every address), before
+/// the state lock is taken, so a slow resolver never holds the daemon.
+async fn resolve_fang_names(
+    state: &Arc<Mutex<DaemonState>>,
+    peers: &[&str],
+    transport: &str,
+) -> transport::dial::Resolved {
+    let names = {
+        let st = state.lock().await;
+        peers
+            .iter()
+            .filter_map(|peer| quic_address_for(&st, peer, transport))
+            .collect()
+    };
+    transport::dial::Resolved::names(names).await
 }
 
 async fn open_fang_from_parts(
@@ -542,9 +535,9 @@ async fn open_fang_with_profile(
     transport: String,
     activation: Option<(std::path::PathBuf, String)>,
 ) -> ControlResponse {
-    // Stage45 H1: a QUIC peer's hostname is resolved once, here, before the
-    // state lock is taken, so a slow resolver never holds the daemon.
-    let resolved = resolve_quic_peer(&state, &peer, &transport).await;
+    // Stage45 H1, Stage46 A1: QUIC hostnames are resolved once, here,
+    // before the state lock is taken.
+    let resolved = resolve_fang_names(&state, &[&peer], &transport).await;
     let st = state.lock().await;
 
     if matches!(st.status.mode, WolfMode::Silver) {
@@ -603,7 +596,7 @@ async fn open_fang_with_profile(
     let routed = match st.routes.iter().find(|route| route.peer == peer) {
         None => None,
         Some(route) => {
-            match transport::relay::resolve(route, &peer_record, &st.peers, &transport) {
+            match transport::relay::resolve(route, &peer_record, &st.peers, &transport, &resolved) {
                 Ok(routed) => Some(routed),
                 Err((code, message)) => return ControlResponse::err(req_id, code, message),
             }
@@ -613,7 +606,7 @@ async fn open_fang_with_profile(
     let peer_addr = match select_peer_transport(&transport, &peer_record.address) {
         _ if routed.is_some() => String::new(),
         Ok(transport::FangTransport::Quic(a)) => {
-            let server = match quic_server_for(&a, resolved) {
+            let server = match resolved.addresses(&a) {
                 Ok(server) => server,
                 Err(reason) => {
                     return ControlResponse::err(
@@ -860,6 +853,13 @@ async fn open_provider_fang(
     local: String,
     transport: String,
 ) -> ControlResponse {
+    // Stage46 A1: every QUIC provider's (or relay's) hostname, before the lock.
+    let names: Vec<String> = service
+        .providers()
+        .map(|(peer, _)| peer.to_string())
+        .collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let resolved = resolve_fang_names(&state, &names, &transport).await;
     let st = state.lock().await;
     if matches!(st.status.mode, WolfMode::Silver) {
         return ControlResponse::err(
@@ -888,8 +888,9 @@ async fn open_provider_fang(
     let Some(identity) = st.pelt.clone() else {
         return ControlResponse::err(req_id, "NO_PELT", "No local Pelt identity exists");
     };
-    let providers = match transport::failover::resolve(&service, &st.peers, &st.routes, &transport)
-    {
+    let providers = match transport::failover::resolve(
+        &service, &st.peers, &st.routes, &transport, &resolved,
+    ) {
         Ok(providers) => providers,
         Err((code, message)) => return ControlResponse::err(req_id, code, message),
     };

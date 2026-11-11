@@ -81,9 +81,18 @@ since the Fang opened, and `last_failure`, `null` or `{"class",
 refusal, whatever its reason, is one) or, for plain TCP, `target`. A
 session that fails after it is established is not counted. The daemon
 logs setup failures at most once per 10 s per Fang and class, with the
-number suppressed in between. A QUIC Fang to a peer whose address is a
-hostname resolves it once when it opens (first address); if it does not
-resolve the open fails with `QUIC_FANG_FAILED`.
+number suppressed in between.
+
+A peer address may be a hostname with several addresses (Stage46). Every
+dial tries them all: the first address at once, the next one 250 ms later
+or as soon as the previous fails, alternating IPv6 and IPv4, until one
+connects, all within the dial's existing window (5 s). QUIC resolves the
+name once, when the Fang opens: the peer's own address, a QUIC relay's,
+or a failover provider's. If it does not resolve, the open fails
+(`QUIC_FANG_FAILED`, `FANG_ROUTE_INVALID` or `FANG_BAD_QUIC_ADDRESS`).
+TCP and discovery resolve the name each time they dial. A dial that
+failed for lack of a local resource (no file descriptor, buffer or
+memory) is `dial`, and `unreachable` in discovery and sync.
 
 Fang's transport argument selects quic, secure TCP, or explicit tcp-plain for
 that profile; it is not a fallback selector. The local Stage11A automatic

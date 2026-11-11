@@ -434,13 +434,13 @@ pub(crate) async fn answer_tcp<S: AsyncRead + AsyncWrite + Unpin>(
 /// Requester side over QUIC: one connection, one RPC stream. Returns the
 /// individually verified records.
 pub(crate) async fn query_quic(
-    address: SocketAddr,
+    addresses: &[SocketAddr],
     identity: &PeltIdentity,
     expected: &ExpectedPeerIdentity,
     request: &RpcRequest,
 ) -> io::Result<Vec<ContactRecord>> {
     rpc_quic(
-        address,
+        addresses,
         identity,
         expected,
         request,
@@ -452,12 +452,12 @@ pub(crate) async fn query_quic(
 /// `services` over QUIC: the responder's published services visible to us.
 /// Any bad entry rejects the whole answer.
 pub(crate) async fn query_services_quic(
-    address: SocketAddr,
+    addresses: &[SocketAddr],
     identity: &PeltIdentity,
     expected: &ExpectedPeerIdentity,
 ) -> io::Result<Vec<PublishedService>> {
     rpc_quic(
-        address,
+        addresses,
         identity,
         expected,
         &RpcRequest::Services,
@@ -467,16 +467,17 @@ pub(crate) async fn query_services_quic(
 }
 
 async fn rpc_quic<T>(
-    address: SocketAddr,
+    addresses: &[SocketAddr],
     identity: &PeltIdentity,
     expected: &ExpectedPeerIdentity,
     request: &RpcRequest,
     check: impl FnOnce(&hs::QuicRpcResult, &hs::QuicRpc, &[u8]) -> io::Result<T>,
 ) -> io::Result<T> {
-    let endpoint = crate::quic_fang::client_endpoint(expected, Some(address))?;
-    // A dial that never sent a packet or never heard back is reported as
-    // unreachable; one the peer answered and refused stays rejected.
-    let connection = crate::quic_fang::dial(&endpoint, address).await?;
+    // Every address raced (Stage46). A dial that never sent a packet or
+    // never heard back is reported as unreachable; one the peer answered and
+    // refused stays rejected.
+    let peer = crate::quic_fang::QuicPeer::open(expected, addresses.to_vec())?;
+    let connection = peer.dial().await?;
     let deadline = Instant::now() + hs::CLIENT_WINDOW;
     let result = timeout_at(deadline, async {
         crate::quic_fang::handshake_confirmed(&connection).await?;
@@ -532,13 +533,13 @@ pub(crate) async fn query_services_tcp(
 /// Stage29 `governance` over QUIC: the statements after `head`, chained
 /// from it; nothing here applies them.
 pub(crate) async fn query_governance_quic(
-    address: SocketAddr,
+    addresses: &[SocketAddr],
     identity: &PeltIdentity,
     expected: &ExpectedPeerIdentity,
     head: [u8; 32],
 ) -> io::Result<Vec<werewolf_core::governance::Statement>> {
     rpc_quic(
-        address,
+        addresses,
         identity,
         expected,
         &RpcRequest::Governance {

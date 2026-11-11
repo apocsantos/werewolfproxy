@@ -243,7 +243,7 @@ async fn both(
 ) {
     let expected = expected(node);
     (
-        query_quic(node.quic, sender, &expected, request).await,
+        query_quic(&[node.quic], sender, &expected, request).await,
         query_tcp(&node.tcp.to_string(), sender, &expected, request).await,
     )
 }
@@ -302,9 +302,11 @@ async fn non_packmates_silver_and_rate_limit_are_rejected() {
         let limiter = node.state.lock().await.rpc_limiter.clone();
         let expected = expected(&node);
         while limiter.allow(&sender.fingerprint) {}
-        assert!(query_quic(node.quic, &sender, &expected, &RpcRequest::Ping)
-            .await
-            .is_err());
+        assert!(
+            query_quic(&[node.quic], &sender, &expected, &RpcRequest::Ping)
+                .await
+                .is_err()
+        );
         while limiter.allow(&sender.fingerprint) {}
         assert!(
             query_tcp(&node.tcp.to_string(), &sender, &expected, &RpcRequest::Ping)
@@ -556,7 +558,7 @@ fn grants(entries: &[(&PeltIdentity, &[&str])]) -> TargetPolicy {
 /// The same `services` query over QUIC and TCP; both must agree.
 async fn services(node: &Node, sender: &PeltIdentity) -> io::Result<Vec<String>> {
     let expected = expected(node);
-    let quic = query_services_quic(node.quic, sender, &expected).await;
+    let quic = query_services_quic(&[node.quic], sender, &expected).await;
     let tcp = query_services_tcp(&node.tcp.to_string(), sender, &expected).await;
     match (quic, tcp) {
         (Ok(quic), Ok(tcp)) => {
@@ -632,7 +634,7 @@ async fn services_refuse_strangers_silver_and_exhausted_rate() {
         let limiter = node.state.lock().await.rpc_limiter.clone();
         while limiter.allow(&member.fingerprint) {}
         let expected = expected(&node);
-        assert!(query_services_quic(node.quic, &member, &expected)
+        assert!(query_services_quic(&[node.quic], &member, &expected)
             .await
             .is_err());
 
@@ -877,7 +879,7 @@ async fn a_local_quic_dial_failure_is_unreachable() {
         public_key_b64: Some(peer.public_key_b64.clone()),
     };
     let error = query_quic(
-        "127.0.0.1:0".parse().unwrap(),
+        &["127.0.0.1:0".parse().unwrap()],
         &sender,
         &expected,
         &RpcRequest::Ping,
@@ -891,7 +893,6 @@ async fn a_local_quic_dial_failure_is_unreachable() {
 /// a local resource (EMFILE 24, ENFILE 23, ENOBUFS 105, ENOMEM 12 on Linux)
 /// as `unreachable`, as Stage46 L1 approves; before Stage46, `rejected`.
 #[test]
-#[ignore = "Stage46 M2 (L1): local resource errors are `unreachable`"]
 fn a_local_resource_error_is_unreachable() {
     for errno in [24, 23, 105, 12] {
         assert_eq!(
@@ -900,4 +901,26 @@ fn a_local_resource_error_is_unreachable() {
             "errno {errno}"
         );
     }
+}
+
+/// Stage46 D1: discovery over QUIC tries the next address when the first
+/// does not answer, within the one window.
+#[tokio::test]
+async fn a_quic_query_falls_back_to_the_next_address() {
+    let sender = generate_identity();
+    let node = node(&[&sender], Contacts::default()).await;
+    let expected = ExpectedPeerIdentity {
+        fingerprint: node.receiver.fingerprint.clone(),
+        public_key_b64: Some(node.receiver.public_key_b64.clone()),
+    };
+    let dead = free(true);
+    let started = std::time::Instant::now();
+    query_quic(&[dead, node.quic], &sender, &expected, &RpcRequest::Ping)
+        .await
+        .unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
 }
