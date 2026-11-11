@@ -337,9 +337,15 @@ async fn pipe_one_fang_connection(
     expected_peer: crate::policy::ExpectedPeerIdentity,
     health: &super::fang_health::FangHealth,
 ) -> io::Result<()> {
-    let (outbound, key) = connect_tcp_session(peer_addr, remote, &identity, &expected_peer)
-        .await
-        .inspect_err(|error| health.setup_failed(error))?;
+    let (outbound, key) = connect_tcp_session(
+        peer_addr,
+        remote,
+        &identity,
+        &expected_peer,
+        SetupRetry::BeforeChallenge,
+    )
+    .await
+    .inspect_err(|error| health.setup_failed(error))?;
     secure_copy_client_side(inbound, outbound, key).await
 }
 
@@ -356,17 +362,45 @@ async fn pipe_one_fang_connection(
 /// so the retry is a fresh, independent session: new TCP, new TLS, new
 /// challenge. The receiver, its TLS-accept window and every handshake
 /// message are unchanged.
+///
+/// `retry` says whether a TCP connect that timed out is among those
+/// failures (Stage48 O1): on the direct Fang it is, in failover it is not,
+/// since there the next provider is the retry.
 pub(crate) async fn connect_tcp_session(
     peer_addr: &str,
     remote: &str,
     identity: &PeltIdentity,
     expected_peer: &crate::policy::ExpectedPeerIdentity,
+    retry: SetupRetry,
 ) -> io::Result<(ClientTlsStream<TcpStream>, Zeroizing<[u8; 32]>)> {
-    match tcp_session_attempt(peer_addr, remote, identity, expected_peer).await {
-        Err(Setup::Retry(_)) => tcp_session_attempt(peer_addr, remote, identity, expected_peer)
-            .await
-            .map_err(Setup::into_error),
+    match tcp_session_attempt(peer_addr, remote, identity, expected_peer, retry).await {
+        Err(Setup::Retry(_)) => {
+            tcp_session_attempt(peer_addr, remote, identity, expected_peer, retry)
+                .await
+                .map_err(Setup::into_error)
+        }
         result => result.map_err(Setup::into_error),
+    }
+}
+
+/// Which setup failures `connect_tcp_session` retries once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SetupRetry {
+    /// Every failure before the receiver's challenge (Stage32 F1): the
+    /// direct encrypted-TCP Fang.
+    BeforeChallenge,
+    /// The same, except a TCP connect that timed out: a peer that did not
+    /// answer within the connect window is not dialled again. Failover's
+    /// encrypted-TCP leg (Stage48 O1).
+    NotAConnectTimeout,
+}
+
+/// How a failed TCP connect counts for the retry.
+fn connect_failure(error: io::Error, retry: SetupRetry) -> Setup {
+    if retry == SetupRetry::NotAConnectTimeout && error.kind() == io::ErrorKind::TimedOut {
+        Setup::Final(error)
+    } else {
+        Setup::Retry(error)
     }
 }
 
@@ -390,9 +424,12 @@ async fn tcp_session_attempt(
     remote: &str,
     identity: &PeltIdentity,
     expected_peer: &crate::policy::ExpectedPeerIdentity,
+    retry: SetupRetry,
 ) -> Result<(ClientTlsStream<TcpStream>, Zeroizing<[u8; 32]>), Setup> {
     let connector = selected_peer_connector(expected_peer).map_err(Setup::Final)?;
-    let stream = open_tcp(peer_addr).await.map_err(Setup::Retry)?;
+    let stream = open_tcp(peer_addr)
+        .await
+        .map_err(|error| connect_failure(error, retry))?;
     let server_ip = stream.peer_addr().map_err(Setup::Retry)?.ip();
     let mut outbound = tokio::time::timeout(
         hs::READ_WINDOW,

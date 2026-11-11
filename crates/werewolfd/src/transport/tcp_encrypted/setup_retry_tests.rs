@@ -2,7 +2,8 @@
 //! only when the failure came before the first byte of the receiver's
 //! challenge: TCP connect, TLS at the transport level, or a receiver that
 //! closed before it ever spoke. Nothing later is retried, a TLS pinning
-//! failure is never retried, and there is never a second retry.
+//! failure is never retried, and there is never a second retry. Stage48 O1:
+//! failover's leg retries the same failures except a TCP connect timeout.
 use super::authority_tests::{fixture, Task};
 use super::*;
 use crate::target_policy::TargetPolicy;
@@ -115,11 +116,20 @@ async fn receiver(
 }
 
 async fn setup(sender: &PeltIdentity, receiver: &Receiver) -> io::Result<()> {
+    setup_with(sender, receiver, SetupRetry::BeforeChallenge).await
+}
+
+async fn setup_with(
+    sender: &PeltIdentity,
+    receiver: &Receiver,
+    retry: SetupRetry,
+) -> io::Result<()> {
     let (mut outbound, key) = connect_tcp_session(
         &receiver.address.to_string(),
         &receiver.target.to_string(),
         sender,
         &receiver.expected,
+        retry,
     )
     .await?;
     // The established session carries application bytes exactly.
@@ -181,4 +191,47 @@ async fn a_tls_pinning_failure_is_never_retried() {
     })
     .await
     .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failover_still_retries_a_close_before_the_challenge() {
+    timeout(Duration::from_secs(30), async {
+        let sender = generate_identity();
+        for first in [Conduct::DropTcp, Conduct::CloseBeforeChallenge] {
+            let receiver = receiver(&sender, &[first, Conduct::Real], None).await;
+            setup_with(&sender, &receiver, SetupRetry::NotAConnectTimeout)
+                .await
+                .unwrap();
+            assert_eq!(receiver.accepted.load(Ordering::SeqCst), 2);
+        }
+        for conduct in [Conduct::DropTcp, Conduct::CloseBeforeChallenge] {
+            let receiver = receiver(&sender, &[conduct], None).await;
+            assert!(
+                setup_with(&sender, &receiver, SetupRetry::NotAConnectTimeout)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(receiver.accepted.load(Ordering::SeqCst), 2);
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[test]
+fn only_failover_takes_a_connect_timeout_as_final() {
+    let timed_out = || io::Error::new(io::ErrorKind::TimedOut, "tcp connect timeout");
+    let refused = || io::Error::from(io::ErrorKind::ConnectionRefused);
+    let retried = |setup: Setup| matches!(setup, Setup::Retry(_));
+    assert!(retried(connect_failure(
+        timed_out(),
+        SetupRetry::BeforeChallenge
+    )));
+    assert!(!retried(connect_failure(
+        timed_out(),
+        SetupRetry::NotAConnectTimeout
+    )));
+    for retry in [SetupRetry::BeforeChallenge, SetupRetry::NotAConnectTimeout] {
+        assert!(retried(connect_failure(refused(), retry)));
+    }
 }
