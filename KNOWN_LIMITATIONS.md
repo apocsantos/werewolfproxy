@@ -339,16 +339,26 @@ Found by Stage46 ([M1](docs/STAGE46_M1_DIAL_REPRODUCTION.md)):
   P0/P1, S3, S4 and S7 P0 cells pass ([M3](docs/STAGE46_M3_REGRESSION.md)).
   The fix is not in the rc.2 archive.
 
+  Found and fixed by Stage47 ([survey](docs/STAGE47_FLOOD_CPU_SURVEY.md),
+  [M1](docs/STAGE47_M1_CPU_REPRODUCTION.md)): with the Stage46 dialer, an
+  encrypted-TCP Fang's daemon out of file descriptors used about 12% more
+  CPU per episode (1.82 s against 1.63 s; none on a QUIC Fang, none in
+  steady state). Stage46 M3 had stated 0.8–8.8% against 1.2–1.8%, from a
+  5 s sample that depends on when the work ends. A single address is now
+  dialled without the race's task machinery
+  ([M2](docs/STAGE47_M2_CPU_FIX.md), `e3d89f9`): 1.62–1.74 s per episode
+  in three more rounds, the pre-Stage46 level, with the Stage46 matrix,
+  the Stage42 floods and the Stage32 S2, S3 and S4 P0 cells unchanged
+  ([M3](docs/STAGE47_M3_REGRESSION.md)). Neither the cost nor the fix is
+  in the rc.2 archive. `tools/stage42/fang_flood.py` now also reports
+  `cpu_seconds_flood` (cumulative over the episode), the figure to
+  compare between builds; `cpu_flooded_pct` is kept for older records.
+
   **What remains:**
-  - while an encrypted-TCP Fang's daemon is out of file descriptors, it
-    used about 12% more CPU per episode than before Stage46 (1.82 s
-    against 1.63 s; none on a QUIC Fang, none in steady state). Stage46 M3
-    stated 0.8–8.8% against 1.2–1.8%; that came from a 5 s sample that
-    depends on when the work ends (Stage47
-    [survey](docs/STAGE47_FLOOD_CPU_SURVEY.md),
-    [M1](docs/STAGE47_M1_CPU_REPRODUCTION.md)). Stage47 removed it on
-    `main`: a single address is now dialled without the race's task
-    machinery ([M2](docs/STAGE47_M2_CPU_FIX.md));
+  - why one spawned task and `select!` per dial cost about 0.27 ms under
+    descriptor exhaustion was not investigated (Stage47 M2). A hostname
+    with several addresses still takes the race and so may still pay it;
+    no measured case;
   - an encrypted-TCP Fang where no address answers still takes 10 s per
     client: the Stage32 F1 retry repeats the whole race;
   - QUIC resolves a name only when the Fang opens: after a DNS change the
