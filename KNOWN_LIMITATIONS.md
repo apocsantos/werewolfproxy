@@ -62,6 +62,12 @@ the frozen 1.0.0-rc.1 archive is kept unchanged under
   Fangs over QUIC and TCP hops, discovery and governance sync over both
   transports, a dual-stack receiver, and the per-source share, all over
   IPv6. See [docs/STAGE44_M3_REGRESSION.md](docs/STAGE44_M3_REGRESSION.md).
+- **Stage46, sandbox** (unprivileged network namespace with a private
+  resolver, and an interface that silently drops one range): a peer, relay,
+  provider or target hostname whose first address is refused, silent, or
+  `::1` against an IPv4-only listener, on every Fang kind, routed hops,
+  discovery and governance sync. See
+  [docs/STAGE46_M3_REGRESSION.md](docs/STAGE46_M3_REGRESSION.md).
 - **Not run:** the Stage32 impairments over a real WAN; IPv6 on a real
   network (router advertisements, path MTU, a WAN) or with the Stage32
   impairments; real host
@@ -232,7 +238,8 @@ Found by Stage44 ([M1](docs/STAGE44_M1_IPV6_REPRODUCTION.md)):
   - IPv6 was run only in a namespace sandbox on unique-local loopback
     addresses, never on a real IPv6 network or a WAN;
   - a peer address that is a hostname is dialled at its first resolved
-    address only, with no fallback between addresses or families;
+    address only, with no fallback between addresses or families. Stage46
+    (below) fixes this on `main`;
   - the /64 share is a heuristic. A host holding a larger prefix (a /56 or
     /48) can still take more than 16 slots, and hosts sharing one /64
     share 16;
@@ -281,19 +288,71 @@ Found by Stage45 ([M1](docs/STAGE45_M1_VISIBILITY_REPRODUCTION.md)):
     Fangs, discovery and sync). Where `localhost` resolves to `::1` first
     and the peer listens on `127.0.0.1` only, as on the test host, a QUIC
     Fang to `localhost` fails every session. The failure is now logged as
-    `dial` and counted; a TCP Fang to the same address works. Use an
-    address literal, or a name that resolves to the listener's address;
+    `dial` and counted; a TCP Fang to the same address works. Stage46
+    (below) fixes this on `main`;
   - a setup failure caused by a local resource limit (`EMFILE`, `ENFILE`,
-    `ENOBUFS`, `ENOMEM`) is labelled `handshake`, not `dial`. Only the
-    label in the log line and in `last_failure` is wrong; the count, the
-    rate limit and the session outcome are correct, and the Stage42
-    accept line logged with it names the cause. Discovery still reports
-    such an error as `rejected`;
+    `ENOBUFS`, `ENOMEM`) is labelled `handshake`, not `dial`, and
+    discovery reports it `rejected`. Only the label is wrong; the count,
+    the rate limit and the session outcome are correct. Stage46 (below)
+    fixes this on `main`;
   - the initiator cannot tell why a receiver refused a session (no grant,
     Silver, key mismatch): all are `handshake`. This is by design; the
     receiver does not disclose its reasons;
   - each client of a QUIC Fang whose peer does not answer still waits the
     5 s read window before its reset.
+
+Found by Stage46 ([M1](docs/STAGE46_M1_DIAL_REPRODUCTION.md)):
+
+- in 1.0.0-rc.2 and on `main` before Stage46, a Pack address that is a
+  hostname with several addresses is dialled four different ways:
+  - a QUIC Fang, discovery and sync over QUIC dial the first address only.
+    A first address that is refused, silent or of the other family fails
+    every session or query after 5 s, though the next address works;
+    `localhost` (`::1` first) is the everyday case;
+  - a routed Fang whose QUIC relay is a hostname opens, then resets every
+    session at once, labelled `handshake`;
+  - a failover Fang whose QUIC provider is a hostname is refused at open;
+  - TCP tries the addresses in turn, but a silent first address uses the
+    whole window, so the next is never tried: 5 s per session, 10 s on an
+    encrypted-TCP Fang (the Stage32 F1 retry repeats it).
+
+  Also, a local resource error on the dial was labelled `handshake` and
+  reported `rejected` (Stage45 M3).
+
+  Fixed on `main` after rc.2 ([M2](docs/STAGE46_M2_DIAL_FIX.md),
+  `4dee787`):
+  - every dial (every Fang kind, routed hops, failover providers,
+    discovery, sync, a plain-TCP target) tries every address the name has:
+    the first at once, the next 250 ms later or as soon as the previous
+    fails, alternating IPv6 and IPv4, the first to connect winning, all
+    within the dial's existing 5 s window. A literal address is one
+    attempt, as before;
+  - QUIC resolves a name once, when the Fang opens, keeping every address,
+    for the peer, a QUIC relay and each failover provider; a name that does
+    not resolve fails the open with the reason. A QUIC socket for the other
+    address family is opened only when one of its addresses is tried;
+  - a local resource error on the dial is `dial`, and `unreachable` in
+    discovery and sync.
+
+  Every path reaches a name's live second address in about 0.3 s, in three
+  rounds; the Stage45, Stage44 and Stage42 scenarios and the Stage32 S2
+  P0/P1, S3, S4 and S7 P0 cells pass ([M3](docs/STAGE46_M3_REGRESSION.md)).
+  The fix is not in the rc.2 archive.
+
+  **What remains:**
+  - while an encrypted-TCP Fang's daemon is out of file descriptors, it
+    uses more CPU than before Stage46: 0.8–8.8% of a core in six runs,
+    against 1.2–1.8% in five runs before (M3 §5). It ends with the
+    exhaustion, and the Fang recovers. The cause was not investigated;
+  - an encrypted-TCP Fang where no address answers still takes 10 s per
+    client: the Stage32 F1 retry repeats the whole race;
+  - QUIC resolves a name only when the Fang opens: after a DNS change the
+    Fang must be reopened. TCP, discovery and sync resolve at each dial;
+  - the dialer was run only in the namespace sandbox, on loopback and
+    unique-local addresses, never on a real dual-stack network or a WAN;
+  - from Stage45: a QUIC peer that does not answer still costs each client
+    the 5 s window, and the initiator still cannot tell a receiver's
+    refusal reasons apart (by design).
 
 ## Discovery, services and routing
 
