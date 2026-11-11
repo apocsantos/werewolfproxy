@@ -81,6 +81,11 @@ where
     F: Fn(SocketAddr) -> Fut,
     Fut: Future<Output = io::Result<T>> + Send + 'static,
 {
+    // Stage47 O1: one address (every literal) is one attempt, awaited
+    // directly, with no task or select loop around it.
+    if let [only] = addresses {
+        return attempt(*only).await;
+    }
     let mut pending = addresses.iter().copied();
     let Some(first) = pending.next() else {
         return Err(hs::local_dial_failed("no address to dial"));

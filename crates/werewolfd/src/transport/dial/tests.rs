@@ -180,3 +180,16 @@ async fn tcp_tries_the_next_address_when_the_first_is_refused() {
     let stream = race(&addresses, TcpStream::connect).await.unwrap();
     assert_eq!(stream.peer_addr().unwrap(), addresses[1]);
 }
+
+/// Stage47 O1: a single address is awaited directly; its error comes back
+/// unchanged, at once.
+#[tokio::test]
+async fn a_single_address_returns_its_own_error_at_once() {
+    let started = Instant::now();
+    let (result, log, _) = run(&[3]).await;
+    assert_eq!(result.unwrap_err().kind(), io::ErrorKind::ConnectionRefused);
+    starts(&log, &[(3, 0)]);
+    assert!(started.elapsed() < Duration::from_millis(50));
+    let (result, _, _) = run(&[4]).await;
+    assert_eq!(result.unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+}
