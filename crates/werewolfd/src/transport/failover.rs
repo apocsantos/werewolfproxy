@@ -13,7 +13,7 @@
 
 use super::fang_health::FailureClass;
 use super::relay::{self, Routed};
-use super::tcp_encrypted::{connect_tcp_session, secure_copy_client_side};
+use super::tcp_encrypted::{connect_tcp_session, secure_copy_client_side, SetupRetry};
 use crate::{
     handshake as hs,
     policy::{select_peer_transport, ExpectedPeerIdentity},
@@ -275,9 +275,16 @@ async fn attempt(
     let provider = &ready.provider;
     match (&provider.path, ready.endpoint.as_ref()) {
         (Path::Tcp(address), _) => {
-            let (outbound, key) =
-                connect_tcp_session(address, &provider.remote, identity, &provider.expected)
-                    .await?;
+            // A provider that did not answer within the connect window is
+            // not dialled again: the next provider is the retry (Stage48 O1).
+            let (outbound, key) = connect_tcp_session(
+                address,
+                &provider.remote,
+                identity,
+                &provider.expected,
+                SetupRetry::NotAConnectTimeout,
+            )
+            .await?;
             let _ = established.send(());
             secure_copy_client_side(inbound, outbound, key).await
         }
