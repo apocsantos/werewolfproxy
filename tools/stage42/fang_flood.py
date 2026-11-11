@@ -10,10 +10,15 @@ stopped. No live wolf is touched. Each scenario runs in a fresh lab.
                 descriptors. Records B's descriptor count, CPU while saturated
                 and after release, whether the Fang still listens, and whether
                 a new legitimate echo works after the flood is released.
+                `cpu_seconds_flood` (Stage47 T1) is B's CPU time from the
+                start of the flood to the end of the hold; `cpu_flooded_pct`
+                is a 5 s window after it, kept for comparison with earlier
+                stages but sensitive to when the work ends.
   quota:<kind>  no descriptor limit; FLOOD connections through one Fang, each
                 sends 16 bytes and waits for its echo. Records how many get an
                 echo (the receiver allows 64 sessions per peer), B's descriptor
-                count, and whether a legitimate echo works during the flood.
+                count, and whether a legitimate echo works during the flood,
+                and `cpu_seconds_flood` from the flood's start to its release.
 
 Prints one JSON line per scenario; writes all to --out.
 """
@@ -130,6 +135,10 @@ class FloodLab(Lab):
         time.sleep(seconds)
         return round(100 * (ticks() - start) / CLK_TCK / seconds, 1)
 
+    def cpu_ticks(self):
+        fields = pathlib.Path(f'/proc/{self.b_pid}/stat').read_text().rsplit(')', 1)[1].split()
+        return int(fields[11]) + int(fields[12])
+
     def cpu_percent(self, seconds=5):
         def ticks():
             fields = pathlib.Path(f'/proc/{self.b_pid}/stat').read_text().rsplit(')', 1)[1].split()
@@ -220,12 +229,15 @@ def scenario_fd(lab, kind, limit, max_conns):
     result = {'scenario': f'fd:{kind}', 'nofile': limit, 'fds_idle': lab.fds()}
     log_before = lab.log_bytes('b-2')
     started = time.monotonic()
+    ticks = lab.cpu_ticks()
     socks, errors = flood(port, max_conns, lab=lab)
+    flood_seconds = round(time.monotonic() - started, 1)
     lab.wait(3)
     cpu = lab.cpu_percent()
     result.update(client_connections=len(socks), client_errors=errors,
-                  flood_seconds=round(time.monotonic() - started, 1),
+                  flood_seconds=flood_seconds,
                   fds_flooded=lab.fds(), cpu_flooded_pct=cpu,
+                  cpu_seconds_flood=round((lab.cpu_ticks() - ticks) / CLK_TCK, 2),
                   b_log_growth_bytes=lab.log_bytes('b-2') - log_before)
     result['listening_flooded'] = listening(port)
     for s in socks:
@@ -242,11 +254,13 @@ def scenario_quota(lab, kind, count):
     lab.setup(kind)
     port = lab.ports['fang']
     result = {'scenario': f'quota:{kind}', 'fds_idle': lab.fds()}
+    ticks = lab.cpu_ticks()
     socks, errors = flood(port, count, lab=lab)
     echoed, closed = count_echoes(socks, 16, 20)
     result.update(client_connections=len(socks), client_errors=errors,
                   echoed=echoed, closed_by_fang=closed, fds_flooded=lab.fds(),
-                  legit_echo_during=echo_ok(port, 10))
+                  legit_echo_during=echo_ok(port, 10),
+                  cpu_seconds_flood=round((lab.cpu_ticks() - ticks) / CLK_TCK, 2))
     for s in socks:
         s.close()
     lab.wait(5)
