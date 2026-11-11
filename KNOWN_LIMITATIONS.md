@@ -354,13 +354,34 @@ Found by Stage46 ([M1](docs/STAGE46_M1_DIAL_REPRODUCTION.md)):
   `cpu_seconds_flood` (cumulative over the episode), the figure to
   compare between builds; `cpu_flooded_pct` is kept for older records.
 
+  Found and fixed by Stage48 ([survey](docs/STAGE48_TCP_SETUP_RETRY_SURVEY.md),
+  [M1](docs/STAGE48_M1_RETRY_REPRODUCTION.md)): the Stage32 F1 setup
+  retry also repeated a TCP connect that had timed out, so in failover a
+  silent encrypted-TCP provider held each local connection 10 s before
+  the next provider (a QUIC provider: 5 s), and two silent ones used up
+  the 15 s selection window: every client was reset and a live third
+  provider was never tried. Failover's encrypted-TCP leg now takes a
+  connect timeout as final and tries the next provider at once; every
+  other F1 retry is unchanged ([M2](docs/STAGE48_M2_RETRY_FIX.md),
+  `3c7bbff`). One silent TCP provider now costs about 5 s and two about
+  10 s, as QUIC providers do, in three rounds, with the Stage46 matrix
+  and the Stage32 S2, S4 and S7 P0 cells unchanged
+  ([M3](docs/STAGE48_M3_REGRESSION.md)). The fix is not in the rc.2
+  archive.
+
   **What remains:**
   - why one spawned task and `select!` per dial cost about 0.27 ms under
     descriptor exhaustion was not investigated (Stage47 M2). A hostname
     with several addresses still takes the race and so may still pay it;
     no measured case;
-  - an encrypted-TCP Fang where no address answers still takes 10 s per
-    client: the Stage32 F1 retry repeats the whole race;
+  - a direct encrypted-TCP Fang whose peer does not answer still resets
+    each client at 10 s: the Stage32 F1 retry repeats the connect, by
+    owner decision (S48-D2; QUIC and plain TCP: 5 s). Removing it there
+    would need the F1 loss validation (Stage32 S1-P2) rerun;
+  - in failover, a provider whose connect gets no answer for the whole
+    5 s window (every SYN or SYN-ACK lost) is passed over, not dialled
+    again; the next provider takes the session. F1's validation saw no
+    such case in 600 sessions under 10% loss (Stage48 M2 §5);
   - QUIC resolves a name only when the Fang opens: after a DNS change the
     Fang must be reopened. TCP, discovery and sync resolve at each dial;
   - the dialer was run only in the namespace sandbox, on loopback and
