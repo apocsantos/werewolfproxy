@@ -39,7 +39,7 @@ const CONNECTION_RECEIVE_WINDOW: u32 = 1_250_000;
 
 pub async fn open_quic_fang(
     local_addr: String,
-    quic_server: SocketAddr,
+    quic_server: Vec<SocketAddr>,
     remote_addr: String,
     identity: PeltIdentity,
     cancellation: crate::fang_registry::FangCancellation,
@@ -47,8 +47,8 @@ pub async fn open_quic_fang(
     expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> Result<JoinHandle<()>, Box<dyn Error + Send + Sync>> {
     let handle = tokio::spawn(async move {
-        let endpoint = match client_endpoint(&expected_peer, Some(quic_server)) {
-            Ok(endpoint) => endpoint,
+        let peer = match QuicPeer::open(&expected_peer, quic_server) {
+            Ok(peer) => peer,
             Err(error) => {
                 let _ = ready.send(Err(std::io::Error::new(error.kind(), error.to_string())));
                 return;
@@ -69,7 +69,9 @@ pub async fn open_quic_fang(
 
         println!(
             "[INFO][QUIC][FANG_OPEN] 🐺 QUIC Fang listening on {} → {} target {}",
-            local_addr, quic_server, remote_addr
+            local_addr,
+            peer.describe(),
+            remote_addr
         );
 
         let mut acceptor = crate::transport::fang_accept::FangAcceptor::new(listener, &local_addr);
@@ -83,20 +85,14 @@ pub async fn open_quic_fang(
             let remote_addr = remote_addr.clone();
             let identity = identity.clone();
             let expected_peer = expected_peer.clone();
-            let endpoint = endpoint.clone();
+            let peer = peer.clone();
 
             cancellation.spawn(async move {
                 // Evicted (Stage43): the session is dropped and the armed
                 // local socket closes with a reset.
                 slot.serve(async move {
-                    let result = connect_v3_on(
-                        &endpoint,
-                        quic_server,
-                        &remote_addr,
-                        &identity,
-                        &expected_peer,
-                    )
-                    .await;
+                    let result =
+                        connect_v3_on(&peer, &remote_addr, &identity, &expected_peer).await;
                     let (connection, send, recv) = match result {
                         Ok(session) => session,
                         Err(error) => {
@@ -133,8 +129,84 @@ pub(super) async fn connect_v3(
     identity: &PeltIdentity,
     expected_peer: &ExpectedPeerIdentity,
 ) -> std::io::Result<(quinn::Connection, SendStream, RecvStream)> {
-    let endpoint = client_endpoint(expected_peer, Some(address))?;
-    connect_v3_on(&endpoint, address, remote, identity, expected_peer).await
+    let peer = QuicPeer::open(expected_peer, vec![address])?;
+    connect_v3_on(&peer, remote, identity, expected_peer).await
+}
+
+/// A QUIC peer's addresses and this node's client endpoints towards them
+/// (Stage46). Every dial races the addresses (`transport::dial::race`)
+/// inside `hs::READ_WINDOW`, the window one dial had before. One endpoint
+/// per address family (S46-D3, E1): the first address's family is bound
+/// when the peer is opened, so a failure to bind fails the open as before;
+/// the other family only when one of its addresses is first tried, so a
+/// host without IPv6 never binds it for an IPv4 peer.
+#[derive(Clone)]
+pub(crate) struct QuicPeer(Arc<QuicPeerInner>);
+
+struct QuicPeerInner {
+    expected: ExpectedPeerIdentity,
+    addresses: Vec<SocketAddr>,
+    v4: std::sync::Mutex<Option<Endpoint>>,
+    v6: std::sync::Mutex<Option<Endpoint>>,
+}
+
+impl QuicPeer {
+    pub(crate) fn open(
+        expected: &ExpectedPeerIdentity,
+        addresses: Vec<SocketAddr>,
+    ) -> std::io::Result<Self> {
+        let addresses = crate::transport::dial::interleave(addresses);
+        let first = *addresses
+            .first()
+            .ok_or_else(|| hs::local_dial_failed("no address to dial"))?;
+        let peer = Self(Arc::new(QuicPeerInner {
+            expected: expected.clone(),
+            addresses,
+            v4: Default::default(),
+            v6: Default::default(),
+        }));
+        peer.endpoint_for(first)?;
+        Ok(peer)
+    }
+
+    pub(crate) fn addresses(&self) -> &[SocketAddr] {
+        &self.0.addresses
+    }
+
+    /// The addresses, for a log line.
+    pub(crate) fn describe(&self) -> String {
+        let text: Vec<String> = self.0.addresses.iter().map(|a| a.to_string()).collect();
+        text.join(", ")
+    }
+
+    fn endpoint_for(&self, address: SocketAddr) -> std::io::Result<Endpoint> {
+        let slot = if address.is_ipv6() {
+            &self.0.v6
+        } else {
+            &self.0.v4
+        };
+        let mut slot = slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(endpoint) = slot.as_ref() {
+            return Ok(endpoint.clone());
+        }
+        let endpoint = client_endpoint(&self.0.expected, Some(address))?;
+        *slot = Some(endpoint.clone());
+        Ok(endpoint)
+    }
+
+    /// The QUIC connection to the first address that answers.
+    pub(crate) async fn dial(&self) -> std::io::Result<quinn::Connection> {
+        let peer = self.clone();
+        let raced = crate::transport::dial::race(&self.0.addresses, move |address| {
+            let endpoint = peer.endpoint_for(address);
+            async move { dial(&endpoint?, address).await }
+        });
+        tokio::time::timeout(hs::READ_WINDOW, raced)
+            .await
+            .map_err(|_| hs::no_answer())?
+    }
 }
 
 /// The local address of a QUIC client endpoint that will dial `destination`
@@ -163,7 +235,9 @@ pub(crate) fn client_endpoint(
     .map_err(|_| hs::rejected())?;
     let quic_crypto =
         quinn::crypto::rustls::QuicClientConfig::try_from(crypto).map_err(|_| hs::rejected())?;
-    let mut endpoint = Endpoint::client(client_bind(destination)).map_err(|_| hs::rejected())?;
+    // Binding the UDP socket is local: a failure (no descriptor, no IPv6) is
+    // a dial that made no connection (Stage46 L1), not a refusal.
+    let mut endpoint = Endpoint::client(client_bind(destination)).map_err(hs::local_dial_failed)?;
     let mut transport = quinn::TransportConfig::default();
     transport
         .keep_alive_interval(Some(QUIC_KEEP_ALIVE))
@@ -218,32 +292,13 @@ pub(crate) async fn dial(
         })
 }
 
-/// Resolves a QUIC peer's Pack address once, when its Fang opens (Stage45
-/// H1): a literal is used as is; a hostname takes its first address, as
-/// discovery and sync do (S44-D4). Bounded by `hs::READ_WINDOW`.
-pub(crate) async fn resolve_server(address: &str) -> std::io::Result<SocketAddr> {
-    if let Ok(literal) = address.parse() {
-        return Ok(literal);
-    }
-    tokio::time::timeout(hs::READ_WINDOW, tokio::net::lookup_host(address))
-        .await
-        .map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::TimedOut, "name resolution timed out")
-        })??
-        .next()
-        .ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::NotFound, "name resolved to no address")
-        })
-}
-
 pub(crate) async fn connect_v3_on(
-    endpoint: &Endpoint,
-    address: SocketAddr,
+    peer: &QuicPeer,
     remote: &str,
     identity: &PeltIdentity,
     expected_peer: &ExpectedPeerIdentity,
 ) -> std::io::Result<(quinn::Connection, SendStream, RecvStream)> {
-    let connection = dial(endpoint, address).await?;
+    let connection = peer.dial().await?;
     let deadline = tokio::time::Instant::now() + hs::CLIENT_WINDOW;
     let result = tokio::time::timeout_at(deadline, async {
         handshake_confirmed(&connection).await?;

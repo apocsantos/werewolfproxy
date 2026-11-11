@@ -41,6 +41,25 @@ pub(super) fn local_dial_failed(error: impl std::fmt::Display) -> io::Error {
         format!("dial failed locally: {error}"),
     )
 }
+
+/// Linux errno values for a local resource the dial could not get: EMFILE,
+/// ENFILE, ENOBUFS, ENOMEM (Stage46 L1). They carry no dial `ErrorKind`.
+const LOCAL_RESOURCE_ERRNOS: [i32; 4] = [24, 23, 105, 12];
+
+/// Whether a failed dial or session setup made no connection to the peer:
+/// refused, no route, refused locally, no answer (Stage45 S1a), or a local
+/// resource the dial could not get (Stage46 L1). Fangs log these as `dial`;
+/// discovery and sync report them `unreachable`. Anything else reached the
+/// peer.
+pub(super) fn no_connection_made(error: &io::Error) -> bool {
+    use io::ErrorKind::*;
+    matches!(
+        error.kind(),
+        ConnectionRefused | HostUnreachable | NetworkUnreachable | AddrNotAvailable | TimedOut
+    ) || error
+        .raw_os_error()
+        .is_some_and(|errno| LOCAL_RESOURCE_ERRNOS.contains(&errno))
+}
 pub(super) fn require(value: bool) -> io::Result<()> {
     if value {
         Ok(())

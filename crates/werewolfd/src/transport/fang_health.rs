@@ -45,15 +45,14 @@ impl FailureClass {
         }
     }
 
-    /// The class of a failed session setup towards a peer: `dial` for the
-    /// error kinds that mean no connection was made (the same set discovery
-    /// reports `unreachable`), `handshake` for everything else.
+    /// The class of a failed session setup towards a peer: `dial` when no
+    /// connection was made (`hs::no_connection_made`, the same test discovery
+    /// reports `unreachable` by), `handshake` for everything else.
     pub(crate) fn of_setup(error: &io::Error) -> Self {
-        use io::ErrorKind::*;
-        match error.kind() {
-            ConnectionRefused | HostUnreachable | NetworkUnreachable | AddrNotAvailable
-            | TimedOut => Self::Dial,
-            _ => Self::Handshake,
+        if crate::handshake::no_connection_made(error) {
+            Self::Dial
+        } else {
+            Self::Handshake
         }
     }
 

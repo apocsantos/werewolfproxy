@@ -613,12 +613,11 @@ async fn query_governance(
     }
     match select_peer_transport(transport, &seed.address) {
         Ok(FangTransport::Quic(address)) => {
-            let address = tokio::net::lookup_host(address.as_str())
+            // Stage46: every address the name has, raced by the dial.
+            let addresses = crate::transport::dial::resolve_all(&address)
                 .await
-                .ok()
-                .and_then(|mut addresses| addresses.next())
-                .ok_or("bad_address")?;
-            super::query_governance_quic(address, identity, &seed.expected, head)
+                .map_err(|_| "bad_address")?;
+            super::query_governance_quic(&addresses, identity, &seed.expected, head)
                 .await
                 .map_err(failure_status)
         }
@@ -771,7 +770,13 @@ impl Seed {
         let public_key = peer.public_key_b64.clone()?;
         let path = match routes.iter().find(|route| route.peer == peer.name) {
             None => Path::Direct,
-            Some(route) => match crate::transport::relay::resolve(route, peer, peers, "tcp") {
+            Some(route) => match crate::transport::relay::resolve(
+                route,
+                peer,
+                peers,
+                "tcp",
+                &Default::default(),
+            ) {
                 Ok(routed) => Path::Relay(Box::new(routed)),
                 Err(_) => Path::BadRoute,
             },
@@ -980,12 +985,11 @@ async fn query(
     }
     match select_peer_transport(transport, &seed.address) {
         Ok(FangTransport::Quic(address)) => {
-            let address = tokio::net::lookup_host(address.as_str())
+            // Stage46: every address the name has, raced by the dial.
+            let addresses = crate::transport::dial::resolve_all(&address)
                 .await
-                .ok()
-                .and_then(|mut addresses| addresses.next())
-                .ok_or("bad_address")?;
-            query_quic(address, identity, &seed.expected, request)
+                .map_err(|_| "bad_address")?;
+            query_quic(&addresses, identity, &seed.expected, request)
                 .await
                 .map_err(failure_status)
         }
@@ -1017,12 +1021,11 @@ async fn query_services(
     }
     match select_peer_transport(transport, &seed.address) {
         Ok(FangTransport::Quic(address)) => {
-            let address = tokio::net::lookup_host(address.as_str())
+            // Stage46: every address the name has, raced by the dial.
+            let addresses = crate::transport::dial::resolve_all(&address)
                 .await
-                .ok()
-                .and_then(|mut addresses| addresses.next())
-                .ok_or("bad_address")?;
-            query_services_quic(address, identity, &seed.expected)
+                .map_err(|_| "bad_address")?;
+            query_services_quic(&addresses, identity, &seed.expected)
                 .await
                 .map_err(failure_status)
         }
@@ -1037,12 +1040,10 @@ async fn query_services(
 /// answer to the dial); `rejected` when the peer was reached and the
 /// handshake, authentication or result check failed.
 pub(super) fn failure_status(error: io::Error) -> &'static str {
-    use io::ErrorKind::*;
-    match error.kind() {
-        ConnectionRefused | HostUnreachable | NetworkUnreachable | AddrNotAvailable | TimedOut => {
-            "unreachable"
-        }
-        _ => "rejected",
+    if hs::no_connection_made(&error) {
+        "unreachable"
+    } else {
+        "rejected"
     }
 }
 

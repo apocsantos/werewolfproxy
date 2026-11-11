@@ -515,8 +515,9 @@ pub(crate) async fn connect_authenticated_tcp(
 }
 
 /// The initiator's TCP connection, with the session liveness settings.
+/// Every address `peer_addr` names is raced inside the 5 s window (Stage46).
 async fn open_tcp(peer_addr: &str) -> io::Result<TcpStream> {
-    let stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(peer_addr))
+    let stream = tokio::time::timeout(Duration::from_secs(5), super::dial::connect_tcp(peer_addr))
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "tcp connect timeout"))??;
     configure_session_socket(&stream)?;

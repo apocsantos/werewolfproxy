@@ -70,7 +70,6 @@ fn established_session_errors_are_logged_but_not_counted() {
 /// carry no dial `ErrorKind` and are labelled `handshake` (Stage45 M3 §3).
 /// Linux errno values: EMFILE 24, ENFILE 23, ENOBUFS 105, ENOMEM 12.
 #[test]
-#[ignore = "Stage46 M2 (L1): local resource errors on the dial are `dial`"]
 fn local_resource_errors_on_the_dial_are_dial_failures() {
     for errno in [24, 23, 105, 12] {
         assert_eq!(

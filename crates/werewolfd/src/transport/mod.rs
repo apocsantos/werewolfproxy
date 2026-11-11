@@ -1,3 +1,4 @@
+pub(crate) mod dial;
 pub(super) mod failover;
 pub(crate) mod fang_accept;
 pub(crate) mod fang_health;

@@ -175,7 +175,7 @@ async fn short_lived_local_fang_connections_finish_quic_and_release_authority() 
         let fang = AbortOnDrop(
             open_quic_fang(
                 local_address.to_string(),
-                quic_address,
+                vec![quic_address],
                 target_address.to_string(),
                 sender,
                 crate::fang_registry::FangCancellation::default(),
@@ -571,7 +571,7 @@ async fn target_reset_right_after_accept_reaches_local_client_as_reset() {
         let fang = AbortOnDrop(
             open_quic_fang(
                 local_address.to_string(),
-                quic_address,
+                vec![quic_address],
                 target_address.to_string(),
                 sender,
                 crate::fang_registry::FangCancellation::default(),
@@ -618,6 +618,11 @@ async fn rig() -> Rig {
 
 /// `grant`: whether the receiver grants the sender the target.
 async fn rig_with(grant: bool) -> Rig {
+    rig_at(grant, |receiver| vec![receiver]).await
+}
+
+/// As `rig_with(true)`, with the Fang dialling `addresses(receiver)`.
+async fn rig_at(grant: bool, addresses: impl FnOnce(SocketAddr) -> Vec<SocketAddr>) -> Rig {
     let sender = generate_identity();
     let receiver = generate_identity();
     let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -646,7 +651,7 @@ async fn rig_with(grant: bool) -> Rig {
     let fang = AbortOnDrop(
         open_quic_fang(
             local_address.to_string(),
-            quic_address,
+            addresses(quic_address),
             target_address.to_string(),
             sender,
             cancellation.clone(),
@@ -1006,7 +1011,7 @@ async fn an_unanswered_quic_session_is_a_dial_failure() {
     let _fang = AbortOnDrop(
         open_quic_fang(
             local_address.to_string(),
-            reserve_udp(),
+            vec![reserve_udp()],
             "127.0.0.1:8080".into(),
             sender,
             cancellation.clone(),
@@ -1021,21 +1026,64 @@ async fn an_unanswered_quic_session_is_a_dial_failure() {
     assert_eq!(failures(&cancellation, 1).await["class"], "dial");
 }
 
-/// H1: literals pass through; a hostname resolves to its first address; a
-/// name that does not resolve is an error.
-#[tokio::test]
-async fn quic_server_addresses_resolve_once() {
-    assert_eq!(
-        resolve_server("192.0.2.1:9560").await.unwrap(),
-        "192.0.2.1:9560".parse::<SocketAddr>().unwrap()
-    );
-    assert_eq!(
-        resolve_server("[::1]:9560").await.unwrap(),
-        "[::1]:9560".parse::<SocketAddr>().unwrap()
-    );
-    let local = resolve_server("localhost:9560").await.unwrap();
-    assert!(local.ip().is_loopback() && local.port() == 9560, "{local}");
-    assert!(resolve_server("werewolf-stage45.invalid:9560")
+// --- Stage46: every address is tried ------------------------------------------
+
+/// Stage46 D1: the peer's first address never answers (an unanswered IPv4
+/// port, or `::1`, where nothing listens), the second is the receiver. The
+/// session is established after the attempt delay, not after the 5 s
+/// window, and nothing is counted as failed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_quic_fang_falls_back_to_the_next_address() {
+    for first in [reserve_udp(), "[::1]:9".parse().unwrap()] {
+        let rig = rig_at(true, |receiver| vec![first, receiver]).await;
+        let started = tokio::time::Instant::now();
+        let mut client = tokio::net::TcpStream::connect(rig.local).await.unwrap();
+        client.write_all(b"hello").await.unwrap();
+        let (mut target, _) = timeout(Duration::from_secs(3), rig.target.accept())
+            .await
+            .expect("no session within 3 s")
+            .unwrap();
+        let mut first_bytes = [0u8; 5];
+        target.read_exact(&mut first_bytes).await.unwrap();
+        assert_eq!(&first_bytes, b"hello");
+        let elapsed = started.elapsed();
+        assert!(elapsed < Duration::from_secs(2), "{first}: {elapsed:?}");
+        drop((client, target));
+        sleep(Duration::from_millis(100)).await;
+        assert_eq!(rig.cancellation.health().sessions_failed(), 0, "{first}");
+    }
+}
+
+/// Stage46 D1: when no address answers, the session still fails once, as
+/// `dial`, within the one window.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn when_no_address_answers_the_session_is_one_dial_failure() {
+    let (sender, receiver) = (generate_identity(), generate_identity());
+    let local = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let local_address = local.local_addr().unwrap();
+    drop(local);
+    let cancellation = crate::fang_registry::FangCancellation::default();
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let _fang = AbortOnDrop(
+        open_quic_fang(
+            local_address.to_string(),
+            vec![reserve_udp(), reserve_udp(), "[::1]:9".parse().unwrap()],
+            "127.0.0.1:8080".into(),
+            sender,
+            cancellation.clone(),
+            ready_tx,
+            expected(&receiver),
+        )
         .await
-        .is_err());
+        .unwrap(),
+    );
+    ready_rx.await.unwrap().unwrap();
+    let started = tokio::time::Instant::now();
+    let _client = tokio::net::TcpStream::connect(local_address).await.unwrap();
+    assert_eq!(failures(&cancellation, 1).await["class"], "dial");
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_millis(5_500),
+        "one window, not one per address: {elapsed:?}"
+    );
 }
