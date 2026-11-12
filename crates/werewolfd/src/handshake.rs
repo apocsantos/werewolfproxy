@@ -33,6 +33,14 @@ pub(super) fn rejected() -> io::Error {
 pub(super) fn no_answer() -> io::Error {
     io::Error::new(io::ErrorKind::TimedOut, "no answer from peer")
 }
+/// A dial whose peer address answered that nothing listens there (ICMP port
+/// unreachable on a QUIC dial, Stage49 R1): no connection was made.
+pub(super) fn refused_by_peer() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::ConnectionRefused,
+        "refused: nothing listening at the peer's address",
+    )
+}
 /// A dial refused locally before any packet was sent, for example an address
 /// the local socket cannot reach (Stage45 S1a).
 pub(super) fn local_dial_failed(error: impl std::fmt::Display) -> io::Error {
