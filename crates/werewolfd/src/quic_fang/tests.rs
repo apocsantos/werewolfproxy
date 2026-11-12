@@ -1109,8 +1109,10 @@ async fn when_no_address_answers_the_session_is_one_dial_failure() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_quic_dial_to_a_closed_port_is_refused_at_once() {
     let peer = generate_identity();
-    let closed = reserve_udp();
+    let reservation = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let closed = reservation.local_addr().unwrap();
     let quic = QuicPeer::open(&expected(&peer), vec![closed]).unwrap();
+    drop(reservation);
     let started = std::time::Instant::now();
     let error = quic.dial().await.unwrap_err();
     assert!(
@@ -1153,8 +1155,16 @@ async fn the_refusal_probe_waits_on_an_open_port() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_refused_first_address_does_not_wait_for_the_stagger() {
     let peer = generate_identity();
-    let (first, second) = (reserve_udp(), reserve_udp());
+    // Reserve the destinations until the shared QUIC endpoint is bound,
+    // so it cannot accidentally become one of the supposedly closed ports.
+    let first_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let second_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let (first, second) = (
+        first_socket.local_addr().unwrap(),
+        second_socket.local_addr().unwrap(),
+    );
     let quic = QuicPeer::open(&expected(&peer), vec![first, second]).unwrap();
+    drop((first_socket, second_socket));
     let started = std::time::Instant::now();
     let error = quic.dial().await.unwrap_err();
     assert!(
@@ -1163,4 +1173,15 @@ async fn a_refused_first_address_does_not_wait_for_the_stagger() {
         started.elapsed()
     );
     assert_eq!(error.kind(), std::io::ErrorKind::ConnectionRefused);
+}
+
+#[tokio::test]
+async fn a_refusal_probe_never_binds_its_own_destination_port() {
+    let probe = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let address = probe.local_addr().unwrap();
+    match distinct_probe_socket(probe, address).await {
+        Ok(replacement) => assert_ne!(replacement.local_addr().unwrap().port(), address.port()),
+        // A second collision must disable the probe, never send to itself.
+        Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::AddrInUse),
+    }
 }

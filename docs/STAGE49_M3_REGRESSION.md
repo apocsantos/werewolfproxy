@@ -1,6 +1,7 @@
 # Stage49 M3 — regression
 
-**M3: PASS.** Three rounds of the Stage49 tool confirm that a refused
+**M3 baseline: PASS; delivery correction awaiting regression.** Three
+rounds of the Stage49 tool confirm that a refused
 QUIC peer fails at once on every dial path. Failover reaches a live
 provider behind one or two refused providers in 0.02–0.03 s; a refused
 first address no longer costs the 250 ms stagger. Silent peers and TCP
@@ -109,6 +110,50 @@ builds identify commit `267385f`; certification daemon hash
 tests, dependency audit, acceptance and all ten lab gates. Evidence:
 `target/ci-local/20261112T091031Z/summary.tsv`, individual logs and
 `target/stage49-m3/ci-local-recovery-host.log`.
+
+### Delivery follow-up: silent UDP test fixtures
+
+A fresh Rust-suite run while preparing PR #158 found a race in the
+older `when_no_address_answers_the_session_is_one_dial_failure` test:
+`TcpStream::connect` received the Fang's reset before returning. The
+Fang recorded the expected single `dial` failure. This run, at
+`9438165`, ended with 342 daemon tests passed and one failed; evidence
+is retained in `target/stage49-delivery/test.log`.
+
+Both this test and `an_unanswered_quic_session_is_a_dial_failure` used
+closed UDP ports as stand-ins for silence. Stage49 now detects those
+ports as refused, so they no longer exercise an unanswered dial. The
+fixtures now keep UDP sockets bound without replying (`d280f5b`). The
+failure-class and exact-count checks remain; the multi-address test
+retains its 5.5 s upper bound and also checks that the silent attempts
+get the full existing read window. The separate Stage49 tests still
+exercise immediate refusal. No production code or transport bound
+changed.
+
+GitHub's Rust CI and CodeQL jobs for PR #158 did not start because the
+account is locked by a billing issue. This supplies no hosted test or
+scan result; Stage40's local-CI policy remains in effect.
+
+The first fixture-corrected full Rust run then found that
+`a_refused_first_address_does_not_wait_for_the_stagger` took 5.002 s.
+It passed in isolation. Its closed ephemeral destinations were released
+before the shared endpoint was created, so they could be reused. In
+addition, source inspection and a local UDP socket check confirmed a
+separate self-probe case: if the probe binds the closed local
+destination's port, it receives its own byte instead of an ICMP refusal.
+The original failing run did not record socket ownership, so it cannot
+identify which collision occurred. Evidence remains in
+`target/stage49-delivery-fixtures/`.
+
+The delivery correction keeps closed test destinations reserved until
+their QUIC endpoint is bound. Production probe setup also rejects a
+source port equal to its destination: it closes that socket and retries
+the bind once. A second collision disables the probe through the existing
+local-error fallback. At most one probe socket is held and at most one
+one-byte datagram is sent; there is no retry loop. A new unit test forces
+the initial source/destination collision and checks that the replacement
+differs or the probe is disabled. The original 200 ms race assertion is
+unchanged. The full Stage49 regression contract is rerun before closure.
 
 ## 7. Next
 

@@ -236,6 +236,7 @@ async fn refusal(address: SocketAddr) -> std::io::Error {
 
 async fn refusal_probe(address: SocketAddr) -> std::io::Result<std::io::Error> {
     let probe = tokio::net::UdpSocket::bind(client_bind(Some(address))).await?;
+    let probe = distinct_probe_socket(probe, address).await?;
     probe.connect(address).await?;
     let mut buffer = [0u8; 16];
     let mut outcome = probe.send(&[0]).await.map(|_| ());
@@ -249,6 +250,29 @@ async fn refusal_probe(address: SocketAddr) -> std::io::Result<std::io::Error> {
             Ok(()) => outcome = probe.recv(&mut buffer).await.map(|_| ()),
         }
     }
+}
+
+/// A local closed destination can be the ephemeral port just allocated to
+/// the probe itself. In that case UDP would deliver the probe back to
+/// itself instead of reporting a refusal. Retry the bind once, keeping at
+/// most one probe socket; another collision skips the probe like any other
+/// local error rather than spinning or sending to itself.
+async fn distinct_probe_socket(
+    probe: tokio::net::UdpSocket,
+    address: SocketAddr,
+) -> std::io::Result<tokio::net::UdpSocket> {
+    if probe.local_addr()?.port() != address.port() {
+        return Ok(probe);
+    }
+    drop(probe);
+    let replacement = tokio::net::UdpSocket::bind(client_bind(Some(address))).await?;
+    if replacement.local_addr()?.port() == address.port() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AddrInUse,
+            "probe source port matches its destination",
+        ));
+    }
+    Ok(replacement)
 }
 
 /// The local address of a QUIC client endpoint that will dial `destination`

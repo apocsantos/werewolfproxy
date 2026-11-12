@@ -1,6 +1,6 @@
 # Stage49 — closure record
 
-**Status: Stage49 CLOSED for local engineering validation (2026-11-12).**
+**Status: delivery correction awaiting regression (2026-11-12).**
 A QUIC dial to a host with nothing listening now fails as soon as a
 separate connected UDP probe receives a port refusal. Direct and routed
 Fangs reset in 0.00 s, discovery and governance sync report `unreachable`
@@ -9,15 +9,20 @@ providers in 0.02–0.03 s. A hostname's refused first address no longer
 holds the next address for the 250 ms stagger. Silent peers and TCP
 retain their existing behaviour.
 
-This closure updates documentation only. Validation scope is the local
-sandbox and disposable labs on the tested Stage49 M2 commit.
+This record includes the baseline local validation, corrected timeout
+fixtures and a bounded rebind preventing a UDP probe from using its own
+destination port. Fresh regression is required for the production
+correction; transport bounds and probe datagram/socket ceilings stay
+unchanged.
 
 ## 1. Baseline
 
 - M2 merged to `main` as PR #157 (`6ac6594`). Tested commit
   `267385fd8ac54963c20f13501ac09be8f4684422`, on
   `stage49/m3-regression`, with the M2 refusal-probe fix. M3 and M4 add
-  documentation; they do not change the tested production source.
+  documentation, correct the silent-UDP fixtures (`d280f5b`) and prevent
+  a probe's source port from matching its destination. The [M3 delivery
+  follow-up](STAGE49_M3_REGRESSION.md) records the failures and correction.
 - Lab debug daemon hash `c484a543…`; the full hash and the separate
   Stage32 campaign build provenance are in the [M3 record](STAGE49_M3_REGRESSION.md).
 - tokio 1.52.3, quinn 0.11.12, quinn-proto 0.11.18, quinn-udp 0.5.14,
@@ -36,7 +41,7 @@ sandbox and disposable labs on the tested Stage49 M2 commit.
 | Survey (#155) | P1: every QUIC path costs 5 s per refused peer; P2: a refused first address waits for the stagger. R1 proposes a separate connected UDP probe; R2/R3 rejected | [survey](STAGE49_QUIC_REFUSED_SURVEY.md) |
 | M1 (#156) | P1/P2 CONFIRMED. Direct/routed refusal 5.0 s, discovery/sync 5.01 s, failover 5.05–5.06 s / 10.05 s; `fast` 0.30–0.36 s. Live receiver discards 10,000 one-byte datagrams with no log or session disruption | [M1](STAGE49_M1_QUIC_REFUSED_REPRODUCTION.md) |
 | M2 (#157, `267385f`) | PASS: each QUIC dial races its probe; refusal ends it early, other probe errors leave the dial running. All paths meet the timing criteria; three new unit tests, 459 tests total and 13/13 local gates passed | [M2](STAGE49_M2_QUIC_REFUSED_FIX.md) |
-| M3 | PASS: Stage49 tool ×3, Stage46 matrix ×1, Stage48 matrix ×1, QUIC descriptor/quota floods, Stage32 S2/S3/S4/S7 P0 3/3 each, 13/13 local gates | [M3](STAGE49_M3_REGRESSION.md) |
+| M3 | PASS: Stage49 tool ×3, Stage46 matrix ×1, Stage48 matrix ×1, QUIC descriptor/quota floods, Stage32 S2/S3/S4/S7 P0 3/3 each, 13/13 local gates; timeout-test fixtures corrected during delivery | [M3](STAGE49_M3_REGRESSION.md) |
 | M4 | Limitations updated; local engineering closure | [known limitations](../KNOWN_LIMITATIONS.md) |
 
 The M3 scenario results survived the host crash and were checked against
