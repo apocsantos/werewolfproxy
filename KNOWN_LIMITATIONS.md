@@ -35,7 +35,9 @@ the frozen 1.0.0-rc.1 archive is kept unchanged under
   normalization, timing obfuscation, or anonymity: one relay hides the
   requester's address from the destination, not the requester from the
   relay. Keep-alives, discovery and the periodic automatic governance sync
-  are additional observable traffic.
+  are additional observable traffic. The Stage49 QUIC refusal probe adds
+  one observable one-byte UDP datagram per address attempt on the fixed
+  build (see below); it is not in the frozen rc.2 archive.
 - Root, a privileged administrator, kernel compromise, or offline access to
   the host storage can undermine confidentiality or restore older state.
   OS root on a host still controls that host's node, governed or not.
@@ -68,6 +70,11 @@ the frozen 1.0.0-rc.1 archive is kept unchanged under
   `::1` against an IPv4-only listener, on every Fang kind, routed hops,
   discovery and governance sync. See
   [docs/STAGE46_M3_REGRESSION.md](docs/STAGE46_M3_REGRESSION.md).
+- **Stage49, sandbox**: refused QUIC peers on direct, routed, failover,
+  discovery and governance-sync paths, with silent-peer and address-race
+  controls; live receivers given one-byte datagrams; QUIC descriptor
+  exhaustion; and Stage32 S2/S3/S4/S7 P0 regression cells. See
+  [docs/STAGE49_M3_REGRESSION.md](docs/STAGE49_M3_REGRESSION.md).
 - **Not run:** the Stage32 impairments over a real WAN; IPv6 on a real
   network (router advertisements, path MTU, a WAN) or with the Stage32
   impairments; real host
@@ -299,7 +306,9 @@ Found by Stage45 ([M1](docs/STAGE45_M1_VISIBILITY_REPRODUCTION.md)):
     Silver, key mismatch): all are `handshake`. This is by design; the
     receiver does not disclose its reasons;
   - each client of a QUIC Fang whose peer does not answer still waits the
-    5 s read window before its reset.
+    5 s read window before its reset. Stage49 (below) shortens this when
+    the peer's host reports that nothing is listening; silence still
+    costs the whole window.
 
 Found by Stage46 ([M1](docs/STAGE46_M1_DIAL_REPRODUCTION.md)):
 
@@ -387,8 +396,48 @@ Found by Stage46 ([M1](docs/STAGE46_M1_DIAL_REPRODUCTION.md)):
   - the dialer was run only in the namespace sandbox, on loopback and
     unique-local addresses, never on a real dual-stack network or a WAN;
   - from Stage45: a QUIC peer that does not answer still costs each client
-    the 5 s window, and the initiator still cannot tell a receiver's
-    refusal reasons apart (by design).
+    the 5 s window (Stage49 below handles an observable port refusal),
+    and the initiator still cannot tell a receiver's refusal reasons
+    apart (by design).
+
+Found by Stage49 ([survey](docs/STAGE49_QUIC_REFUSED_SURVEY.md),
+[M1](docs/STAGE49_M1_QUIC_REFUSED_REPRODUCTION.md)):
+
+- in 1.0.0-rc.2 and before the Stage49 fix, a QUIC peer whose host is up
+  but whose daemon is not listening costs the full 5 s window on every
+  path. Direct and routed Fangs reset each client at 5 s, discovery and
+  sync report `unreachable` at 5.01 s, and failover takes about 5 s per
+  refused provider. A refused first address of a hostname also waits for
+  the 250 ms stagger before the next address starts.
+
+  Fixed on `main` after rc.2 (PR #157, tested commit `267385f`)
+  ([M2](docs/STAGE49_M2_QUIC_REFUSED_FIX.md)): each QUIC address attempt
+  sends one one-byte UDP datagram from a separate connected socket. An
+  `ECONNREFUSED` on that socket ends the attempt at once, recorded as
+  `dial` in Fang health and logs, or `unreachable` in discovery and sync.
+  In three regression rounds, refused direct/routed dials take 0.00 s,
+  discovery/sync 0.01 s, and failover reaches a live provider behind one
+  or two refused ones in 0.02–0.03 s. A name's refused first address no
+  longer holds the next address for the stagger. Silent peers and TCP
+  retain their existing behaviour. The Stage46/48 matrices, QUIC floods,
+  Stage32 S2/S3/S4/S7 P0 cells and all 13 local gates pass
+  ([M3](docs/STAGE49_M3_REGRESSION.md),
+  [closure](docs/STAGE49_CLOSURE.md)). The fix is not in the rc.2 archive.
+
+  **What remains:**
+  - **ICMP must reach the probe.** Where it is filtered or absent, a
+    refused peer still costs 5 s, as does a silent peer;
+  - **ICMP is unauthenticated.** An attacker able to forge a
+    port-unreachable error for the probe's source port can end one dial
+    early, causing a client reset or provider failover;
+  - **Observable traffic and one extra socket:** each QUIC address
+    attempt adds one one-byte datagram and holds a separate UDP socket
+    until the attempt ends. Live receivers discarded 10,000 such
+    datagrams per round without logging or disrupting sessions. If the
+    probe cannot open or encounters an error other than refusal, the
+    QUIC dial continues without its early-refusal signal;
+  - the refusal probe was exercised only locally and in the namespace
+    sandbox; ICMP delivery and filtering over a real WAN were not tested.
 
 ## Discovery, services and routing
 
