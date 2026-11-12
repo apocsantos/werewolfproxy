@@ -1003,6 +1003,9 @@ async fn a_refused_quic_session_is_a_handshake_failure() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_unanswered_quic_session_is_a_dial_failure() {
     let (sender, receiver) = (generate_identity(), generate_identity());
+    // Keep the port open but silent: Stage49 now refuses a closed port
+    // immediately, which is a different case from an unanswered dial.
+    let silent = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let local = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let local_address = local.local_addr().unwrap();
     drop(local);
@@ -1011,7 +1014,7 @@ async fn an_unanswered_quic_session_is_a_dial_failure() {
     let _fang = AbortOnDrop(
         open_quic_fang(
             local_address.to_string(),
-            vec![reserve_udp()],
+            vec![silent.local_addr().unwrap()],
             "127.0.0.1:8080".into(),
             sender,
             cancellation.clone(),
@@ -1059,6 +1062,11 @@ async fn a_quic_fang_falls_back_to_the_next_address() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn when_no_address_answers_the_session_is_one_dial_failure() {
     let (sender, receiver) = (generate_identity(), generate_identity());
+    // Hold both IPv4 ports open without answering. A closed port now
+    // refuses at once (Stage49); these attempts must use the shared
+    // window even when the IPv6 address refuses before they finish.
+    let silent_a = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let silent_b = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let local = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let local_address = local.local_addr().unwrap();
     drop(local);
@@ -1067,7 +1075,11 @@ async fn when_no_address_answers_the_session_is_one_dial_failure() {
     let _fang = AbortOnDrop(
         open_quic_fang(
             local_address.to_string(),
-            vec![reserve_udp(), reserve_udp(), "[::1]:9".parse().unwrap()],
+            vec![
+                silent_a.local_addr().unwrap(),
+                silent_b.local_addr().unwrap(),
+                "[::1]:9".parse().unwrap(),
+            ],
             "127.0.0.1:8080".into(),
             sender,
             cancellation.clone(),
@@ -1082,6 +1094,10 @@ async fn when_no_address_answers_the_session_is_one_dial_failure() {
     let _client = tokio::net::TcpStream::connect(local_address).await.unwrap();
     assert_eq!(failures(&cancellation, 1).await["class"], "dial");
     let elapsed = started.elapsed();
+    assert!(
+        elapsed >= hs::READ_WINDOW,
+        "silent attempts ended early: {elapsed:?}"
+    );
     assert!(
         elapsed < Duration::from_millis(5_500),
         "one window, not one per address: {elapsed:?}"
