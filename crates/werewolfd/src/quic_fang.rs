@@ -201,11 +201,53 @@ impl QuicPeer {
         let peer = self.clone();
         let raced = crate::transport::dial::race(&self.0.addresses, move |address| {
             let endpoint = peer.endpoint_for(address);
-            async move { dial(&endpoint?, address).await }
+            async move {
+                let endpoint = endpoint?;
+                // Stage49 R1: a refusal ends the attempt at once; otherwise
+                // the QUIC dial runs exactly as before.
+                tokio::select! {
+                    result = dial(&endpoint, address) => result,
+                    refused = refusal(address) => Err(refused),
+                }
+            }
         });
         tokio::time::timeout(hs::READ_WINDOW, raced)
             .await
             .map_err(|_| hs::no_answer())?
+    }
+}
+
+/// Stage49 R1: completes only if `address` refuses UDP, with that refusal.
+///
+/// quinn's endpoint socket serves every peer and is not connected, so the
+/// peer's ICMP port-unreachable (nothing listens there) never reaches it and
+/// the dial waits its whole window. A separate UDP socket connected to the
+/// same address sends one 1-byte datagram, too short to be a QUIC packet (a
+/// live receiver's endpoint drops it, Stage49 M1); the kernel reports the
+/// ICMP error on that socket as `ECONNREFUSED`. Anything else (an answer, no
+/// answer, a socket that cannot be opened, as under descriptor exhaustion)
+/// leaves the QUIC dial alone: this future then never completes.
+async fn refusal(address: SocketAddr) -> std::io::Error {
+    match refusal_probe(address).await {
+        Ok(refused) => refused,
+        Err(_) => std::future::pending().await,
+    }
+}
+
+async fn refusal_probe(address: SocketAddr) -> std::io::Result<std::io::Error> {
+    let probe = tokio::net::UdpSocket::bind(client_bind(Some(address))).await?;
+    probe.connect(address).await?;
+    let mut buffer = [0u8; 16];
+    let mut outcome = probe.send(&[0]).await.map(|_| ());
+    loop {
+        match outcome {
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+                return Ok(hs::refused_by_peer());
+            }
+            Err(error) => return Err(error),
+            // A datagram back (not expected from a QUIC peer): keep waiting.
+            Ok(()) => outcome = probe.recv(&mut buffer).await.map(|_| ()),
+        }
     }
 }
 

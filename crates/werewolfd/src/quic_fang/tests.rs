@@ -1087,3 +1087,64 @@ async fn when_no_address_answers_the_session_is_one_dial_failure() {
         "one window, not one per address: {elapsed:?}"
     );
 }
+
+/// Stage49 R1: a QUIC dial to an address where nothing listens fails at once
+/// as a refused dial (`dial`, `unreachable`), not after the 5 s window.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_quic_dial_to_a_closed_port_is_refused_at_once() {
+    let peer = generate_identity();
+    let closed = reserve_udp();
+    let quic = QuicPeer::open(&expected(&peer), vec![closed]).unwrap();
+    let started = std::time::Instant::now();
+    let error = quic.dial().await.unwrap_err();
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(error.kind(), std::io::ErrorKind::ConnectionRefused);
+    assert!(hs::no_connection_made(&error));
+}
+
+/// Stage49 R1: the probe completes only on a refusal. A port that is open
+/// (a socket bound there, reading or not) never completes it, so the QUIC
+/// dial to a live or silent peer is left alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_refusal_probe_waits_on_an_open_port() {
+    let open = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let address = open.local_addr().unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), refusal(address))
+            .await
+            .is_err()
+    );
+    let closed = reserve_udp();
+    let refused = tokio::time::timeout(Duration::from_secs(1), refusal(closed))
+        .await
+        .unwrap();
+    assert_eq!(refused.kind(), std::io::ErrorKind::ConnectionRefused);
+    let mut buffer = [0u8; 4];
+    open.set_nonblocking(true).unwrap();
+    assert_eq!(
+        open.recv(&mut buffer).unwrap(),
+        1,
+        "one 1-byte probe datagram"
+    );
+}
+
+/// Stage49 R1 with Stage46's race: a refused first address ends its attempt,
+/// so the next address starts at once instead of after the 250 ms stagger.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_first_address_does_not_wait_for_the_stagger() {
+    let peer = generate_identity();
+    let (first, second) = (reserve_udp(), reserve_udp());
+    let quic = QuicPeer::open(&expected(&peer), vec![first, second]).unwrap();
+    let started = std::time::Instant::now();
+    let error = quic.dial().await.unwrap_err();
+    assert!(
+        started.elapsed() < Duration::from_millis(200),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(error.kind(), std::io::ErrorKind::ConnectionRefused);
+}
