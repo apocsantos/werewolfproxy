@@ -1,178 +1,149 @@
 # Stage49 M3 — regression
 
-**M3 baseline: PASS; delivery correction awaiting regression.** Three
-rounds of the Stage49 tool confirm that a refused
-QUIC peer fails at once on every dial path. Failover reaches a live
-provider behind one or two refused providers in 0.02–0.03 s; a refused
-first address no longer costs the 250 ms stagger. Silent peers and TCP
-paths retain their existing behaviour. The Stage46 and Stage48 matrices,
-Stage42 QUIC floods, Stage32 S2/S3/S4/S7 P0 cells and full local gates
-meet the M3 criteria.
+**Functional regression: PASS. M3 gate: FAIL; closure blocked by the
+dependency audit.** Fresh validation on
+`0f5afa795591566ef570f226ec0b26a22cf9a623` covers the complete Stage49 contract: the refusal
+matrix three times, Stage46/48 matrices, descriptor and quota floods,
+Stage32 S2/S3/S4/S7 P0 three times each, and 12 of 13 local gates. The
+audit gate reports three dependency advisories; it is not ignored. The
+Rust-suite log reports 460 passed, including the new probe-port guard
+test. The recovered Cargo exit-status limitation is stated in §5.
 
-## 1. Baseline and evidence recovery
+## 1. Tested changes and scope
 
-- Tested commit `267385fd8ac54963c20f13501ac09be8f4684422` (Stage49 M2),
-  on `stage49/m3-regression`; no production source or tooling change.
-- Lab debug `werewolfd`
-  `c484a543b6b049e5791105a2c6057d5b2ea076bd68a9c5e4d4b52e61da4d933a`,
-  the M2 binary. Every Stage49, Stage46, Stage48 and Stage42 JSON record
-  identifies this hash; the binary still matches it after recovery.
-- Scenario runs completed on 2026-11-12, 08:14–08:51 UTC, before a host
-  crash. Their complete JSON results, logs and successful exit records
-  survived in `target/stage49-m3/`; `meta.txt` records the sequence.
-  Recovery checked their scenario counts, outcomes, daemon survival,
-  binary hashes and the Stage32 campaign summary.
-- The interrupted `target/ci-local/20261112T085104Z` contains empty logs
-  and no verdict, so it is not counted. A recovery attempt inside the
-  execution sandbox (`20261112T090954Z`) failed on the read-only advisory
-  cache and disposable daemons' filesystem checks. The approved host
-  rerun, `target/ci-local/20261112T091031Z`, supplies the final gate
-  results below. No test criteria or production checks were changed.
+- M2 (`267385f`, merged in #157) added the connected UDP refusal probe.
+- Delivery fix `de0a8e3` prevents a probe using its own destination port:
+  drop that socket and retry its bind once; another collision disables
+  the probe through the existing local-error fallback. At most one probe
+  socket is held and at most one one-byte datagram is sent.
+- Timeout fixtures retain silent bound UDP sockets (`d280f5b`). The
+  closed-port tests reserve available ports outside Linux's configured
+  ephemeral range and hold them until endpoint creation (`0f5afa7`),
+  excluding concurrent automatic allocation. This test fixture reads
+  `/proc/sys/net/ipv4/ip_local_port_range`; it changes no host setting.
+- Existing timing and exact failure-count assertions remain; the
+  multi-address silent test also checks the lower bound of the existing
+  read window. No dependency, wire-message, authentication, Target
+  Policy, schema, timeout or probe socket/datagram ceiling change.
+- Fresh lab daemon SHA-256: `fdc10bc1d6728fb00da9b9ab7c3d5edaf2a59667d30a470be48fc897de5cc0e4`.
+  Evidence: `target/stage49-postfix/`, ending 2026-11-13T13:40:54.565697+00:00.
 
-## 2. Stage49 tool, three rounds
+## 2. Stage49 matrix, three rounds
 
 `tools/stage49/refused.py`: 31 scenarios per round, 3 clients per
 connection scenario. Ranges across all three rounds:
 
 | QUIC path | `refused` | `blackhole` | `fast` |
 |---|---|---|---|
-| direct | reset, **0.00 s** | reset, 5.00 s | echo, 0.02–0.03 s |
-| failover, one unavailable provider then C | echo, **0.02–0.03 s** | echo, 5.02–5.04 s | echo, 0.02–0.03 s |
-| failover, two unavailable providers then D | echo, **0.02–0.03 s** | echo, 10.03 s | echo, 0.02–0.03 s |
-| routed | reset, **0.00 s** | reset, 5.00 s | echo, 0.03–0.04 s |
-| discovery | `unreachable`, **0.01 s** | `unreachable`, 5.01 s | `ok`, 0.03 s |
-| governance sync | `unreachable`, **0.01 s** | `unreachable`, 5.01 s | `ok`, 0.04 s |
+| direct | reset, 0.00 s | reset, 5.00 s | echo, 0.02–0.03 s |
+| one unavailable provider, then C | echo, 0.02–0.03 s | echo, 5.05–5.06 s | echo, 0.02–0.03 s |
+| two unavailable providers, then D | echo, 0.02–0.03 s | echo, 10.05–10.06 s | echo, 0.02–0.03 s |
+| routed | reset, 0.00 s | reset, 5.00 s | echo, 0.04 s |
+| discovery | `unreachable`, 0.01 s | `unreachable`, 5.01 s | `ok`, 0.03 s |
+| governance sync | `unreachable`, 0.01 s | `unreachable`, 5.01 s | `ok`, 0.04 s |
 
-All refused paths meet the under-0.1 s criterion. M1 took 5 s per
-refused QUIC provider and 0.30–0.36 s for `fast`. TCP controls retain
-their M1 behaviour: refusal in 0.00–0.01 s; direct blackhole in
-10.00–10.01 s; routed/discovery/sync blackhole in 5.00–5.01 s.
+Every refused QUIC path, including discovery and sync, meets the
+under-0.1 s criterion. M1 cost 5 s per refused provider and 0.30–0.36 s
+for `fast`; see [M1](STAGE49_M1_QUIC_REFUSED_REPRODUCTION.md). TCP and
+silent-peer controls retain their expected outcomes and timeout windows.
+All daemons survived.
 
-In each round, a live receiver discarded 10,000 one-byte datagrams with
-**zero log lines**. Sending took 0.04 s, receiver CPU 0.08–0.09 s, and
-all 6 clients before/after echoed. Every daemon survived every scenario.
+Each round also sent 10,000 one-byte datagrams to a live QUIC receiver:
+zero log lines and 6/6 clients echoed before/after in every round.
+Evidence: `refused-r{1,2,3}.json` and matching logs.
 
-Evidence: `r{1,2,3}-refused.json` and matching logs.
+## 3. Stage46/48 matrices and resource pressure
 
-## 3. Stage46 and Stage48 matrices
+- **Stage46:** all 40 scenarios, 5 clients each, reached the expected
+  result. Refused first addresses advance without the stagger; silent
+  first addresses retain it; dead peers retain their existing windows.
+  Evidence: `dial.json` and `dial.log`.
+- **Stage48:** all 18 scenarios, 3 clients each, reached the expected
+  result. One silent encrypted-TCP provider then C:
+  5.03–5.06 s;
+  two then D: 10.03–10.04 s.
+  Direct silent TCP retains its F1 retry. Evidence: `retry.json` and log.
+- **QUIC fd limit 64, three rounds:** flooded descriptors
+  64 / 64 / 64; saturated CPU
+  1.4% / 1.4% / 1.6%. Every round
+  recovered to 18 descriptors, a listening/listed Fang and legitimate
+  echo, with its daemon alive. Evidence: `fd64-r{1,2,3}.json`.
+- **QUIC fd limit 256 and quota:** both recovered to 18 descriptors and
+  legitimate echo; quota descriptors stayed at 18 after 30 s. A full
+  quota may refuse a legitimate client during the flood, as recorded in
+  Stage42. Evidence: `fd256.json`. No sustained spin or leak appeared.
 
-Stage46 (`dial.json`): **40 scenarios, 5 clients each**, with the expected
-results on every path. QUIC `fast`/`family` now reaches the live address
-in 0.02–0.06 s across direct, failover, routed, discovery and sync paths.
-QUIC `silent` still waits for the stagger (0.28–0.35 s); `dead` still
-costs 5.00–5.01 s, or 5.04–5.07 s to fail over. Direct encrypted TCP
-`dead` still costs 10.00–10.01 s (Stage48 P3). All daemons survived.
+## 4. Stage32 P0 regression
 
-Stage48 (`retry.json`): **18 scenarios, 3 clients each**. With a silent
-encrypted-TCP provider, failover reaches C in 5.03–5.06 s and D behind
-two silent providers in 10.03–10.06 s. QUIC matches those windows.
-Refused QUIC providers now fail over in 0.02–0.03 s; direct refusal
-resets at 0.00 s. Direct silent TCP still resets at 10.00–10.01 s;
-direct silent QUIC at 5.00 s. All daemons survived.
+`chaos.py network --cells S2:P0,S3:P0,S4:P0,S7:P0`: **12/12 runs PASS**,
+3 per cell. Evidence: `chaos.log` and
+`/home/sleepdeprivedloon/Projects/werewolfproxy/target/stage32-chaos/results/20261113T132439Z-network`. Campaign provenance records the tested commit and
+the separate certification/lab-feature binaries. S3-P2 and S2-P4 were
+not retested or recertified; their exclusions remain unchanged.
 
-## 4. Stage42 QUIC floods
+## 5. Rust and local gates; restart recovery
 
-`tools/stage42/fang_flood.py`, with the extra probe socket in this build:
+Formatting, Clippy and the locked offline release build exited 0.
+The retained full workspace/all-features Rust output reports **460
+passed, zero failed**, followed by complete core doc-tests.
 
-| Scenario | Descriptors during flood | CPU during saturation | After release |
-|---|---|---|---|
-| `fd:quic`, `nofile` 64, three rounds | 64 / 64 / 64 | 1.6 / 1.4 / 1.6% | 18 descriptors; listening, Fang listed, legitimate echo, daemon alive in every round |
-| `fd:quic`, `nofile` 256 | 82 | 0% | 18 descriptors; listening, Fang listed, legitimate echo, daemon alive |
-| `quota:quic`, 500 clients | 82; 64 echoed, 435 closed, 1 timeout | 0.91 s CPU over flood | 18 descriptors at 5 s and 30 s; legitimate echo, daemon alive |
+The execution server restarted while Cargo was running. Cargo survived
+as an orphan and finished, but its exit status was unavailable to the
+replacement driver. Recovery verified the complete results and recorded
+`recovered-output` in `summary.tsv`; it did not invent an exit code.
+A separate workspace/all-features doc-test invocation exited 0.
+`rust-recovery-note.txt` preserves this limitation.
 
-At `nofile` 64 the listener pauses while descriptors are exhausted and
-recovers after release; log growth was 188–295 bytes. At quota saturation
-a legitimate connection during the flood fails, as in Stage42's stated
-limit; it succeeds after release. No sustained spin or descriptor leak
-appears in these runs.
+Full disposable local CI: **12/13 PASS; audit FAIL**, exit 1. The other
+twelve checks exited 0. The refreshed database at
+`4ef2df8e806a65e2f1ecc14f56f51249062b23d6` flags RUSTSEC-2026-0523 and -0524 in
+quinn-proto 0.11.18 and RUSTSEC-2026-0538 in quinn-udp 0.5.14. The UDP
+advisory explicitly excludes Linux, but remains a lockfile audit finding.
+No dependency or advisory-ignore entry was changed. The committed
+upstream records and audit log are retained under `advisories/` and
+`audit-blocker.log`. This replaces the earlier all-clear audit result
+with a fresh finding; the advisories were not introduced by this PR.
+Evidence: `target/ci-local/20261113T133214Z/summary.tsv`, individual logs,
+`ci-local.log` and `outcome.json`.
 
-Evidence: `s42-256.json`, `r{1,2,3}-s42-64.json` and matching logs.
+GitHub Rust CI and CodeQL jobs for PR #158 could not start because the
+account was locked by a billing issue. No hosted test or scan pass is
+claimed. Stage40's local-CI decision remains in effect; hosted workflows
+and billing settings were not changed.
 
-## 5. Stage32 P0 cells
+## 6. Earlier evidence and delivery failures
 
-`chaos.py network --cells S2:P0,S3:P0,S4:P0,S7:P0`, three runs per cell:
+Original M2-source M3 scenarios completed on 2026-11-12, 08:14–08:51 UTC,
+before a host crash. Their JSON, logs and daemon hash `c484a543…` survive
+in `target/stage49-m3/`. Recovery verified them and completed local CI
+13/13 at `target/ci-local/20261112T091031Z`. Interrupted empty logs at
+`20261112T085104Z` supply no verdict; sandbox infrastructure failures at
+`20261112T090954Z` are not product verdicts.
 
-| Cell | Result | Detail |
+Fresh delivery validation then exposed invalid closed-port fixtures:
+
+| Attempt | Observed failure | Evidence |
 |---|---|---|
-| S2-P0 | PASS 3/3 | QUIC 0.525–0.533 s, exact payload match |
-| S3-P0 | PASS 3/3 | QUIC hop 0.791–0.838 s; TCP hop 1.133–1.204 s; exact payload matches |
-| S4-P0 | PASS 3/3 | 50/50 per transport per run; maximum QUIC 0.014–0.015 s, TCP 0.007–0.008 s |
-| S7-P0 | PASS 3/3 | all 10 selections per run chose QUIC |
+| `9438165` | old no-answer test unwrapped a local connection that had already reset; daemon suite 342 passed, 1 failed | `target/stage49-delivery/` |
+| `d280f5b` | new refused-address race took 5.002 s; daemon suite 342 passed, 1 failed | `target/stage49-delivery-fixtures/` |
+| `de0a8e3` | race again took 5 s; closed-port probe timed out; daemon suite 342 passed, 2 failed | `target/stage49-postfix-first/` |
 
-Evidence: `chaos.log` and
-`target/stage32-chaos/results/20261112T084329Z-network/`. Both campaign
-builds identify commit `267385f`; certification daemon hash
-`4560de44…`, lab-feature daemon hash `7364b662…`.
+Those failures were retained and were not retried away or counted as
+passes. Their logs did not identify the owner of a reused port, so
+attribution of the original failures to a particular socket remains
+unproven. A separate 1,000-probe diagnostic received 1,000 refusals.
+The independent self-probe case was reproduced deterministically with
+a wildcard UDP socket connected to its own loopback port:
+`self-probe-reproduction.json`. The fixture corrections and bounded
+production guard are validated by the fresh contract above.
 
-## 6. Local gates
+## 7. Closure boundaries
 
-`scripts/ci-local.sh` full: **13/13 PASS**, including the Python unit
-tests, dependency audit, acceptance and all ten lab gates. Evidence:
-`target/ci-local/20261112T091031Z/summary.tsv`, individual logs and
-`target/stage49-m3/ci-local-recovery-host.log`.
-
-### Delivery follow-up: silent UDP test fixtures
-
-A fresh Rust-suite run while preparing PR #158 found a race in the
-older `when_no_address_answers_the_session_is_one_dial_failure` test:
-`TcpStream::connect` received the Fang's reset before returning. The
-Fang recorded the expected single `dial` failure. This run, at
-`9438165`, ended with 342 daemon tests passed and one failed; evidence
-is retained in `target/stage49-delivery/test.log`.
-
-Both this test and `an_unanswered_quic_session_is_a_dial_failure` used
-closed UDP ports as stand-ins for silence. Stage49 now detects those
-ports as refused, so they no longer exercise an unanswered dial. The
-fixtures now keep UDP sockets bound without replying (`d280f5b`). The
-failure-class and exact-count checks remain; the multi-address test
-retains its 5.5 s upper bound and also checks that the silent attempts
-get the full existing read window. The separate Stage49 tests still
-exercise immediate refusal. No production code or transport bound
-changed.
-
-GitHub's Rust CI and CodeQL jobs for PR #158 did not start because the
-account is locked by a billing issue. This supplies no hosted test or
-scan result; Stage40's local-CI policy remains in effect.
-
-The first fixture-corrected full Rust run then found that
-`a_refused_first_address_does_not_wait_for_the_stagger` took 5.002 s.
-It passed in isolation. Its closed ephemeral destinations were released
-before the shared endpoint was created, so they could be reused. In
-addition, source inspection and a local UDP socket check confirmed a
-separate self-probe case: if the probe binds the closed local
-destination's port, it receives its own byte instead of an ICMP refusal.
-The original failing run did not record socket ownership, so it cannot
-identify which collision occurred. Evidence remains in
-`target/stage49-delivery-fixtures/`.
-
-The delivery correction keeps closed test destinations reserved until
-their QUIC endpoint is bound. Production probe setup also rejects a
-source port equal to its destination: it closes that socket and retries
-the bind once. A second collision disables the probe through the existing
-local-error fallback. At most one probe socket is held and at most one
-one-byte datagram is sent; there is no retry loop. A new unit test forces
-the initial source/destination collision and checks that the replacement
-differs or the probe is disabled. The original 200 ms race assertion is
-unchanged. The full Stage49 regression contract is rerun before closure.
-
-The first probe-guard rerun still failed two closed-port tests in the
-parallel Rust suite (`target/stage49-postfix-first/`); no scenario matrix
-ran after that failure. A standalone 1,000-probe diagnostic received all
-1,000 refusals. To exclude concurrent automatic-port allocation from
-the closed-port fixtures, those tests now reserve distinct available
-ports outside Linux's configured ephemeral range, releasing them only
-when ready to dial. This fixture requires the Linux range file under
-`/proc/sys/net/ipv4`; it does not change host settings or production port
-selection. The focused QUIC module passes 23/23 selected tests with the
-original bounds; the 10,000-connection lifecycle test remains in the full
-suite. The failing runs did not identify the owner of a reused port, so
-the original socket-collision attribution remains unproven.
-
-## 7. Next
-
-M3 criteria hold. M4 is the `KNOWN_LIMITATIONS` update and closure:
-refused QUIC peers fail early where ICMP reaches the probe; filtered
-ICMP and silent peers retain the 5 s window; the probe sends one extra
-one-byte datagram and holds one extra socket per attempt. Forged ICMP
-can fail an attempt early, as recorded in M2. No WAN check was run;
-frozen release artifacts and the S3-P2/S2-P4 exclusions are unchanged.
+The functional criteria hold on the corrected source, but the required
+audit gate fails. Stage49 remains unmerged and unclosed pending an
+approved dependency remediation or explicit owner disposition. M4 updates
+[known limitations](../KNOWN_LIMITATIONS.md) and the
+[closure](STAGE49_CLOSURE.md). Filtered/absent ICMP and silent peers keep
+the 5 s window; forged ICMP can end a dial early. No WAN check, dependency
+promotion, new release or historical verdict change is included. The
+next-priority proposal is the [Stage50 security survey](STAGE50_DEPENDENCY_SECURITY_SURVEY.md).

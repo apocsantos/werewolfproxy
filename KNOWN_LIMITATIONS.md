@@ -4,6 +4,26 @@ This list describes the `1.0.0-rc.2` candidate (Stage33). The list for
 the frozen 1.0.0-rc.1 archive is kept unchanged under
 [1.0.0-rc.1](#100-rc1), and stays true for that archive.
 
+## Fresh dependency audit — 2026-11-13
+
+The refreshed audit database reports three advisories against the pinned
+dependency graph shared by current `main`, the tested Stage49 branch and
+the frozen rc.2 lockfile:
+
+| Dependency | Finding | Minimum patched version |
+|---|---|---|
+| quinn-proto 0.11.18 | RUSTSEC-2026-0523: bidirectional-stream limit bypass and resource exhaustion; RUSTSEC-2026-0524: oversized Retry-token panic or allocation in a client | 0.11.19 |
+| quinn-udp 0.5.14 | RUSTSEC-2026-0538: receive-loop spin on some platforms; **the upstream advisory explicitly excludes Linux** | 0.5.16 in the 0.5 line, or 0.6.3 |
+
+The [Stage50 security survey](docs/STAGE50_DEPENDENCY_SECURITY_SURVEY.md)
+links the committed upstream records, maps the affected paths and
+proposes an isolated minimal trial. No dependency or advisory-ignore
+entry has been changed. Stage49's current full local suite is 12/13:
+its audit fails, while the other twelve checks pass
+([M3](docs/STAGE49_M3_REGRESSION.md)). Merge and closure remain pending.
+Earlier clean audits describe their earlier database snapshots. The
+frozen tag and archive have not been rewritten or recertified.
+
 ## Platform and scope
 
 - Certification covers Linux x86_64, target x86_64-unknown-linux-gnu, tested
@@ -415,12 +435,17 @@ Found by Stage49 ([survey](docs/STAGE49_QUIC_REFUSED_SURVEY.md),
   sends one one-byte UDP datagram from a separate connected socket. An
   `ECONNREFUSED` on that socket ends the attempt at once, recorded as
   `dial` in Fang health and logs, or `unreachable` in discovery and sync.
+  The delivery correction prevents the probe using its own destination
+  port: close that socket and retry the bind once; another collision
+  disables the probe through the existing local-error fallback. It still
+  holds at most one probe socket and sends at most one one-byte datagram.
   In three regression rounds, refused direct/routed dials take 0.00 s,
   discovery/sync 0.01 s, and failover reaches a live provider behind one
   or two refused ones in 0.02–0.03 s. A name's refused first address no
   longer holds the next address for the stagger. Silent peers and TCP
   retain their existing behaviour. The Stage46/48 matrices, QUIC floods,
-  Stage32 S2/S3/S4/S7 P0 cells and all 13 local gates pass
+  Stage32 S2/S3/S4/S7 P0 cells pass. The latest local suite passes 12/13,
+  with the fresh dependency-audit failure recorded above
   ([M3](docs/STAGE49_M3_REGRESSION.md),
   [closure](docs/STAGE49_CLOSURE.md)). The fix is not in the rc.2 archive.
 
