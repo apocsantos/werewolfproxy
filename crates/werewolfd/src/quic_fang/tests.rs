@@ -56,6 +56,30 @@ fn reserve_udp() -> SocketAddr {
         .unwrap()
 }
 
+/// Closed-port tests must not use a port that a concurrent endpoint or
+/// probe can acquire through bind(:0). Reserve outside Linux's ephemeral
+/// range, then release only after the test's endpoint has been created.
+fn reserve_closed_udp() -> std::net::UdpSocket {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let range = std::fs::read_to_string("/proc/sys/net/ipv4/ip_local_port_range")
+        .expect("closed UDP fixtures require the Linux ephemeral-port range");
+    let range: Vec<u16> = range
+        .split_whitespace()
+        .map(|port| port.parse().unwrap())
+        .collect();
+    assert_eq!(range.len(), 2);
+    for _ in 1024..=u16::MAX {
+        let port = 1024 + (NEXT.fetch_add(1, Ordering::Relaxed) % 64_512) as u16;
+        if (range[0]..=range[1]).contains(&port) {
+            continue;
+        }
+        if let Ok(socket) = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, port)) {
+            return socket;
+        }
+    }
+    panic!("no free UDP test port outside the ephemeral range");
+}
+
 fn server_endpoint(identity: &PeltIdentity) -> (Endpoint, Vec<u8>) {
     server_endpoint_at(identity, "127.0.0.1:0".parse().unwrap())
 }
@@ -1109,7 +1133,7 @@ async fn when_no_address_answers_the_session_is_one_dial_failure() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_quic_dial_to_a_closed_port_is_refused_at_once() {
     let peer = generate_identity();
-    let reservation = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let reservation = reserve_closed_udp();
     let closed = reservation.local_addr().unwrap();
     let quic = QuicPeer::open(&expected(&peer), vec![closed]).unwrap();
     drop(reservation);
@@ -1136,7 +1160,9 @@ async fn the_refusal_probe_waits_on_an_open_port() {
             .await
             .is_err()
     );
-    let closed = reserve_udp();
+    let reservation = reserve_closed_udp();
+    let closed = reservation.local_addr().unwrap();
+    drop(reservation);
     let refused = tokio::time::timeout(Duration::from_secs(1), refusal(closed))
         .await
         .unwrap();
@@ -1157,8 +1183,8 @@ async fn a_refused_first_address_does_not_wait_for_the_stagger() {
     let peer = generate_identity();
     // Reserve the destinations until the shared QUIC endpoint is bound,
     // so it cannot accidentally become one of the supposedly closed ports.
-    let first_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-    let second_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let first_socket = reserve_closed_udp();
+    let second_socket = reserve_closed_udp();
     let (first, second) = (
         first_socket.local_addr().unwrap(),
         second_socket.local_addr().unwrap(),

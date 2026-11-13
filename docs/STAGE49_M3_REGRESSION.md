@@ -155,6 +155,19 @@ the initial source/destination collision and checks that the replacement
 differs or the probe is disabled. The original 200 ms race assertion is
 unchanged. The full Stage49 regression contract is rerun before closure.
 
+The first probe-guard rerun still failed two closed-port tests in the
+parallel Rust suite (`target/stage49-postfix-first/`); no scenario matrix
+ran after that failure. A standalone 1,000-probe diagnostic received all
+1,000 refusals. To exclude concurrent automatic-port allocation from
+the closed-port fixtures, those tests now reserve distinct available
+ports outside Linux's configured ephemeral range, releasing them only
+when ready to dial. This fixture requires the Linux range file under
+`/proc/sys/net/ipv4`; it does not change host settings or production port
+selection. The focused QUIC module passes 23/23 selected tests with the
+original bounds; the 10,000-connection lifecycle test remains in the full
+suite. The failing runs did not identify the owner of a reused port, so
+the original socket-collision attribution remains unproven.
+
 ## 7. Next
 
 M3 criteria hold. M4 is the `KNOWN_LIMITATIONS` update and closure:
