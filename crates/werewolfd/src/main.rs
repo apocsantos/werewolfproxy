@@ -623,7 +623,7 @@ async fn open_fang_with_profile(
             let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
             let handle = match open_quic_fang(
                 local.clone(),
-                server,
+                transport::dial::QuicAddress::from_open(&a, server),
                 remote.clone(),
                 identity.clone(),
                 cancellation.clone(),

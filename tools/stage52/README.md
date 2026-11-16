@@ -1,16 +1,21 @@
 # Stage52 hostname freshness reproduction
 
-`refresh.py` reproduces the open-time QUIC address snapshot on the
-unchanged daemon. It reuses Stage46's private user, mount and network
+`refresh.py` checks baseline snapshots or refreshed hostname connections.
+It reuses Stage46's private user, mount and network
 namespace, private root/hosts file and disposable Stage45/46 lab.
 
 ```sh
-python3 -B tools/stage52/refresh.py --rounds 3 --attempts 3 \
-  --out target/stage52-survey/baseline.json
+python3 -B tools/stage52/refresh.py --rounds 3 --attempts 3 --expect refresh \
+  --out target/stage52-m2/migration-final.json
 ```
 
 Optional positional paths: `quic`, `tcp`, `routed-quic`, `routed-tcp`,
-`failover-quic`, `failover-tcp` (default: all). Output must be a new file.
+`failover-quic`, `failover-tcp`, `failover-routed-quic` (default: all).
+The last path uses C through hostname relay B as primary, then literal D
+as fallback. `--expect baseline` (the default) asserts the historical
+stale-address behaviour on an unchanged baseline; `--expect refresh`
+requires every path to use its intended primary without reopening.
+Output must be a new file.
 The tool checkpoints each completed scenario and returns nonzero on an
 unexpected result. Requires the same Linux namespace/build facilities
 as Stage46. No `--keep-temp` option is provided.
@@ -32,8 +37,11 @@ cleanup, and records timings, resolved addresses, binary/lock/tool hashes,
 Fang health and the source commit. Generated private lab identities are
 removed during cleanup; output contains no private key material.
 
-This is a deterministic hosts-file/NSS change, not an authoritative DNS
+The original six-path baseline record is preserved in the Stage52 survey;
+it predates the additional routed-failover path. This is a deterministic
+hosts-file/NSS change, not an authoritative DNS
 server test, TTL experiment or WAN migration. The established-session
 check occurs before address withdrawal; it makes no survival claim after
 the underlying path is removed. These expected baseline failures are
-reproduction results, not transport certification or a runtime fix.
+reproduction results, not transport certification. Candidate refresh
+results likewise do not establish real DNS TTL or WAN behaviour.

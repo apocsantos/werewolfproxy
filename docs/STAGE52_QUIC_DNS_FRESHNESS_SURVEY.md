@@ -1,5 +1,12 @@
 # Stage52 — QUIC hostname freshness: reproduction and design
 
+**Implementation note:** the owner merged this design as PR #162
+(`19ea5c2`) on 2026-11-16 and then instructed implementation. The
+[M2 record](STAGE52_M2_HOSTNAME_REFRESH.md) tracks that candidate. The
+baseline findings and proposed-contract wording below are the historical
+pre-implementation record; they are not a claim that the runtime remains
+unchanged on a later candidate.
+
 **Status: reproduction and design for review, 2026-11-16. No runtime
 change.** The owner authorised the proposed first step: reproduce stale
 addresses and design bounded refresh before changing runtime behaviour.

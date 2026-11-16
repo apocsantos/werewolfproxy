@@ -20,6 +20,37 @@ use crate::handshake as hs;
 use std::{collections::HashMap, future::Future, io, net::SocketAddr, time::Duration};
 use tokio::{net::TcpStream, task::JoinSet, time::Instant};
 
+pub(crate) mod refresh;
+
+/// Open-time readiness answers, with the original hostname retained only
+/// for long-lived Fangs. Explicit query snapshots never resolve twice.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct QuicAddress {
+    pub(crate) initial: Vec<SocketAddr>,
+    pub(crate) hostname: Option<String>,
+}
+
+impl QuicAddress {
+    pub(crate) fn from_open(address: &str, initial: Vec<SocketAddr>) -> Self {
+        Self {
+            initial,
+            hostname: address
+                .parse::<SocketAddr>()
+                .is_err()
+                .then(|| address.to_owned()),
+        }
+    }
+}
+
+impl From<Vec<SocketAddr>> for QuicAddress {
+    fn from(initial: Vec<SocketAddr>) -> Self {
+        Self {
+            initial,
+            hostname: None,
+        }
+    }
+}
+
 /// How long an attempt runs alone before the next address starts as well
 /// (RFC 8305's recommended Connection Attempt Delay).
 pub(crate) const ATTEMPT_DELAY: Duration = Duration::from_millis(250);
@@ -145,7 +176,8 @@ pub(crate) async fn connect_tcp(address: &str) -> io::Result<TcpStream> {
     race(&addresses, TcpStream::connect).await
 }
 
-/// Pack hostnames resolved before a Fang opens (S46-D1, A1). The open looks
+/// Pack hostnames validated before a Fang opens (Stage46; retained by Stage52).
+/// The open looks
 /// up a QUIC peer's, relay's or provider's address here, so no lookup runs
 /// while the daemon's state is locked. A literal needs no entry.
 #[derive(Default)]

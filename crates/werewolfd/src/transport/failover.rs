@@ -11,6 +11,7 @@
 //! for one connection has `hs::CLIENT_WINDOW` (decision 4a); when every
 //! provider fails, or the window ends, the local connection is reset.
 
+use super::dial::QuicAddress;
 use super::fang_health::FailureClass;
 use super::relay::{self, Routed};
 use super::tcp_encrypted::{connect_tcp_session, secure_copy_client_side, SetupRetry};
@@ -19,7 +20,6 @@ use crate::{
     policy::{select_peer_transport, ExpectedPeerIdentity},
     quic_fang::{connect_v3_on, proxy_streams, CloseClientConnection},
 };
-use std::net::SocketAddr;
 use tokio::{
     io,
     net::{TcpListener, TcpStream},
@@ -34,8 +34,8 @@ use werewolf_core::{
 /// opens.
 #[derive(Clone)]
 pub(crate) enum Path {
-    /// Every address the provider's QUIC address names, resolved at open.
-    Quic(Vec<SocketAddr>),
+    /// Open-time readiness answers and the source to refresh on each dial.
+    Quic(QuicAddress),
     Tcp(String),
     Routed(Box<Routed>),
 }
@@ -92,13 +92,13 @@ pub(crate) fn resolve(
                 )?)),
                 None => match select_peer_transport(requested, &record.address) {
                     Ok(super::FangTransport::Quic(address)) => {
-                        // Stage46 A1: a name is resolved before the open.
-                        Path::Quic(resolved.addresses(&address).map_err(|reason| {
+                        let initial = resolved.addresses(&address).map_err(|reason| {
                             (
                                 "FANG_BAD_QUIC_ADDRESS",
                                 format!("{peer}: QUIC address {address} {reason}"),
                             )
-                        })?)
+                        })?;
+                        Path::Quic(QuicAddress::from_open(&address, initial))
                     }
                     Ok(super::FangTransport::Tcp(address)) => Path::Tcp(address),
                     Err(_) => {
@@ -142,7 +142,7 @@ pub(crate) async fn run_failover_forwarder(
                 addresses.clone(),
             )),
             Path::Routed(routed) if routed.hop == werewolf_core::route::RouteHop::Quic => {
-                Some(relay::relay_peer(routed).await)
+                Some(relay::fang_peer(routed))
             }
             _ => None,
         };
@@ -316,6 +316,7 @@ async fn attempt(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::SocketAddr;
     use werewolf_core::{
         pack::TrustLevel,
         route::RouteHop,
@@ -373,7 +374,7 @@ mod tests {
         let order: Vec<_> = providers.iter().map(|p| p.peer.as_str()).collect();
         assert_eq!(order, ["wolf-b", "wolf-c", "wolf-d"]);
         assert!(
-            matches!(&providers[0].path, Path::Quic(a) if a == &["198.51.100.2:9560".parse::<SocketAddr>().unwrap()])
+            matches!(&providers[0].path, Path::Quic(a) if a.initial == ["198.51.100.2:9560".parse::<SocketAddr>().unwrap()] && a.hostname.is_none())
         );
         // A tcp:// provider is never dialled as QUIC: requesting quic for it
         // fails the whole open rather than skipping it.
@@ -439,7 +440,9 @@ mod tests {
             Ok(both.clone()),
         )]);
         let providers = resolve(&web(), &named, &[], "quic", &resolved).unwrap();
-        assert!(matches!(&providers[0].path, Path::Quic(a) if a == &both));
+        assert!(
+            matches!(&providers[0].path, Path::Quic(a) if a.initial == both && a.hostname.as_deref() == Some("provider.stage46:9560"))
+        );
 
         let failed = super::super::dial::Resolved::from_entries([(
             "provider.stage46:9560",
