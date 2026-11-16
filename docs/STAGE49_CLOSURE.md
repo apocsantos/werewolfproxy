@@ -1,7 +1,7 @@
 # Stage49 — closure record
 
-**Status: functional regression complete; closure blocked by the
-dependency audit (2026-11-13).**
+**Status: CLOSED on `main` (2026-11-16), after Stage50 dependency
+remediation and passing local validation.**
 A QUIC dial to a host with nothing listening now fails as soon as a
 separate connected UDP probe receives a port refusal. Direct and routed
 Fangs reset in 0.00 s, discovery and governance sync report `unreachable`
@@ -12,15 +12,16 @@ retain their existing behaviour.
 
 This record includes the baseline local validation, corrected timeout
 fixtures and a bounded rebind preventing a UDP probe from using its own
-destination port. Fresh functional regression is complete; the required
-audit gate fails. Transport bounds and probe datagram/socket ceilings
-stay unchanged.
+destination port. Stage49's final audit failed on 2026-11-13; Stage50
+subsequently resolved that blocker. Transport bounds and probe
+datagram/socket ceilings stay unchanged.
 
 ## 1. Baseline
 
 - M2 merged to `main` as PR #157 (`6ac6594`), with tested M2 source
   `267385f`. Fresh corrected source `0f5afa7` was validated on
-  `stage49/m3-regression`; PR #158 remains draft and unmerged. M3 and M4 add
+  `stage49/m3-regression`; the owner merged PR #158 as `72cc0e0` on
+  2026-11-13. M3 and M4 add
   documentation, correct the silent-UDP fixtures (`d280f5b`) and prevent
   a probe's source port from matching its destination. The [M3 delivery
   follow-up](STAGE49_M3_REGRESSION.md) records the failures and correction.
@@ -43,7 +44,7 @@ stay unchanged.
 | M1 (#156) | P1/P2 CONFIRMED. Direct/routed refusal 5.0 s, discovery/sync 5.01 s, failover 5.05–5.06 s / 10.05 s; `fast` 0.30–0.36 s. Live receiver discards 10,000 one-byte datagrams with no log or session disruption | [M1](STAGE49_M1_QUIC_REFUSED_REPRODUCTION.md) |
 | M2 (#157, `267385f`) | PASS: each QUIC dial races its probe; refusal ends it early, other probe errors leave the dial running. All paths meet the timing criteria; three new unit tests, 459 tests total and 13/13 local gates passed | [M2](STAGE49_M2_QUIC_REFUSED_FIX.md) |
 | M3 | Functional PASS on corrected source: Stage49 tool ×3, Stage46/48 matrices, QUIC floods, all four P0 cells 3/3, 460 Rust tests in recovered output. Required local gate FAIL: 12/13; dependency audit fails | [M3](STAGE49_M3_REGRESSION.md) |
-| M4 | Limitations updated; closure held for dependency remediation | [known limitations](../KNOWN_LIMITATIONS.md) |
+| M4 | Limitations updated; dependency blocker subsequently resolved by owner-merged Stage50 #159, with 13/13 local gates | [Stage50 closure](STAGE50_CLOSURE.md), [known limitations](../KNOWN_LIMITATIONS.md) |
 
 The M3 scenario results survived the host crash and were checked against
 their expected outcomes and binary hashes. The interrupted local-CI run
@@ -56,17 +57,25 @@ Rust run survived a server restart and reports all 460 tests passed,
 but its original Cargo exit status is unavailable; separate doc-tests
 and the release build exited 0. This is recorded explicitly in M3.
 
-## 3. Audit blocker and next decision
+## 3. Historical audit blocker and resolution
 
-The refreshed RustSec database flags RUSTSEC-2026-0523 and -0524 in
+The 2026-11-13 RustSec database flagged RUSTSEC-2026-0523 and -0524 in
 quinn-proto 0.11.18 and RUSTSEC-2026-0538 in quinn-udp 0.5.14. The UDP
-record explicitly excludes Linux; the lockfile audit still fails.
+record explicitly excludes Linux; that lockfile audit failed.
 No ignore entry, dependency version or gate has been weakened.
 
-The [Stage50 security survey](STAGE50_DEPENDENCY_SECURITY_SURVEY.md)
-proposes an isolated trial of quinn-proto 0.11.19 and quinn-udp 0.5.16.
-That dependency-remediation scope awaits owner approval. Stage49 is not
-declared closed, merged or release-certified while its audit fails.
+The owner approved the isolated Stage50 trial of quinn-proto 0.11.19 and
+quinn-udp 0.5.16, then merged [PR #159](https://github.com/apocsantos/werewolfproxy/pull/159)
+as `c1e7845` on 2026-11-16. The [trial](STAGE50_DEPENDENCY_TRIAL.md)
+records actual exit 0 for all 19 required checks, including 460 Rust
+tests, workspace/proof audits, Stage49 controls and 13/13 local gates.
+The original Stage49 audit failure and missing Rust exit status above
+remain historical evidence; they have not been relabelled as passes.
+
+The [Stage50 closure](STAGE50_CLOSURE.md) records the retained timing
+outlier, validation scope and hosted-CI billing block. Stage49 is closed
+on the locally validated `main` graph; this does not certify a release
+or real-WAN behaviour.
 
 ## 4. Remaining limits
 
