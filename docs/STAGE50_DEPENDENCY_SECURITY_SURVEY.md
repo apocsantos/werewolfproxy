@@ -1,5 +1,14 @@
 # Stage50 — dependency security remediation survey
 
+**Execution note (2026-11-16):** the owner merged Stage49 PR #158 as
+`72cc0e0` on 2026-11-13, then selected the isolated candidate's validation
+step. The [trial record](STAGE50_DEPENDENCY_TRIAL.md) reports passing
+audits, 460 Rust tests, both Stage12 proofs in debug/release, transport
+controls and all 13 local gates on candidate `7ed3a91`. The candidate
+remains on its trial branch; validation does not promote it, change the
+frozen releases or recertify excluded cells. The original proposal below
+is retained as the record that preceded those actions.
+
 **Status: proposal for owner review (2026-11-13). No dependency change
 or trial implementation has begun.** The fresh dependency audit blocks
 Stage49 delivery, so security remediation takes priority over the
