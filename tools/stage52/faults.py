@@ -27,7 +27,8 @@ from refresh import ROOT, OLD, NAME, dial, require
 WRONG = '127.0.0.54'
 PATHS = ('quic', 'routed-quic', 'failover-quic', 'failover-routed-quic')
 SCENARIOS = tuple(f'{fault}:{path}' for fault in ('missing', 'wrong-key') for path in PATHS) + (
-    'coalesced', 'capacity', 'post-ack:failover-quic', 'post-ack:failover-routed-quic')
+    'coalesced', 'capacity', 'missing-flood',
+    'post-ack:failover-quic', 'post-ack:failover-routed-quic')
 
 
 def client(port):
@@ -335,6 +336,42 @@ def post_ack(lab, path, result, targets, fang, provider):
     result['resolver_events'] = checked_events(lab)
 
 
+def missing_flood(lab, result, targets, fang):
+    lab.ctl('a', 'service', 'add', 'control', 'wolf-c', targets['c'].address, 'tcp')
+    literal = lab.open_extra('control')
+    with socket.create_connection(('127.0.0.1', fang['port']), timeout=12) as held:
+        held.settimeout(12)
+        refresh.echo_held(held)
+        lab.reset_events()
+        before = targets['b'].hits
+        lab.mode('n')
+        ticks = lab.cpu_ticks()
+        started = time.monotonic()
+        # Bound concurrency below the Fang ceiling while repeatedly driving
+        # completed-flight cleanup and new lookups on the real runtime.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=48) as pool:
+            result['clients'] = list(pool.map(client, [fang['port']] * 600))
+        result['flood_seconds'] = round(time.monotonic() - started, 3)
+        result['cpu_seconds_flood'] = round((lab.cpu_ticks() - ticks) / os.sysconf('SC_CLK_TCK'), 3)
+        require(all(o == 'reset' and elapsed < 5.5 for o, elapsed in result['clients']),
+                'not-found flood produced an unexpected outcome or missed its dial deadline')
+        require(targets['b'].hits == before, 'not-found flood used a stale answer')
+        lab.until(lambda: lab.live_jobs() == 0, 'failed resolver jobs to finish')
+        events = checked_events(lab)
+        starts = [e for e in events if e['event'] == 'start']
+        require(1 <= len(starts) <= 600 and max(e['active'] for e in starts) == 1,
+                'concurrent failed lookups violated per-peer coalescing')
+        require(sum(e['event'] == 'end' for e in events) == len(starts), 'failed lookup did not finish')
+        result['resolver_events'] = events
+        refresh.echo_held(held)
+        result['held_during_fault'] = 'echo'
+        result['literal_during_fault'] = [client(literal['port']) for _ in range(3)]
+        require(all(o == 'echo' for o, _ in result['literal_during_fault']), 'literal control failed')
+        lab.mode('o')
+        result['recovered'] = refresh.measure(lab, 3, targets)
+        refresh.require_echo(result['recovered'], 3, 'b')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('scenarios', nargs='*', help=', '.join(SCENARIOS))
@@ -377,6 +414,8 @@ def main():
                 targets, fang, provider = prepare(lab, path)
                 if scenario in ('coalesced', 'capacity'):
                     flood(lab, scenario == 'capacity', result, targets, fang)
+                elif scenario == 'missing-flood':
+                    missing_flood(lab, result, targets, fang)
                 elif scenario.startswith('post-ack:'):
                     post_ack(lab, path, result, targets, fang, provider)
                 else:

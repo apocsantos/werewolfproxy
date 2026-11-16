@@ -53,9 +53,10 @@ python3 -B tools/stage52/faults.py --rounds 3 --attempts 3 \
   --out target/stage52-m3/resolver-faults.json
 ```
 
-This adds 12 scenarios per round: missing answers and wrong-key answers on
+This adds 13 scenarios per round: missing answers and wrong-key answers on
 direct, routed, failover and routed-failover QUIC; 48 coalesced callers;
-16-job saturation with a 17th waiting Fang; and direct/routed failover
+16-job saturation with a 17th waiting Fang; a 600-client not-found storm
+at 48-way concurrency; and direct/routed failover
 after a committed session's target fails. Optional positional scenario
 names are listed by `--help`. Output must be a new file.
 

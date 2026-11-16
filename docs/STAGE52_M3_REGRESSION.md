@@ -14,7 +14,7 @@ It is loaded only into the disposable A process inside the existing
 private user/mount/network namespace. No installed preload configuration,
 live node or real identity is used.
 
-The planned three-round matrix has 12 scenarios per round:
+The planned three-round matrix has 13 scenarios per round:
 
 - Simulated not-found (`EAI_NONAME`) and real wrong-key IP answers on
   direct, routed, failover and routed-failover QUIC paths. Existing
@@ -31,6 +31,11 @@ The planned three-round matrix has 12 scenarios per round:
 - A target reset after commitment must reset the client without replay
   through the fallback. A new connection during the resolver fault
   must be able to use that same fallback, proving it was available.
+- Six hundred not-found clients at 48-way concurrency repeatedly drive
+  completed-flight cleanup without exceeding the Fang ceiling. Every new
+  client resets without a stale target connection, at most one resolver
+  job is active per peer, held/literal connections survive, and healthy
+  resolution recovers without reopening. Instrumented CPU cost is recorded.
 
 B and wrong-key C use distinct loopback IPs at the same numeric port.
 Wrong-key target grants avoid masking identity rejection with policy
