@@ -32,9 +32,8 @@ pub(crate) struct Routed {
     pub(crate) hop: RouteHop,
     /// The relay's address for `hop`, `HOST:port`, as in the Pack.
     pub(crate) relay_address: String,
-    /// For a QUIC hop, every address `relay_address` names, resolved when
-    /// the Fang opened (Stage46 A1); empty when it was not (discovery), and
-    /// then resolved when used.
+    /// QUIC readiness answers at Fang open, with `relay_address` retained
+    /// for Stage52 per-dial refresh. Empty for queries, resolved when used.
     pub(crate) relay_quic: Vec<SocketAddr>,
     pub(crate) relay: ExpectedPeerIdentity,
     /// The destination's encrypted-TCP listener, a literal address: the
@@ -55,6 +54,28 @@ impl Routed {
 /// target and the inner TLS server name, so it can never resolve to
 /// something else.
 pub(crate) fn resolve(
+    route: &werewolf_core::route::Route,
+    destination: &PeerRecord,
+    peers: &[PeerRecord],
+    requested: &str,
+    resolved: &super::dial::Resolved,
+) -> Result<Routed, (&'static str, String)> {
+    let routed = resolve_for_query(route, destination, peers, requested, resolved)?;
+    if routed.hop == RouteHop::Quic && routed.relay_quic.is_empty() {
+        return Err((
+            "FANG_ROUTE_INVALID",
+            format!(
+                "relay {} changed while the Fang was opening; retry",
+                routed.via
+            ),
+        ));
+    }
+    Ok(routed)
+}
+
+/// Queries resolve after releasing daemon state; they do not have Fang
+/// open-time readiness answers. A Fang must instead use `resolve` above.
+pub(crate) fn resolve_for_query(
     route: &werewolf_core::route::Route,
     destination: &PeerRecord,
     peers: &[PeerRecord],
@@ -138,7 +159,7 @@ pub(crate) async fn run_routed_forwarder(
 ) -> io::Result<()> {
     // One QUIC peer (its endpoints) per activation, as a direct QUIC Fang.
     let endpoint = match routed.hop {
-        RouteHop::Quic => match relay_peer(&routed).await {
+        RouteHop::Quic => match fang_peer(&routed) {
             Ok(peer) => Some(peer),
             Err(error) => {
                 let _ = ready.send(Err(io::Error::new(error.kind(), error.to_string())));
@@ -289,10 +310,17 @@ pub(crate) async fn routed_session(
     }
 }
 
-/// The relay of a QUIC hop as a QUIC peer: the addresses resolved at open,
-/// or, when there are none (discovery builds its routes without resolving),
-/// every address resolved now. A name that does not resolve is a dial that
-/// made no connection.
+/// A long-lived Fang uses validated readiness answers and retains the
+/// original hostname. Preparing it never performs a blocking lookup.
+pub(crate) fn fang_peer(routed: &Routed) -> io::Result<crate::quic_fang::QuicPeer> {
+    crate::quic_fang::QuicPeer::open(
+        &routed.relay,
+        super::dial::QuicAddress::from_open(&routed.relay_address, routed.relay_quic.clone()),
+    )
+}
+
+/// A short-lived query resolves once when used and passes an explicit
+/// snapshot, so it does not trigger a second refresh during the dial.
 pub(crate) async fn relay_peer(routed: &Routed) -> io::Result<crate::quic_fang::QuicPeer> {
     let addresses = if routed.relay_quic.is_empty() {
         super::dial::resolve_all(&routed.relay_address)
@@ -503,6 +531,29 @@ mod tests {
         let routed = resolve(&route(RouteHop::Quic), &peers[1], &peers, "quic", &resolved).unwrap();
         assert_eq!(routed.relay_quic, both);
         assert_eq!(routed.relay_address, "relay.stage46:9560");
+
+        // A Pack/route change after preflight cannot trigger a lookup
+        // while the control path waits for a Fang's ready notification.
+        let missing = resolve(
+            &route(RouteHop::Quic),
+            &peers[1],
+            &peers,
+            "quic",
+            &Default::default(),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(missing.0, "FANG_ROUTE_INVALID");
+        assert!(missing.1.contains("changed while the Fang was opening"));
+        let query = resolve_for_query(
+            &route(RouteHop::Quic),
+            &peers[1],
+            &peers,
+            "tcp",
+            &Default::default(),
+        )
+        .unwrap();
+        assert!(query.relay_quic.is_empty());
 
         let routed = resolve(&route(RouteHop::Tcp), &peers[1], &peers, "tcp", &resolved).unwrap();
         assert!(routed.relay_quic.is_empty());

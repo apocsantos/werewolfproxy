@@ -24,6 +24,8 @@ use werewolf_core::{
     pelt::{generate_identity, PeltIdentity},
 };
 
+mod refresh;
+
 struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
 
 impl<T> Drop for AbortOnDrop<T> {

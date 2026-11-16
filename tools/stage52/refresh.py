@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage52: reproduce QUIC's open-time hostname snapshot, without a fix.
+"""Stage52 hostname migration: baseline snapshot or per-dial refresh.
 
 Uses Stage46's private user/mount/network namespace and disposable lab.
 Changes only the private /etc/hosts mapping, then makes the old loopback
@@ -28,7 +28,8 @@ NAME = 'moving.stage52'
 OLD = '127.0.0.52'
 NEW = '127.0.0.53'
 PAYLOAD = b'stage52-held-echo'
-PATHS = ('quic', 'tcp', 'routed-quic', 'routed-tcp', 'failover-quic', 'failover-tcp')
+PATHS = ('quic', 'tcp', 'routed-quic', 'routed-tcp', 'failover-quic', 'failover-tcp',
+         'failover-routed-quic')
 
 
 def resolve():
@@ -118,6 +119,15 @@ def configure(lab, path, targets):
     lab.pack_literal('a', 'c', 'tcp' if path.startswith('routed') else scheme)
     for wolf in ('b', 'c'):
         lab.ctl(wolf, 'target', 'allow', 'wolf-a', targets[wolf].address)
+    if path == 'failover-routed-quic':
+        lab.pack_literal('d', 'a')
+        lab.pack_literal('a', 'd')
+        lab.ctl('d', 'target', 'allow', 'wolf-a', targets['d'].address)
+        lab.ctl('a', 'route', 'set', 'wolf-c', '--via', 'wolf-b', '--hop', 'quic')
+        lab.ctl('b', 'target', 'allow', 'wolf-a', lab.address('c_tcp'))
+        lab.ctl('a', 'service', 'add', 'echo', 'wolf-c', targets['c'].address, 'tcp')
+        lab.ctl('a', 'service', 'provider', 'add', 'echo', 'wolf-d', targets['d'].address)
+        return 'quic'
     if path.startswith('routed'):
         lab.ctl('a', 'service', 'add', 'echo', 'wolf-c', targets['c'].address, 'tcp')
         lab.ctl('a', 'route', 'set', 'wolf-c', '--via', 'wolf-b', '--hop', scheme)
@@ -140,12 +150,12 @@ def measure(lab, count, targets):
 
 def require_echo(result, count, provider):
     require(result['echo'] == count, f'expected {count} echoes: {result["clients"]}')
-    expected = {wolf: count if wolf == provider else 0 for wolf in ('b', 'c')}
+    expected = {wolf: count if wolf == provider else 0 for wolf in result['target_connections']}
     require(result['target_connections'] == expected,
             f'wrong provider target reached: {result["target_connections"]}, expected {expected}')
 
 
-def scenario(lab, path, count):
+def scenario(lab, path, count, expectation):
     result = {'path': path}
     targets = {}
     route_added = False
@@ -153,7 +163,7 @@ def scenario(lab, path, count):
     try:
         map_name(OLD)
         lab.boot()
-        targets = {wolf: CountedEcho() for wolf in ('b', 'c')}
+        targets = {wolf: CountedEcho() for wolf in lab.WOLVES if wolf != 'a'}
         transport = configure(lab, path, targets)
         result['pack_hostname'] = f'{NAME}:{lab.ports["b_quic"]}'
         result['receiver_pid'] = lab.wolves[lab.WOLVES.index('b')].pid
@@ -161,7 +171,7 @@ def scenario(lab, path, count):
         opened = lab.connect(transport)
         require(opened['exit'] == 0, f'initial Fang open failed: {opened}')
         result['initial_open'] = opened['body']['result']
-        provider = 'c' if path.startswith('routed') else 'b'
+        provider = 'c' if path.startswith('routed') or path == 'failover-routed-quic' else 'b'
         result['before_change'] = measure(lab, count, targets)
         require_echo(result['before_change'], count, provider)
 
@@ -190,16 +200,19 @@ def scenario(lab, path, count):
             result['new_address_listener'] = 'reachable'
         result['after_old_address_withdrawal'] = measure(lab, count, targets)
         changed = result['after_old_address_withdrawal']
-        if path.endswith('tcp'):
+        if expectation == 'refresh':
+            require_echo(changed, count, provider)
+            result['finding'] = 'FRESH_WITHOUT_REOPEN'
+        elif path.endswith('tcp'):
             require_echo(changed, count, provider)
             result['finding'] = 'FRESH_TCP_CONTROL'
-        elif path == 'failover-quic':
-            require_echo(changed, count, 'c')
+        elif path in ('failover-quic', 'failover-routed-quic'):
+            require_echo(changed, count, 'd' if path == 'failover-routed-quic' else 'c')
             result['finding'] = 'STALE_QUIC_PRIMARY_SKIPPED'
         else:
             require(all(outcome == 'reset' for outcome, _ in changed['clients']),
                     f'expected stale-QUIC resets: {changed["clients"]}')
-            require(changed['target_connections'] == {'b': 0, 'c': 0}, 'stale dial reached target')
+            require(not any(changed['target_connections'].values()), 'stale dial reached target')
             result['finding'] = 'STALE_QUIC_RESET'
 
         entries = [f for f in lab.fang_list() if f['local'] == lab.address('fang')]
@@ -236,6 +249,7 @@ def main():
     parser.add_argument('paths', nargs='*', help=', '.join(PATHS) + ' (default: all)')
     parser.add_argument('--attempts', type=int, default=3)
     parser.add_argument('--rounds', type=int, default=1)
+    parser.add_argument('--expect', choices=('baseline', 'refresh'), default='baseline')
     parser.add_argument('--out', required=True)
     args = parser.parse_args()
     require(args.attempts > 0 and args.rounds > 0, 'attempts and rounds must be positive')
@@ -257,17 +271,20 @@ def main():
         'tool_sha256': hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),
         'lock_sha256': hashlib.sha256((ROOT / 'Cargo.lock').read_bytes()).hexdigest(),
         'fixture': 'private /etc/hosts, same receiver on both aliases; old route withdrawn',
-        'attempts': args.attempts, 'rounds': args.rounds, 'status': 'RUNNING', 'results': [],
+        'attempts': args.attempts, 'rounds': args.rounds, 'expect': args.expect,
+        'status': 'RUNNING', 'results': [],
     }
     save(out, report)
     for round_number in range(1, args.rounds + 1):
         for path in args.paths or PATHS:
             print(f'round {round_number}: {path} starting', flush=True)
             lab = RefreshLab()
+            if path == 'failover-routed-quic':
+                lab.WOLVES = ('a', 'b', 'c', 'd')
             started = time.monotonic()
             result = {'path': path, 'status': 'FAIL', 'error': 'scenario did not finish'}
             try:
-                result = scenario(lab, path, args.attempts)
+                result = scenario(lab, path, args.attempts, args.expect)
             finally:
                 result['daemon_sha256'] = getattr(lab, 'binary_hash', None)
                 try:

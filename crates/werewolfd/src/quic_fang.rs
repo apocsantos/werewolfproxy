@@ -39,13 +39,14 @@ const CONNECTION_RECEIVE_WINDOW: u32 = 1_250_000;
 
 pub async fn open_quic_fang(
     local_addr: String,
-    quic_server: Vec<SocketAddr>,
+    quic_server: impl Into<crate::transport::dial::QuicAddress>,
     remote_addr: String,
     identity: PeltIdentity,
     cancellation: crate::fang_registry::FangCancellation,
     ready: tokio::sync::oneshot::Sender<std::io::Result<()>>,
     expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> Result<JoinHandle<()>, Box<dyn Error + Send + Sync>> {
+    let quic_server = quic_server.into();
     let handle = tokio::spawn(async move {
         let peer = match QuicPeer::open(&expected_peer, quic_server) {
             Ok(peer) => peer,
@@ -133,9 +134,10 @@ pub(super) async fn connect_v3(
     connect_v3_on(&peer, remote, identity, expected_peer).await
 }
 
-/// A QUIC peer's addresses and this node's client endpoints towards them
-/// (Stage46). Every dial races the addresses (`transport::dial::race`)
-/// inside `hs::READ_WINDOW`, the window one dial had before. One endpoint
+/// A QUIC peer's readiness answers and reusable client endpoints (Stage46).
+/// Stage52 Fang hostnames refresh on each dial; explicit query snapshots
+/// and literals keep their supplied addresses. Capacity wait, resolution
+/// and racing share `hs::READ_WINDOW`. One endpoint
 /// per address family (S46-D3, E1): the first address's family is bound
 /// when the peer is opened, so a failure to bind fails the open as before;
 /// the other family only when one of its addresses is first tried, so a
@@ -146,6 +148,7 @@ pub(crate) struct QuicPeer(Arc<QuicPeerInner>);
 struct QuicPeerInner {
     expected: ExpectedPeerIdentity,
     addresses: Vec<SocketAddr>,
+    refresh: Option<crate::transport::dial::refresh::Refresh>,
     v4: std::sync::Mutex<Option<Endpoint>>,
     v6: std::sync::Mutex<Option<Endpoint>>,
 }
@@ -153,15 +156,19 @@ struct QuicPeerInner {
 impl QuicPeer {
     pub(crate) fn open(
         expected: &ExpectedPeerIdentity,
-        addresses: Vec<SocketAddr>,
+        addresses: impl Into<crate::transport::dial::QuicAddress>,
     ) -> std::io::Result<Self> {
-        let addresses = crate::transport::dial::interleave(addresses);
+        let source = addresses.into();
+        let addresses = crate::transport::dial::interleave(source.initial);
         let first = *addresses
             .first()
             .ok_or_else(|| hs::local_dial_failed("no address to dial"))?;
         let peer = Self(Arc::new(QuicPeerInner {
             expected: expected.clone(),
             addresses,
+            refresh: source
+                .hostname
+                .map(crate::transport::dial::refresh::Refresh::new),
             v4: Default::default(),
             v6: Default::default(),
         }));
@@ -173,7 +180,7 @@ impl QuicPeer {
         &self.0.addresses
     }
 
-    /// The addresses, for a log line.
+    /// Open-time readiness addresses, for the Fang's opening log line.
     pub(crate) fn describe(&self) -> String {
         let text: Vec<String> = self.0.addresses.iter().map(|a| a.to_string()).collect();
         text.join(", ")
@@ -198,19 +205,27 @@ impl QuicPeer {
 
     /// The QUIC connection to the first address that answers.
     pub(crate) async fn dial(&self) -> std::io::Result<quinn::Connection> {
-        let peer = self.clone();
-        let raced = crate::transport::dial::race(&self.0.addresses, move |address| {
-            let endpoint = peer.endpoint_for(address);
-            async move {
-                let endpoint = endpoint?;
-                // Stage49 R1: a refusal ends the attempt at once; otherwise
-                // the QUIC dial runs exactly as before.
-                tokio::select! {
-                    result = dial(&endpoint, address) => result,
-                    refused = refusal(address) => Err(refused),
+        let raced = async {
+            let refreshed = match &self.0.refresh {
+                Some(refresh) => Some(refresh.resolve().await.map_err(hs::local_dial_failed)?),
+                None => None,
+            };
+            let addresses = refreshed.as_deref().unwrap_or(&self.0.addresses);
+            let peer = self.clone();
+            crate::transport::dial::race(addresses, move |address| {
+                let endpoint = peer.endpoint_for(address);
+                async move {
+                    let endpoint = endpoint?;
+                    // Stage49 R1: a refusal ends the attempt at once; otherwise
+                    // the QUIC dial runs exactly as before.
+                    tokio::select! {
+                        result = dial(&endpoint, address) => result,
+                        refused = refusal(address) => Err(refused),
+                    }
                 }
-            }
-        });
+            })
+            .await
+        };
         tokio::time::timeout(hs::READ_WINDOW, raced)
             .await
             .map_err(|_| hs::no_answer())?

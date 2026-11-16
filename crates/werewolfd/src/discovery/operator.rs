@@ -770,7 +770,7 @@ impl Seed {
         let public_key = peer.public_key_b64.clone()?;
         let path = match routes.iter().find(|route| route.peer == peer.name) {
             None => Path::Direct,
-            Some(route) => match crate::transport::relay::resolve(
+            Some(route) => match crate::transport::relay::resolve_for_query(
                 route,
                 peer,
                 peers,
