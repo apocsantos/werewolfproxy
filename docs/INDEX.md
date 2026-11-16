@@ -48,6 +48,7 @@ contract is consolidated for the 1.0.0-rc.2 candidate.
 - [Stage51 Git-hook cleanup](STAGE51_GIT_HOOK_CLEANUP.md) (routine pushes use local fast checks)
 - [Stage52 QUIC hostname freshness](STAGE52_QUIC_DNS_FRESHNESS_SURVEY.md) (baseline reproduction and refresh design; no runtime fix)
 - [Stage52 M2 hostname refresh](STAGE52_M2_HOSTNAME_REFRESH.md) (runtime candidate and resolver capacity checks)
+- [Stage52 M3 regression](STAGE52_M3_REGRESSION.md) (resolver faults, saturation and transport controls)
 
 The current Stage21 release uses the Stage20S-certified dependency graph:
 rustls 0.23.45 and rustls-webpki 0.103.15. Earlier stage reports retain the
