@@ -43,3 +43,15 @@ and webpki-root-certs 1.0.10. tokio's unsound-warning RUSTSEC-2026-0386
 (`AsyncFd`, not used by anything shipped) is accepted, with tokio held at
 1.52.3; see the
 [Stage33 QUIC and webpki remediation](docs/STAGE33_QUIC_TLS_DEPS_REMEDIATION.md).
+
+## Dependency remediation after rc.2
+
+The 2026-11-13 audit found RUSTSEC-2026-0523/-0524 in quinn-proto
+0.11.18 and RUSTSEC-2026-0538 in quinn-udp 0.5.14 (the latter explicitly
+excludes Linux). Stage50 updated `main` to quinn-proto 0.11.19 and
+quinn-udp 0.5.16 through owner-merged PR #159 on 2026-11-16. Workspace
+and proof audits passed against RustSec snapshot `02e2517f`; the existing
+Tokio exception is unchanged. The frozen rc.2 archive still has the old
+graph. See the [Stage50 closure](docs/STAGE50_CLOSURE.md) for validation,
+the hosted-CI billing block and remaining limits. This does not replace
+or recertify the frozen release.

@@ -4,12 +4,15 @@
 `72cc0e0` on 2026-11-13, then selected the isolated candidate's validation
 step. The [trial record](STAGE50_DEPENDENCY_TRIAL.md) reports passing
 audits, 460 Rust tests, both Stage12 proofs in debug/release, transport
-controls and all 13 local gates on candidate `7ed3a91`. The candidate
-remains on its trial branch; validation does not promote it, change the
-frozen releases or recertify excluded cells. The original proposal below
-is retained as the record that preceded those actions.
+controls and all 13 local gates on candidate `7ed3a91`. The owner then
+approved publication and merged [PR #159](https://github.com/apocsantos/werewolfproxy/pull/159)
+as `c1e7845` on 2026-11-16. The patched graph is now on `main`.
+The [closure record](STAGE50_CLOSURE.md) records delivery and remaining
+limits; frozen releases and excluded cells are unchanged. The original
+proposal below is retained as the historical record that preceded those
+actions, including its then-pending status and approval requests.
 
-**Status: proposal for owner review (2026-11-13). No dependency change
+**Original proposal status (2026-11-13): for owner review. No dependency change
 or trial implementation has begun.** The fresh dependency audit blocks
 Stage49 delivery, so security remediation takes priority over the
 previously considered Git-hook cleanup. Stage49's functional regression

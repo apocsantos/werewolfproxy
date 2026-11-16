@@ -4,11 +4,11 @@ This list describes the `1.0.0-rc.2` candidate (Stage33). The list for
 the frozen 1.0.0-rc.1 archive is kept unchanged under
 [1.0.0-rc.1](#100-rc1), and stays true for that archive.
 
-## Fresh dependency audit — 2026-11-13
+## Dependency audit and remediation — 2026-11-16
 
-The refreshed audit database reports three advisories against the pinned
-dependency graph shared by current `main`, the tested Stage49 branch and
-the frozen rc.2 lockfile:
+The 2026-11-13 audit reported three advisories against the dependency
+graph then shared by `main`, the tested Stage49 branch and the frozen
+rc.2 lockfile. They remain relevant to the unchanged rc.2 archive:
 
 | Dependency | Finding | Minimum patched version |
 |---|---|---|
@@ -16,13 +16,21 @@ the frozen rc.2 lockfile:
 | quinn-udp 0.5.14 | RUSTSEC-2026-0538: receive-loop spin on some platforms; **the upstream advisory explicitly excludes Linux** | 0.5.16 in the 0.5 line, or 0.6.3 |
 
 The [Stage50 security survey](docs/STAGE50_DEPENDENCY_SECURITY_SURVEY.md)
-links the committed upstream records, maps the affected paths and
-proposes an isolated minimal trial. No dependency or advisory-ignore
-entry has been changed. Stage49's current full local suite is 12/13:
-its audit fails, while the other twelve checks pass
-([M3](docs/STAGE49_M3_REGRESSION.md)). Merge and closure remain pending.
-Earlier clean audits describe their earlier database snapshots. The
-frozen tag and archive have not been rewritten or recertified.
+links the committed upstream records and maps the affected paths. Stage50
+updated `main` to quinn-proto **0.11.19** and quinn-udp **0.5.16** through
+owner-merged [PR #159](https://github.com/apocsantos/werewolfproxy/pull/159)
+(`c1e7845`, 2026-11-16). The [trial](docs/STAGE50_DEPENDENCY_TRIAL.md)
+records passing workspace/proof audits against RustSec snapshot `02e2517f`,
+460 Rust tests and **13/13 local gates**. No advisory-ignore entry changed;
+Tokio remains 1.52.3 with its existing accepted advisory.
+
+Stage49's historical **12/13 audit failure** remains recorded in
+[M3](docs/STAGE49_M3_REGRESSION.md); the later Stage50 evidence resolves
+that blocker on `main`. Hosted Rust CI and CodeQL did not start because
+GitHub reported an account billing lock. This supplies no hosted pass.
+See the [closure record](docs/STAGE50_CLOSURE.md) for delivery and limits.
+Earlier audits describe their database snapshots. The frozen rc.2 tag
+and archive have not been rewritten, patched or recertified.
 
 ## Platform and scope
 

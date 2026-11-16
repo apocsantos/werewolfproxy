@@ -12,6 +12,16 @@ quinn-proto 0.11.18).
 **1.0.0-rc.1**, the previous candidate: the tag `v1.0.0-rc.1` and its
 artifacts stay frozen by the [Stage21 audit](STAGE21_RC1_AUDIT_FREEZE.md).
 
+## Current development security status
+
+Stage50 dependency remediation is on `main` through owner-merged
+[PR #159](https://github.com/apocsantos/werewolfproxy/pull/159) (`c1e7845`,
+2026-11-16): quinn-proto 0.11.19 and quinn-udp 0.5.16. Workspace/proof
+audits, 460 Rust tests and 13/13 local gates passed. This resolves the
+Stage49 audit blocker. Hosted Rust CI and CodeQL could not start because
+GitHub reported an account billing lock. The [Stage50 closure](STAGE50_CLOSURE.md)
+records scope and remaining limits; the frozen releases above are unchanged.
+
 ## Certified
 
 | Area | Records |

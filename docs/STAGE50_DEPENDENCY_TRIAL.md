@@ -1,5 +1,12 @@
 # Stage50 — isolated dependency trial, step 2
 
+**Delivery note (2026-11-16):** after reviewing this validation, the owner
+approved publication and merged [PR #159](https://github.com/apocsantos/werewolfproxy/pull/159)
+as `c1e7845`. The patched graph is now on `main`; validation inputs match
+the tested candidate. See the [closure](STAGE50_CLOSURE.md). The step-2
+scope and isolated-candidate statements below describe the trial before
+that later approval and merge.
+
 **Result: functional validation PASS on the isolated candidate; one
 timing outlier is retained for review.** The workspace and Quinn
 proof audits pass, all 460 Rust tests pass with an actual exit 0, both
