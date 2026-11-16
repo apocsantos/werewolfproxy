@@ -45,6 +45,7 @@ contract is consolidated for the 1.0.0-rc.2 candidate.
 - [rustix 1.1.6 remediation, RUSTSEC-2026-0486 (after rc.2)](RUSTIX_1_1_6_REMEDIATION.md)
 - [Stage49 QUIC refusal closure](STAGE49_CLOSURE.md) (dependency blocker resolved by Stage50)
 - [Stage50 dependency security closure](STAGE50_CLOSURE.md), [trial validation](STAGE50_DEPENDENCY_TRIAL.md) and [original survey](STAGE50_DEPENDENCY_SECURITY_SURVEY.md) (merged on `main`; frozen releases unchanged)
+- [Stage51 Git-hook cleanup](STAGE51_GIT_HOOK_CLEANUP.md) (routine pushes use local fast checks)
 
 The current Stage21 release uses the Stage20S-certified dependency graph:
 rustls 0.23.45 and rustls-webpki 0.103.15. Earlier stage reports retain the

@@ -6,6 +6,13 @@ GitHub for CI** (2026-11-09), and chose a local script plus the pre-push
 hook. PRs on GitHub continue as before. The existing
 `.github/workflows/rust.yml` is unchanged.
 
+**Stage51 follow-up (2026-11-16):** the [hook cleanup](STAGE51_GIT_HOOK_CLEANUP.md)
+replaces the legacy hook steps with only `ci-local.sh --fast`. Full local
+CI remains required before merges and at stage gates. Existing clones
+must rerun the installer to update their installed hook. Section 2's
+"after its existing steps" describes the original Stage40 installation,
+not the updated hook.
+
 Source: Stage39 survey §11 (testing gaps) and §13.3 (recommendation 3).
 
 ## 1. Problem
