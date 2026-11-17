@@ -50,6 +50,7 @@ contract is consolidated for the 1.0.0-rc.2 candidate.
 - [Stage52 QUIC hostname freshness design](STAGE52_QUIC_DNS_FRESHNESS_SURVEY.md) (historical baseline reproduction and approved contract)
 - [Stage52 M2 hostname refresh](STAGE52_M2_HOSTNAME_REFRESH.md) (merged implementation and resolver capacity checks)
 - [Stage52 M3 regression](STAGE52_M3_REGRESSION.md) (merged resolver faults, saturation and transport controls)
+- [Stage53 shared peer-quota fairness](STAGE53_PEER_QUOTA_FAIRNESS_SURVEY.md) (two-Fang reproduction and admission-policy design for review; no runtime change)
 
 The current Stage21 release uses the Stage20S-certified dependency graph:
 rustls 0.23.45 and rustls-webpki 0.103.15. Earlier stage reports retain the

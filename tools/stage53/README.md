@@ -1,0 +1,50 @@
+# Stage53 shared peer-quota reproduction
+
+`peer_quota.py` reuses the Stage42/acceptance lab: checkout builds, dynamic
+loopback ports, fresh private Dens and only owned process groups. The
+existing 50 MiB per-log guard remains. No installed node or service is
+used, and generated identities are removed. There is no keep-temp option.
+
+```sh
+python3 -B tools/stage53/peer_quota.py --rounds 3 --active 5 \
+  --out target/stage53-m1/matrix.json
+```
+
+Optional positional pairs: `quic-quic`, `tcp-tcp`, `quic-tcp`, `tcp-quic`
+(default: all). Requires the acceptance lab's Linux/Rust build facilities
+and host permissions sufficient for its protected-state filesystem checks.
+All targets and Fangs bind loopback. No namespaces or host network changes
+are needed. Run sequentially with other lab/CI gates.
+
+Each pair uses receiver A, initiator B with two Fangs to A, and an
+independent initiator C. Separate echo targets distinguish the Fangs.
+Both B Fangs are opened before load and baseline-tested. C keeps one
+established session. In each of two arrival orders:
+
+1. One B Fang opens 64 sessions, each verified by echo. A's local admin
+   status must show 65 active, zero establishing sessions (B's 64 + C's 1).
+2. The sibling's three new clients must reset, with zero target payload
+   streams. Three new clients from C must echo despite B's saturation.
+3. Exchange payloads over all 65 held sessions repeatedly for at least
+   `--active` seconds, then require three more sibling resets. Existing
+   sessions must still echo and A must still report 65 active.
+4. Release exactly one B session; require 64 active, then a successful
+   sibling session and 65 active again. A new client through the original
+   owner must now reset. This identifies a shared slot rather than a
+   permanently broken Fang, target or transport.
+5. Release B's sessions and require one active session (C's control).
+   Both B Fangs must echo without close/reopen. Repeat with roles reversed.
+
+The JSON records per-client outcomes/times, authority snapshots, Fang
+health, active-echo rounds, target payload counts, daemon survival,
+source/tool/lock/binary hashes and cleanup. Only a reset counts as the
+expected denied outcome; timeout, EOF, wrong payload, guard or cleanup
+failure makes the tool exit nonzero. Output must be a new file; each
+finished pair is checkpointed and failed results are never overwritten.
+
+Expected denial is a confirmed baseline limitation, not a passing fix.
+This measures direct authenticated QUIC and encrypted-TCP Fangs with
+literal IPv4 peers. Routed/failover contention, new-Fang activation after
+saturation, multiple initiator processes with the same key, other peers
+sharing a relay, WAN behaviour and policy alternatives are not measured.
+Those boundaries are addressed in the [design](../../docs/STAGE53_PEER_QUOTA_FAIRNESS_SURVEY.md).
