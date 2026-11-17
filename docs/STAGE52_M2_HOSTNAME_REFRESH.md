@@ -1,5 +1,10 @@
 # Stage52 M2 — bounded QUIC hostname refresh
 
+**Delivery note:** the owner merged PR #163 as `c9e90c8` on 2026-11-16.
+The implementation is now on `main`. The [M3 campaign](STAGE52_M3_REGRESSION.md)
+tracks the subsequent regression work; the original candidate results
+below remain evidence for their tested source.
+
 **Status: M2 candidate implemented and locally validated; for review.** The owner
 merged [the design](STAGE52_QUIC_DNS_FRESHNESS_SURVEY.md) in PR #162
 (`19ea5c2`) and instructed implementation on 2026-11-16. S52-D0–D5 are
