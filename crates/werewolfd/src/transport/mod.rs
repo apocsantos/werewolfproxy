@@ -2,6 +2,7 @@ pub(crate) mod dial;
 pub(super) mod failover;
 pub(crate) mod fang_accept;
 pub(crate) mod fang_health;
+pub(crate) mod peer_quota;
 pub(super) mod quic;
 pub(super) mod relay;
 pub(super) mod tcp_encrypted;

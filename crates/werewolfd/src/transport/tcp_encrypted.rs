@@ -284,6 +284,13 @@ pub(super) async fn run_local_fang_forwarder(
     ready: tokio::sync::oneshot::Sender<io::Result<()>>,
     expected_peer: crate::policy::ExpectedPeerIdentity,
 ) -> io::Result<()> {
+    let admission = match cancellation.register_quota(vec![vec![&expected_peer]]) {
+        Ok(admission) => admission,
+        Err(error) => {
+            let _ = ready.send(Err(error));
+            return Ok(());
+        }
+    };
     let listener = match TcpListener::bind(local).await {
         Ok(listener) => {
             let _ = ready.send(Ok(()));
@@ -308,19 +315,26 @@ pub(super) async fn run_local_fang_forwarder(
         let identity = identity.clone();
         let expected_peer = expected_peer.clone();
         let health = cancellation.health();
+        let admission = admission.clone();
 
         cancellation.spawn(async move {
             // Evicted (Stage43) or failed: the socket stays armed and the
             // application sees a reset.
             let result = slot
-                .serve(pipe_one_fang_connection(
-                    &mut inbound,
-                    &peer_addr,
-                    &remote,
-                    identity,
-                    expected_peer,
-                    &health,
-                ))
+                .serve(async {
+                    let _reservation = admission
+                        .reserve(0)
+                        .inspect_err(|error| health.setup_failed(error))?;
+                    pipe_one_fang_connection(
+                        &mut inbound,
+                        &peer_addr,
+                        &remote,
+                        identity,
+                        expected_peer,
+                        &health,
+                    )
+                    .await
+                })
                 .await;
             if matches!(result, Some(Ok(()))) {
                 let _ = super::disarm_reset_on_close(&inbound);

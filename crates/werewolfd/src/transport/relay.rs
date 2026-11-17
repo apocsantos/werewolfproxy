@@ -157,6 +157,13 @@ pub(crate) async fn run_routed_forwarder(
     cancellation: crate::fang_registry::FangCancellation,
     ready: tokio::sync::oneshot::Sender<io::Result<()>>,
 ) -> io::Result<()> {
+    let admission = match cancellation.register_quota(vec![vec![&routed.relay, &destination]]) {
+        Ok(admission) => admission,
+        Err(error) => {
+            let _ = ready.send(Err(error));
+            return Ok(());
+        }
+    };
     // One QUIC peer (its endpoints) per activation, as a direct QUIC Fang.
     let endpoint = match routed.hop {
         RouteHop::Quic => match fang_peer(&routed) {
@@ -196,18 +203,23 @@ pub(crate) async fn run_routed_forwarder(
         let destination = destination.clone();
         let endpoint = endpoint.clone();
         let health = cancellation.health();
+        let admission = admission.clone();
         cancellation.spawn(async move {
             let (established_tx, mut established) = tokio::sync::oneshot::channel();
             let result = slot
-                .serve(routed_session(
-                    &mut inbound,
-                    &routed,
-                    endpoint.as_ref(),
-                    &remote,
-                    &identity,
-                    &destination,
-                    Some(established_tx),
-                ))
+                .serve(async {
+                    let _reservation = admission.reserve(0)?;
+                    routed_session(
+                        &mut inbound,
+                        &routed,
+                        endpoint.as_ref(),
+                        &remote,
+                        &identity,
+                        &destination,
+                        Some(established_tx),
+                    )
+                    .await
+                })
                 .await;
             // Only a failure before the destination's ACK verified is a
             // failed setup (Stage45); one after it is the application's.

@@ -49,6 +49,14 @@ pub(crate) struct Provider {
 }
 
 impl Provider {
+    fn quota_peers(&self) -> Vec<&ExpectedPeerIdentity> {
+        let mut peers = vec![&self.expected];
+        if let Path::Routed(routed) = &self.path {
+            peers.push(&routed.relay);
+        }
+        peers
+    }
+
     /// The Pack members this provider depends on: itself and its relay.
     pub(crate) fn uses(&self) -> Vec<String> {
         match &self.path {
@@ -134,6 +142,14 @@ pub(crate) async fn run_failover_forwarder(
     cancellation: crate::fang_registry::FangCancellation,
     ready: oneshot::Sender<io::Result<()>>,
 ) -> io::Result<()> {
+    let admission =
+        match cancellation.register_quota(providers.iter().map(Provider::quota_peers).collect()) {
+            Ok(admission) => admission,
+            Err(error) => {
+                let _ = ready.send(Err(error));
+                return Ok(());
+            }
+        };
     let mut prepared = Vec::with_capacity(providers.len());
     for provider in providers {
         let peer = match &provider.path {
@@ -185,9 +201,15 @@ pub(crate) async fn run_failover_forwarder(
         let prepared = prepared.clone();
         let identity = identity.clone();
         let health = cancellation.health();
+        let admission = admission.clone();
         cancellation.spawn(async move {
             let served = slot
-                .serve(select_and_serve(&mut inbound, &prepared, &identity))
+                .serve(select_and_serve(
+                    &mut inbound,
+                    &prepared,
+                    &identity,
+                    &admission,
+                ))
                 .await;
             match served {
                 Some(Served::Clean) => {
@@ -222,11 +244,19 @@ async fn select_and_serve(
     inbound: &mut TcpStream,
     providers: &[Ready],
     identity: &PeltIdentity,
+    admission: &super::peer_quota::Membership,
 ) -> Served {
     let deadline = Instant::now() + hs::CLIENT_WINDOW;
     let mut class = FailureClass::Dial;
     let mut errors = Vec::new();
-    for ready in providers {
+    for (index, ready) in providers.iter().enumerate() {
+        let _reservation = match admission.reserve(index) {
+            Ok(reservation) => reservation,
+            Err(error) => {
+                errors.push(format!("{}: {error}", ready.provider.peer));
+                continue;
+            }
+        };
         let (established_tx, mut established) = oneshot::channel();
         let attempt = attempt(inbound, ready, identity, established_tx);
         tokio::pin!(attempt);

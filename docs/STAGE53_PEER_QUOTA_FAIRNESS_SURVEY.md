@@ -1,5 +1,11 @@
 # Stage53 — fairness between Fangs sharing a peer quota
 
+**Implementation note:** the owner merged this design in PR #166
+(`4fed878`) and instructed M2 implementation. The
+[M2 record](STAGE53_M2_PEER_QUOTA_ADMISSION.md) tracks that candidate.
+The baseline and proposed-contract wording below retain their original
+pre-implementation scope.
+
 **Status: reproduction and design for review, 2026-11-17. No runtime
 change.** The owner authorised the proposed first step after Stage52:
 reproduce two-Fang contention, compare admission policies and submit a

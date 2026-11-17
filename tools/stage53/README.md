@@ -42,9 +42,40 @@ expected denied outcome; timeout, EOF, wrong payload, guard or cleanup
 failure makes the tool exit nonzero. Output must be a new file; each
 finished pair is checkpointed and failed results are never overwritten.
 
+The default `--expect baseline` retains the original denial assertions.
 Expected denial is a confirmed baseline limitation, not a passing fix.
 This measures direct authenticated QUIC and encrypted-TCP Fangs with
 literal IPv4 peers. Routed/failover contention, new-Fang activation after
 saturation, multiple initiator processes with the same key, other peers
 sharing a relay, WAN behaviour and policy alternatives are not measured.
 Those boundaries are addressed in the [design](../../docs/STAGE53_PEER_QUOTA_FAIRNESS_SURVEY.md).
+
+## Stage53 candidate shares
+
+```sh
+python3 -B tools/stage53/peer_quota.py --expect shares --rounds 3 --active 5 \
+  --out target/stage53-m2/shares.json
+python3 -B tools/stage53/paths.py --out target/stage53-m2/paths.json
+```
+
+The shares expectation requires 32 sessions through each already-open
+sibling. A full Fang cannot borrow even while the sibling is unused.
+After one owner's session closes, its full sibling must still be denied
+and the owner must refill that slot. Denials are local `dial` failures.
+Both arrival orders, independent-peer admissions, held sessions,
+authority snapshots, recovery and cleanup remain checked. Historical
+baseline JSON and failed smoke outputs are never reused as candidate runs.
+
+`paths.py` uses the Stage45/46 disposable lab and Stage52 counted/reset
+targets, without resolver interposition or a namespace. It checks direct
+QUIC/TCP and QUIC/TCP-routed provider paths: local-denial fallback after
+32 primary sessions, no payload replay after committed target resets,
+and primary recovery. A separate activation case checks 64 registered
+Fangs, the 65th open's `FANG_PEER_CAPACITY`, failed-listener rollback and
+restored capacity after closing siblings. Optional positional paths:
+`quic`, `tcp`, `routed-quic`, `routed-tcp`, `activation` (default: all).
+Both tools return nonzero on unexpected outcomes or cleanup failure,
+require a new output path and remove generated private fixture state.
+
+These candidate controls do not replace the broader M3 campaign listed
+in the [M2 record](../../docs/STAGE53_M2_PEER_QUOTA_ADMISSION.md).
