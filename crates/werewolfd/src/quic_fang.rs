@@ -48,6 +48,13 @@ pub async fn open_quic_fang(
 ) -> Result<JoinHandle<()>, Box<dyn Error + Send + Sync>> {
     let quic_server = quic_server.into();
     let handle = tokio::spawn(async move {
+        let admission = match cancellation.register_quota(vec![vec![&expected_peer]]) {
+            Ok(admission) => admission,
+            Err(error) => {
+                let _ = ready.send(Err(error));
+                return;
+            }
+        };
         let peer = match QuicPeer::open(&expected_peer, quic_server) {
             Ok(peer) => peer,
             Err(error) => {
@@ -87,11 +94,19 @@ pub async fn open_quic_fang(
             let identity = identity.clone();
             let expected_peer = expected_peer.clone();
             let peer = peer.clone();
+            let admission = admission.clone();
 
             cancellation.spawn(async move {
                 // Evicted (Stage43): the session is dropped and the armed
                 // local socket closes with a reset.
                 slot.serve(async move {
+                    let _reservation = match admission.reserve(0) {
+                        Ok(reservation) => reservation,
+                        Err(error) => {
+                            health.setup_failed(&error);
+                            return;
+                        }
+                    };
                     let result =
                         connect_v3_on(&peer, &remote_addr, &identity, &expected_peer).await;
                     let (connection, send, recv) = match result {

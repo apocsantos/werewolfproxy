@@ -33,9 +33,25 @@ pub(super) struct FangCancellation {
     children: Arc<Mutex<ChildTasks>>,
     activation: Option<tokio::sync::watch::Receiver<bool>>,
     health: Arc<FangHealth>,
+    peer_quota: Arc<crate::transport::peer_quota::Coordinator>,
 }
 
 impl FangCancellation {
+    pub(super) fn with_peer_quota(
+        mut self,
+        coordinator: Arc<crate::transport::peer_quota::Coordinator>,
+    ) -> Self {
+        self.peer_quota = coordinator;
+        self
+    }
+
+    pub(crate) fn register_quota(
+        &self,
+        paths: Vec<Vec<&crate::policy::ExpectedPeerIdentity>>,
+    ) -> std::io::Result<crate::transport::peer_quota::Membership> {
+        self.peer_quota.register(paths)
+    }
+
     /// Labels this Fang's failure record (Stage45).
     pub(super) fn with_health(mut self, health: FangHealth) -> Self {
         self.health = Arc::new(health);
@@ -164,6 +180,7 @@ pub(super) struct Started {
 
 #[derive(Default)]
 pub(super) struct FangRegistry {
+    pub(super) peer_quota: Arc<crate::transport::peer_quota::Coordinator>,
     pub(super) fangs: Vec<FangRecord>,
     pub(super) tasks: HashMap<String, JoinHandle<()>>,
     /// Start time, the transport the Fang opened with and the other Pack

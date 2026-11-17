@@ -217,7 +217,56 @@ def phase(lab, owner, other, targets, active, conns, control):
     return result
 
 
-def scenario(lab, pair, active):
+def phase_shares(lab, owner, other, targets, active, conns, control):
+    result = {'owner': owner, 'sibling': other}
+    conns.clear()
+    result['owner_fill'] = [attempt(lab.ports[owner], conns) for _ in range(32)]
+    require(all(r['outcome'] == 'echo' for r in result['owner_fill']), result)
+    result['reserved_sibling_authority'] = lab.expect_sessions(33)
+    before = targets[owner].hits
+    result['owner_over_share'] = [attempt(lab.ports[owner]) for _ in range(3)]
+    require(all(r['outcome'] == 'reset' for r in result['owner_over_share']), result)
+    require(targets[owner].hits == before, 'local share denial reached target')
+    result['independent_new_clients'] = [attempt(lab.ports['independent']) for _ in range(3)]
+    require(all(r['outcome'] == 'echo' for r in result['independent_new_clients']), result)
+    result['sibling_fill'] = [attempt(lab.ports[other], conns) for _ in range(32)]
+    require(all(r['outcome'] == 'echo' for r in result['sibling_fill']), result)
+    result['both_full_authority'] = lab.expect_sessions(65)
+    result['both_overflow'] = {name: [attempt(lab.ports[name]) for _ in range(3)]
+                               for name in (owner, other)}
+    started = time.monotonic()
+    pulses = 0
+    while time.monotonic() - started < active:
+        pulse(lab, conns + control)
+        pulses += 1
+        lab.wait(min(.25, max(0, active - (time.monotonic() - started))))
+    result['active_hold_seconds'] = round(time.monotonic() - started, 3)
+    result['active_echo_rounds'] = pulses
+    result['both_after_active'] = {name: attempt(lab.ports[name]) for name in (owner, other)}
+    require(all(r['outcome'] == 'reset' for rs in result['both_overflow'].values() for r in rs), result)
+    require(all(r['outcome'] == 'reset' for r in result['both_after_active'].values()), result)
+    pulse(lab, conns + control)
+    result['existing_sessions_echo'] = len(conns) + len(control)
+    conns.pop(0).close()  # Release one owner's slot, not the sibling's.
+    result['one_released_authority'] = lab.expect_sessions(64)
+    result['sibling_cannot_borrow'] = attempt(lab.ports[other])
+    require(result['sibling_cannot_borrow']['outcome'] == 'reset', result)
+    result['owner_refill'] = attempt(lab.ports[owner], conns)
+    require(result['owner_refill']['outcome'] == 'echo', result)
+    result['refilled_authority'] = lab.expect_sessions(65)
+    result['health'] = lab.health()
+    require(all(row['last_failure']['class'] == 'dial' for row in result['health']), result)
+    for conn in conns:
+        conn.close()
+    conns.clear()
+    result['released_authority'] = lab.expect_sessions(1)
+    result['both_after_release'] = {name: attempt(lab.ports[name]) for name in ('left', 'right')}
+    require(all(r['outcome'] == 'echo' for r in result['both_after_release'].values()), result)
+    lab.expect_sessions(1)
+    return result
+
+
+def scenario(lab, pair, active, expectation):
     targets = {}
     conns, control = [], []
     try:
@@ -229,7 +278,8 @@ def scenario(lab, pair, active):
         require(independent['outcome'] == 'echo', independent)
         lab.expect_sessions(1)
         result = {'pair': pair, 'baseline': baseline, 'independent_peer': independent}
-        result['phases'] = [phase(lab, owner, other, targets, active, conns, control)
+        run_phase = phase_shares if expectation == 'shares' else phase
+        result['phases'] = [run_phase(lab, owner, other, targets, active, conns, control)
                             for owner, other in (('left', 'right'), ('right', 'left'))]
         result['daemons_alive'] = all(p.poll() is None for p in lab.wolves)
         require(result['daemons_alive'], 'daemon exited')
@@ -238,7 +288,7 @@ def scenario(lab, pair, active):
         result['receiver_pid'] = lab.wolves[0].pid
         result['initiator_pid'] = lab.wolves[1].pid
         result['log_bytes'] = {p.name: p.stat().st_size for p in lab.base.glob('*.log')}
-        result['status'] = 'CONFIRMED'
+        result['status'] = 'PASS' if expectation == 'shares' else 'CONFIRMED'
         return result
     finally:
         for conn in conns + control:
@@ -252,6 +302,7 @@ def main():
     parser.add_argument('pairs', nargs='*', help='default: all four QUIC/TCP pairs')
     parser.add_argument('--rounds', type=int, default=3)
     parser.add_argument('--active', type=float, default=5)
+    parser.add_argument('--expect', choices=('baseline', 'shares'), default='baseline')
     parser.add_argument('--out', type=pathlib.Path, required=True)
     args = parser.parse_args()
     args.pairs = args.pairs or list(PAIRS)
@@ -272,9 +323,9 @@ def main():
     for repetition in range(1, args.rounds + 1):
         for pair in args.pairs:
             lab = QuotaLab()
-            row = {'round': repetition, 'pair': pair, **metadata}
+            row = {'round': repetition, 'pair': pair, 'expectation': args.expect, **metadata}
             try:
-                row.update(scenario(lab, pair, args.active))
+                row.update(scenario(lab, pair, args.active, args.expect))
             except Exception as exc:
                 row.update(status='FAIL', error=f'{type(exc).__name__}: {exc}')
                 row['failure_logs'] = {p.name: p.read_text(errors='replace')[-2000:]
@@ -293,7 +344,8 @@ def main():
             rows.append(row)
             args.out.write_text(json.dumps(rows, indent=2) + '\n')
             print(json.dumps(row), flush=True)
-    return 0 if all(row['status'] == 'CONFIRMED' for row in rows) else 1
+    expected = 'PASS' if args.expect == 'shares' else 'CONFIRMED'
+    return 0 if all(row['status'] == expected for row in rows) else 1
 
 
 if __name__ == '__main__':

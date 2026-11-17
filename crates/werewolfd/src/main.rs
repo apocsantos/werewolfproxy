@@ -620,6 +620,7 @@ async fn open_fang_with_profile(
 
             let (cancellation, release) = FangCancellation::prepared();
             let cancellation = cancellation.with_health(FangHealth::new(&fang_id, &peer));
+            let cancellation = cancellation.with_peer_quota(st.fang_registry.peer_quota.clone());
             let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
             let handle = match open_quic_fang(
                 local.clone(),
@@ -642,7 +643,7 @@ async fn open_fang_with_profile(
                 Ok(Ok(())) => {}
                 Ok(Err(error)) => {
                     handle.abort();
-                    return ControlResponse::err(req_id, "FANG_LISTENER_FAILED", error.to_string());
+                    return fang_listener_error(req_id, error);
                 }
                 Err(_) => {
                     handle.abort();
@@ -736,6 +737,7 @@ async fn open_fang_with_profile(
     let task_transport = transport.clone();
     let (cancellation, release) = FangCancellation::prepared();
     let cancellation = cancellation.with_health(FangHealth::new(&fang_id, &peer));
+    let cancellation = cancellation.with_peer_quota(st.fang_registry.peer_quota.clone());
     let task_cancellation = cancellation.clone();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let task_expected_peer = expected_peer_identity;
@@ -781,7 +783,7 @@ async fn open_fang_with_profile(
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
             handle.abort();
-            return ControlResponse::err(req_id, "FANG_LISTENER_FAILED", error.to_string());
+            return fang_listener_error(req_id, error);
         }
         Err(_) => {
             handle.abort();
@@ -907,6 +909,7 @@ async fn open_provider_fang(
         &fang_id,
         &format!("service {}", service.name),
     ));
+    let cancellation = cancellation.with_peer_quota(st.fang_registry.peer_quota.clone());
     let (ready_tx, ready_rx) = oneshot::channel();
     let (task_id, task_local, task_cancellation) =
         (fang_id.clone(), local.clone(), cancellation.clone());
@@ -928,7 +931,7 @@ async fn open_provider_fang(
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
             handle.abort();
-            return ControlResponse::err(req_id, "FANG_LISTENER_FAILED", error.to_string());
+            return fang_listener_error(req_id, error);
         }
         Err(_) => {
             handle.abort();
@@ -975,6 +978,14 @@ async fn open_provider_fang(
             "providers": order,
         }),
     )
+}
+
+fn fang_listener_error(req_id: String, error: std::io::Error) -> ControlResponse {
+    let code = error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<transport::peer_quota::RegistrationError>())
+        .map_or("FANG_LISTENER_FAILED", |error| error.code());
+    ControlResponse::err(req_id, code, error.to_string())
 }
 
 async fn persist_activation(
