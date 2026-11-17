@@ -238,6 +238,9 @@ def scenario(lab, name, repetition):
             result = routed(lab, *name.split('-'), targets, conns, control, repetition % 2 == 0)
         pulse(lab, control)
         result['independent_peer_held_echo'] = True
+        result['independent_peer_new_clients'] = [attempt(control_fang['port']) for _ in range(3)]
+        require(all(r['outcome'] == 'echo' for r in result['independent_peer_new_clients']),
+                'independent peer could not admit new clients')
         for fang in lab.fang_list():
             lab.control('a', 'fang.close', {'fang_id': fang['id']})
         for conn in sum(conns, []) + control:
