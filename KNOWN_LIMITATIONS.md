@@ -103,6 +103,15 @@ and archive have not been rewritten, patched or recertified.
   controls; live receivers given one-byte datagrams; QUIC descriptor
   exhaustion; and Stage32 S2/S3/S4/S7 P0 regression cells. See
   [docs/STAGE49_M3_REGRESSION.md](docs/STAGE49_M3_REGRESSION.md).
+- **Stage52, sandbox**: hostname migration without reopening direct,
+  routed and failover Fangs, including a QUIC-routed provider; simulated
+  resolver errors, blocked calls, coalescing and capacity lifetime;
+  wrong-key answers and post-ACK target resets. Address/refusal,
+  descriptor/quota and S2/S3/S4/S7 P0 controls also pass. See
+  [M3](docs/STAGE52_M3_REGRESSION.md) and the
+  [closure record](docs/STAGE52_CLOSURE.md). These are private hosts-file
+  and resolver-interposition fixtures, not authoritative DNS/TTL or WAN
+  tests. The fix is not in the frozen rc.2 archive.
 - **Not run:** the Stage32 impairments over a real WAN; IPv6 on a real
   network (router advertisements, path MTU, a WAN) or with the Stage32
   impairments; real host
@@ -419,8 +428,10 @@ Found by Stage46 ([M1](docs/STAGE46_M1_DIAL_REPRODUCTION.md)):
     5 s window (every SYN or SYN-ACK lost) is passed over, not dialled
     again; the next provider takes the session. F1's validation saw no
     such case in 600 sessions under 10% loss (Stage48 M2 §5);
-  - QUIC resolves a name only when the Fang opens: after a DNS change the
-    Fang must be reopened. TCP, discovery and sync resolve at each dial;
+  - Stage46 retained QUIC answers from Fang open, requiring reopen after
+    an address change. Stage52 (below) replaces that snapshot on `main`
+    for new hostname connections. TCP, discovery and sync keep their
+    existing lookup behaviour;
   - the dialer was run only in the namespace sandbox, on loopback and
     unique-local addresses, never on a real dual-stack network or a WAN;
   - from Stage45: a QUIC peer that does not answer still costs each client
@@ -471,6 +482,54 @@ Found by Stage49 ([survey](docs/STAGE49_QUIC_REFUSED_SURVEY.md),
     QUIC dial continues without its early-refusal signal;
   - the refusal probe was exercised only locally and in the namespace
     sandbox; ICMP delivery and filtering over a real WAN were not tested.
+
+Found by Stage52 ([reproduction and design](docs/STAGE52_QUIC_DNS_FRESHNESS_SURVEY.md)):
+
+- before Stage52, long-lived QUIC Fangs retained their open-time address
+  vectors. After a hostname moved and the old IP became unreachable,
+  direct and routed new clients reset at about 5 s, while failover used
+  a fallback despite a reachable primary. Reopening recovered. TCP
+  controls followed the changed address without reopening.
+
+  Fixed on `main` after rc.2 ([M2](docs/STAGE52_M2_HOSTNAME_REFRESH.md),
+  owner-merged PR #163, `c9e90c8`): direct QUIC peers, QUIC relay hops
+  and QUIC providers, including routed failover, resolve for each new
+  hostname connection. Concurrent callers may share an in-flight lookup;
+  later independent attempts do not reuse a completed answer. Open-time
+  validation remains. Capacity wait, lookup and address racing share the
+  existing 5 s dial deadline; later handshake and outer failover
+  deadlines are unchanged. Lookup failure is `dial`, with no stale-answer
+  fallback. Wrong-key answers still fail authentication, provider order
+  and the verified-ACK commitment boundary are unchanged, and existing
+  connections are not moved or replayed.
+
+  Owner-merged [M3](docs/STAGE52_M3_REGRESSION.md) (PR #164, `3aeb832`)
+  passes 21/21 migration runs without reopening and 39/39 fault/lifetime
+  scenarios, plus the transport/resource/P0 controls and 13/13 local CI
+  gates. See the [closure record](docs/STAGE52_CLOSURE.md). The fix is
+  not in the frozen rc.1/rc.2 archives.
+
+  **What remains:**
+
+  - freshness follows the system/NSS resolver and its caches. There is no
+    authoritative DNS TTL guarantee, periodic refresh or application TTL
+    cache. Additional lookups can add latency and observable DNS traffic;
+    an outage can fail new sessions even if an earlier IP still works;
+  - newly introduced ongoing QUIC refresh work is bounded to **16 jobs
+    per daemon**, with at most one in flight per reusable peer. A blocked
+    libc call retains capacity after callers time out or the Fang closes,
+    until the call actually returns. Saturation can time out other
+    hostname QUIC dials; literal dials bypass refresh. This cap does not
+    cover existing TCP, open-time or discovery resolution, and does not
+    guarantee hard cancellation or bounded runtime shutdown;
+  - established sessions keep their existing path and liveness limits;
+    refresh does not migrate them after path loss. Open-time log addresses
+    remain readiness evidence, not a live view of resolver answers;
+  - testing used Linux/glibc namespace fixtures, private hosts mappings
+    and simulated `EAI_NONAME`/blocked calls. It does not certify real DNS
+    servers, TTL/cache expiry, real dual-stack networks or WAN migration.
+    CPU observations include the interposer's polling loop. No
+    comparative liveness or new release certification is claimed.
 
 ## Discovery, services and routing
 

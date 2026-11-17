@@ -22,6 +22,29 @@ Stage49 audit blocker. Hosted Rust CI and CodeQL could not start because
 GitHub reported an account billing lock. The [Stage50 closure](STAGE50_CLOSURE.md)
 records scope and remaining limits; the frozen releases above are unchanged.
 
+## Current development hostname behaviour
+
+Stage52 bounded QUIC hostname refresh is on `main` through owner-merged
+[PR #163](https://github.com/apocsantos/werewolfproxy/pull/163) (`c9e90c8`),
+with the [M3 regression](STAGE52_M3_REGRESSION.md) merged in
+[PR #164](https://github.com/apocsantos/werewolfproxy/pull/164) (`3aeb832`,
+2026-11-17). New hostname connections through direct, routed and failover
+QUIC Fangs resolve again without reopening. Open-time validation, key
+pinning, provider order and the verified-ACK commitment boundary remain.
+Capacity wait, lookup and address racing share the existing 5 s dial
+deadline; new refresh work has a 16-job daemon-wide cap.
+
+The merged runtime passes 474 Rust tests, 21/21 migration runs, 39/39
+resolver scenarios, the address/refusal/resource/P0 controls and 13/13
+local gates. Workspace/proof audits pass against the recorded RustSec
+snapshot `233155b4`. All 11 hosted jobs on the M3 head were prevented
+from starting by the account billing lock; no hosted pass is claimed.
+The [Stage52 closure](STAGE52_CLOSURE.md) records delivery and the
+[remaining limitations](../KNOWN_LIMITATIONS.md): system resolver caches,
+blocked-call lifetime, shared-capacity saturation and local-only DNS
+fixtures. Frozen releases, S3-P2/S2-P4 exclusions, Stage38 closure and
+Tokio 1.52.3 are unchanged.
+
 ## Certified
 
 | Area | Records |

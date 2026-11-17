@@ -46,9 +46,10 @@ contract is consolidated for the 1.0.0-rc.2 candidate.
 - [Stage49 QUIC refusal closure](STAGE49_CLOSURE.md) (dependency blocker resolved by Stage50)
 - [Stage50 dependency security closure](STAGE50_CLOSURE.md), [trial validation](STAGE50_DEPENDENCY_TRIAL.md) and [original survey](STAGE50_DEPENDENCY_SECURITY_SURVEY.md) (merged on `main`; frozen releases unchanged)
 - [Stage51 Git-hook cleanup](STAGE51_GIT_HOOK_CLEANUP.md) (routine pushes use local fast checks)
-- [Stage52 QUIC hostname freshness](STAGE52_QUIC_DNS_FRESHNESS_SURVEY.md) (baseline reproduction and refresh design; no runtime fix)
-- [Stage52 M2 hostname refresh](STAGE52_M2_HOSTNAME_REFRESH.md) (runtime candidate and resolver capacity checks)
-- [Stage52 M3 regression](STAGE52_M3_REGRESSION.md) (resolver faults, saturation and transport controls)
+- [Stage52 hostname refresh closure](STAGE52_CLOSURE.md) (runtime and regression merged on `main`; frozen releases unchanged)
+- [Stage52 QUIC hostname freshness design](STAGE52_QUIC_DNS_FRESHNESS_SURVEY.md) (historical baseline reproduction and approved contract)
+- [Stage52 M2 hostname refresh](STAGE52_M2_HOSTNAME_REFRESH.md) (merged implementation and resolver capacity checks)
+- [Stage52 M3 regression](STAGE52_M3_REGRESSION.md) (merged resolver faults, saturation and transport controls)
 
 The current Stage21 release uses the Stage20S-certified dependency graph:
 rustls 0.23.45 and rustls-webpki 0.103.15. Earlier stage reports retain the

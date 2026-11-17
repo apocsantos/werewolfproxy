@@ -1,5 +1,11 @@
 # Stage52 — QUIC hostname freshness: reproduction and design
 
+**Delivery update, 2026-11-17:** M2 and M3 are owner-merged in PRs
+#163 (`c9e90c8`) and #164 (`3aeb832`). The
+[closure record](STAGE52_CLOSURE.md) describes the implemented behaviour
+and remaining limits. The reproduction and proposed-contract sections
+below retain their original pre-implementation scope.
+
 **Implementation note:** the owner merged this design as PR #162
 (`19ea5c2`) on 2026-11-16 and then instructed implementation. The
 [M2 record](STAGE52_M2_HOSTNAME_REFRESH.md) tracks that candidate. The
