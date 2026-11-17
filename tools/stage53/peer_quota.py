@@ -164,12 +164,18 @@ def pulse(lab, conns):
 def phase(lab, owner, other, targets, active, conns, control):
     result = {'owner': owner, 'contender': other}
     conns.clear()
-    filled = [attempt(lab.ports[owner], conns) for _ in range(64)]
+    filled = []
+    for _ in range(64):
+        lab.guard()
+        filled.append(attempt(lab.ports[owner], conns))
     require(all(row['outcome'] == 'echo' for row in filled), f'fill failed: {filled}')
     result['fill'] = filled
     result['saturated_authority'] = lab.expect_sessions(65)
     before = targets[other].hits
     result['contender_immediate'] = [attempt(lab.ports[other]) for _ in range(3)]
+    result['independent_new_clients'] = [attempt(lab.ports['independent']) for _ in range(3)]
+    require(all(row['outcome'] == 'echo' for row in result['independent_new_clients']),
+            'independent peer could not open new sessions during saturation')
     started = time.monotonic()
     pulses = 0
     while time.monotonic() - started < active:
@@ -243,11 +249,13 @@ def scenario(lab, pair, active):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('pairs', choices=PAIRS, nargs='*', default=list(PAIRS))
+    parser.add_argument('pairs', nargs='*', help='default: all four QUIC/TCP pairs')
     parser.add_argument('--rounds', type=int, default=3)
     parser.add_argument('--active', type=float, default=5)
     parser.add_argument('--out', type=pathlib.Path, required=True)
     args = parser.parse_args()
+    args.pairs = args.pairs or list(PAIRS)
+    require(all(pair in PAIRS for pair in args.pairs), f'unknown pair; choose from {PAIRS}')
     require(args.rounds > 0 and args.active >= 1, 'rounds must be positive; active >= 1 s')
     args.out.parent.mkdir(parents=True, exist_ok=True)
     # Never truncate an older run, including a failed development smoke.
@@ -269,10 +277,17 @@ def main():
                 row.update(scenario(lab, pair, args.active))
             except Exception as exc:
                 row.update(status='FAIL', error=f'{type(exc).__name__}: {exc}')
+                row['failure_logs'] = {p.name: p.read_text(errors='replace')[-2000:]
+                                       for p in lab.base.glob('*.log')}
             finally:
+                row['daemon_sha256'] = getattr(lab, 'binary_hash', None)
                 try:
                     lab.cleanup()
+                    require(not lab.base.exists(), 'private lab directory remains')
+                    require(all(p.poll() is not None for p in lab.processes),
+                            'owned child process remains')
                     row['cleanup'] = 'PASS'
+                    row['private_fixture_removed'] = True
                 except Exception as exc:
                     row.update(status='FAIL', cleanup_error=f'{type(exc).__name__}: {exc}')
             rows.append(row)
