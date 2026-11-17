@@ -1,5 +1,9 @@
 # Stage52 M3 — hostname refresh regression
 
+**Delivery note:** the owner merged PR #164 as `3aeb832` on 2026-11-17.
+M3 is on `main`; the [M4 closure record](STAGE52_CLOSURE.md) follows.
+The campaign results and its original next-step wording below are retained.
+
 **M3: PASS on the merged M2 runtime, 2026-11-16–17.** Baseline is owner-merged
 M2 PR #163, `c9e90c8d73a04208a43cc608cee6b2769f84664a`. The runtime and
 dependency graph are unchanged for this campaign. The approved scope is
