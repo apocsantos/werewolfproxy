@@ -1,5 +1,10 @@
 # Stage53 M2 — reserved peer-session shares
 
+**Delivery note:** the owner merged PR #167 as `b1fc389` on 2026-11-17.
+The implementation is on `main`. The [M3 campaign](STAGE53_M3_REGRESSION.md)
+tracks subsequent regression; the original candidate results and
+remaining-work wording below retain their scope at M2 review.
+
 **Status: M2 candidate implemented and locally validated; for review, 2026-11-17.**
 Baseline is owner-merged [PR #166](https://github.com/apocsantos/werewolfproxy/pull/166),
 `4fed878649f6c78757a7510892ee15bfb1be9d93`. After that merge the owner
