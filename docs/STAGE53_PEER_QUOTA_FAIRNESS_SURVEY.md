@@ -6,6 +6,11 @@
 The baseline and proposed-contract wording below retain their original
 pre-implementation scope.
 
+**Delivery update, 2026-11-18:** M2 and M3 are now owner-merged in
+PRs #167 (`b1fc389`) and #168 (`d3758e9`). The
+[closure handoff](STAGE53_CLOSURE.md) records the implemented contract,
+passing regression and remaining limits. The proposal below is historical.
+
 **Status: reproduction and design for review, 2026-11-17. No runtime
 change.** The owner authorised the proposed first step after Stage52:
 reproduce two-Fang contention, compare admission policies and submit a

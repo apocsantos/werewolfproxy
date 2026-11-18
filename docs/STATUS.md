@@ -45,6 +45,32 @@ blocked-call lifetime, shared-capacity saturation and local-only DNS
 fixtures. Frozen releases, S3-P2/S2-P4 exclusions, Stage38 closure and
 Tokio 1.52.3 are unchanged.
 
+## Current development peer-session admission
+
+Stage53 reserved peer-session shares are on `main` through owner-merged
+[PR #167](https://github.com/apocsantos/werewolfproxy/pull/167) (`b1fc389`),
+with [M3 regression](STAGE53_M3_REGRESSION.md) merged in
+[PR #168](https://github.com/apocsantos/werewolfproxy/pull/168) (`d3758e9`,
+2026-11-18). One daemon coordinates authenticated outgoing Fangs by the
+full receiver key across QUIC/TCP: two get 32 reservations each, three
+get 22/21/21 from a local 64-session budget. Routed attempts reserve both
+relay and destination. Local denial may advance failover before verified
+ACK; established sessions retain their provider and are never replayed.
+
+M3 passes 485 Rust tests, 39/39 membership cases, 12/12 two-Fang cases,
+15/15 provider/activation controls, the resolver/address/resource/P0
+regressions and 13/13 local CI gates. All 26 campaign workers recorded
+successful actual exits. All 11 hosted jobs on the M3 head were prevented
+from starting by the account billing lock; no hosted pass is claimed.
+
+The [closure handoff](STAGE53_CLOSURE.md) and
+[current limitations](../KNOWN_LIMITATIONS.md) record unused reserved
+capacity, the 64-member activation bound, no bounded admission after late
+activation, and the idle-eviction boundary: peer-share exhaustion alone
+does not invoke the local/per-source idle rule. This is fairness between
+configured Fangs in one daemon, not a per-user or saturation-service
+guarantee. Receiver authority and frozen releases remain unchanged.
+
 ## Certified
 
 | Area | Records |

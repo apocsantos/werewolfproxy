@@ -5,6 +5,10 @@ The implementation is on `main`. The [M3 campaign](STAGE53_M3_REGRESSION.md)
 tracks subsequent regression; the original candidate results and
 remaining-work wording below retain their scope at M2 review.
 
+**Delivery update, 2026-11-18:** the owner merged passing M3 in PR #168
+(`d3758e9`). The [closure handoff](STAGE53_CLOSURE.md) records the final
+scope and current limitations; the original pending M3 text is historical.
+
 **Status: M2 candidate implemented and locally validated; for review, 2026-11-17.**
 Baseline is owner-merged [PR #166](https://github.com/apocsantos/werewolfproxy/pull/166),
 `4fed878649f6c78757a7510892ee15bfb1be9d93`. After that merge the owner
