@@ -112,6 +112,14 @@ and archive have not been rewritten, patched or recertified.
   [closure record](docs/STAGE52_CLOSURE.md). These are private hosts-file
   and resolver-interposition fixtures, not authoritative DNS/TTL or WAN
   tests. The fix is not in the frozen rc.2 archive.
+- **Stage53, local disposable fixtures**: reserved shares between two or
+  three Fangs over QUIC/TCP, late activation, membership cleanup, shared
+  relays/destinations, local-denial failover and post-ACK commitment.
+  All 39 membership cases, 12 two-Fang cases and 15 provider/activation
+  controls pass, along with transport/resource/P0 regression. See
+  [M3](docs/STAGE53_M3_REGRESSION.md) and the
+  [closure record](docs/STAGE53_CLOSURE.md). This is local admission
+  validation, not a WAN, throughput or comparative liveness claim.
 - **Not run:** the Stage32 impairments over a real WAN; IPv6 on a real
   network (router advertisements, path MTU, a WAN) or with the Stage32
   impairments; real host
@@ -211,7 +219,8 @@ Found by Stage42 ([M1](docs/STAGE42_M1_FANG_FLOOD_REPRODUCTION.md)):
   archive. **What remains:** a flood on one Fang still denies that Fang's
   other users while it lasts (its 64 slots are full, so new connections
   are reset), and Fangs to the same peer still share that peer's
-  64-session quota. There is no per-client fairness within a Fang. A Fang
+  64-session quota; Stage53 (below) partitions local admissions among
+  registered Fangs. There is no per-client fairness within a Fang. A Fang
   bound to a non-loopback address accepts from that whole network; this is
   documented behaviour and was not changed (S42-D5). Stage43 (below)
   addresses part of this on `main`.
@@ -241,15 +250,17 @@ Found by Stage43 ([M1](docs/STAGE43_M1_FAIRNESS_REPRODUCTION.md)):
     address, and active connections are never evicted;
   - while a Fang is full, a legitimate session idle for 60 s or more (an
     idle SSH session, say) can be ended to admit a newcomer. A Fang
-    under its ceiling never evicts;
-  - Fangs to the same peer still share that peer's 64-session quota, first
-    come, first served (S43-D4, recorded only);
+    under its local and applicable per-source ceilings never evicts;
+  - Fangs to the same peer shared that peer's 64-session quota first come,
+    first served (S43-D4). Stage53 (below) replaces this local admission
+    policy on `main` with reserved shares;
   - when the target closes first, QUIC and plain-TCP Fangs keep the
     half-closed session, and its slot, until the client closes (existing
     TCP half-close behaviour; such a session counts as idle and can be
     evicted);
-  - not done: a per-local-user share (F2), an operator-set ceiling per
-    Fang (F4) and a per-Fang share of a peer's quota (F5).
+  - not done: a per-local-user share (F2) and an operator-set ceiling per
+    Fang (F4). Stage53 implements reserved per-Fang peer shares (F5),
+    with the utilisation and late-activation limits recorded below.
 
 Found by Stage44 ([M1](docs/STAGE44_M1_IPV6_REPRODUCTION.md)):
 
@@ -530,6 +541,55 @@ Found by Stage52 ([reproduction and design](docs/STAGE52_QUIC_DNS_FRESHNESS_SURV
     servers, TTL/cache expiry, real dual-stack networks or WAN migration.
     CPU observations include the interposer's polling loop. No
     comparative liveness or new release certification is claimed.
+
+Found by Stage53 ([reproduction and design](docs/STAGE53_PEER_QUOTA_FAIRNESS_SURVEY.md)):
+
+- before Stage53, one busy Fang could occupy all 64 sessions available
+  to its requester's identity at a receiver and deny its already-open
+  siblings, including across QUIC and encrypted TCP.
+
+  Fixed on `main` after rc.2 ([M2](docs/STAGE53_M2_PEER_QUOTA_ADMISSION.md),
+  owner-merged PR #167, `b1fc389`): one daemon-local coordinator groups
+  authenticated Fangs by the full captured receiver key. Each receiver
+  has a local budget of 64 reservations: two registered Fangs get 32
+  each, three get 22/21/21, with remainders in stable registration order.
+  Unused shares are not lent. A routed attempt reserves relay and
+  destination together; failover reserves only its current attempt and
+  may change provider on local denial before verified ACK. After ACK,
+  failure resets the client without replay through another provider.
+  Receiver quotas and authorization remain authoritative and unchanged.
+
+  Owner-merged [M3](docs/STAGE53_M3_REGRESSION.md) (PR #168, `d3758e9`)
+  passes the membership/provider/share matrices above, 485 Rust tests
+  and 13/13 local CI gates. See the [closure](docs/STAGE53_CLOSURE.md).
+  The change is not in either frozen rc.1/rc.2 archive.
+
+  **What remains:**
+
+  - unused open Fangs reserve capacity, including the union of potential
+    fallback providers and routes. Closing them returns shares only after
+    their owned work and reservations finish. A 65th registration for a
+    receiver prevents activation with `FANG_PEER_CAPACITY`; preparations and
+    retiring work count toward this bound;
+  - late activation preserves existing sessions above their recalculated
+    share. It cannot reclaim their capacity or guarantee admission until
+    they release slots. There is no active-session preemption or queue;
+  - idle eviction still runs at the local Fang ceiling or an applicable
+    per-source ceiling. Exhausting only a smaller peer share (32 or 21)
+    does not invoke it. This is code-derived; M3's Stage43 controls use
+    one Fang with 64 slots and do not measure smaller-share idle eviction;
+  - this coordinates one daemon's authenticated outgoing Fangs, not local
+    users, other processes using the same key, RPCs or remote pressure.
+    Receiver lease release may lag local cleanup. The local 64 budget is
+    not negotiated, and local capacity does not prove remote availability;
+  - active floods can still deny other clients within a Fang. Plain TCP
+    has no authenticated peer quota and retains its local rules. Shared
+    relay/destination identities can constrain an otherwise idle path;
+  - results use disposable local fixtures. CPU samples are short idle
+    observations, not performance comparisons. Target counters establish
+    zero extra fallback payload streams after committed failure, not zero
+    empty handshakes. No universal fairness or saturation-service
+    guarantee follows.
 
 ## Discovery, services and routing
 

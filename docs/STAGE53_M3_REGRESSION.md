@@ -1,6 +1,11 @@
 # Stage53 M3 — peer-session share regression
 
 **M3: PASS on the merged M2 runtime, 2026-11-17.**
+**Delivery note:** the owner merged this record and fixture in PR #168
+as `d3758e9` on 2026-11-18. The [M4 closure handoff](STAGE53_CLOSURE.md)
+records delivery and current limits; the pending-M4 wording below is
+retained as the historical M3 disposition.
+
 The owner merged [PR #167](https://github.com/apocsantos/werewolfproxy/pull/167)
 as `b1fc389cab71da277e9c67b098f2f22205c9a225` and instructed continuation.
 Application code, dependencies, existing gate definitions and release
