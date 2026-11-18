@@ -79,3 +79,35 @@ require a new output path and remove generated private fixture state.
 
 These candidate controls do not replace the broader M3 campaign listed
 in the [M2 record](../../docs/STAGE53_M2_PEER_QUOTA_ADMISSION.md).
+
+## M3 membership and routed contention
+
+```sh
+python3 -B tools/stage53/membership.py --rounds 3 \
+  --out target/stage53-m3/membership.json
+```
+
+Optional positional cases: `three-quic`, `three-tcp`, `three-mixed`,
+`late-quic-quic`, `late-tcp-tcp`, `late-quic-tcp`, `late-tcp-quic`,
+`relay-quic`, `relay-tcp`, `destination-quic`, `destination-tcp`,
+`storm-quic`, `storm-tcp` (default: all). Each case uses a fresh five-node
+disposable lab. It shares the host-permission/build requirements above;
+no namespaces, resolver injection or installed-node operations are used.
+
+Three-sibling cases require 22/21/21 → 32/32 → 64 as siblings close.
+Late-activation cases preserve 64 existing sessions, demonstrate admission
+only after release, then restore 64 to the late Fang after its older
+sibling closes. Routed cases isolate common-relay and common-destination
+quota keys with authority snapshots and captured path labels; round two
+reverses path order. A destination case configures its second route for
+later opens while the first Fang keeps its original captured path.
+
+Storm cases use 600 clients at concurrency 16 alongside 32 held sessions,
+so they do not exceed the local Fang's 64-slot ceiling. They require 600
+local `dial` failures, zero target payload growth and bounded logging.
+Every case checks independent held/new clients, idle CPU below 10%, zero
+final receiver authority and descriptor drain to its pre-Fang baseline.
+Unexpected outcomes, guard or cleanup errors produce a nonzero exit.
+Output must be new; completed cases are checkpointed. No private fixture
+state or identities are retained. See the [M3 record](../../docs/STAGE53_M3_REGRESSION.md)
+for the full campaign and measurement limits.
