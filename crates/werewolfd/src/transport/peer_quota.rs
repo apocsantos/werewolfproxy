@@ -262,7 +262,8 @@ impl Demand {
         let Ok(state) = member.coordinator.0.lock() else {
             return false;
         };
-        keys.iter().all(|key| {
+        let mut pressure = false;
+        let fits_after_release = keys.iter().all(|key| {
             let Some(peer) = state.peers.get(key) else {
                 return false;
             };
@@ -271,6 +272,7 @@ impl Demand {
             };
             let share =
                 BUDGET / peer.members.len() + usize::from(position < BUDGET % peer.members.len());
+            pressure |= peer.used >= BUDGET || peer.members[&member.serial] >= share;
             let release = usize::from(held.contains(key));
             match (
                 peer.used.checked_sub(release),
@@ -279,7 +281,11 @@ impl Demand {
                 (Some(total), Some(own)) => total < BUDGET && own < share,
                 _ => false,
             }
-        })
+        });
+        // Another session can release capacity after the original denial.
+        // An already-admissible plan has no useful eviction victim, even
+        // if subtracting an unrelated reservation would also leave it free.
+        pressure && fits_after_release
     }
 }
 
