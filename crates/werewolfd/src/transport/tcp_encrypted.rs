@@ -323,7 +323,8 @@ pub(super) async fn run_local_fang_forwarder(
             let result = slot
                 .serve(async {
                     let _reservation = admission
-                        .reserve(0)
+                        .reserve_reclaim(0, tokio::time::Instant::now() + hs::READ_WINDOW)
+                        .await
                         .inspect_err(|error| health.setup_failed(error))?;
                     pipe_one_fang_connection(
                         &mut inbound,
@@ -360,6 +361,7 @@ async fn pipe_one_fang_connection(
     )
     .await
     .inspect_err(|error| health.setup_failed(error))?;
+    super::fang_accept::commit_current();
     secure_copy_client_side(inbound, outbound, key).await
 }
 
@@ -568,9 +570,12 @@ pub(crate) async fn connect_authenticated_tcp(
 /// The initiator's TCP connection, with the session liveness settings.
 /// Every address `peer_addr` names is raced inside the 5 s window (Stage46).
 async fn open_tcp(peer_addr: &str) -> io::Result<TcpStream> {
-    let stream = tokio::time::timeout(Duration::from_secs(5), super::dial::connect_tcp(peer_addr))
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "tcp connect timeout"))??;
+    let stream = tokio::time::timeout_at(
+        super::fang_accept::dial_deadline(Duration::from_secs(5)),
+        super::dial::connect_tcp(peer_addr),
+    )
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "tcp connect timeout"))??;
     configure_session_socket(&stream)?;
     Ok(stream)
 }

@@ -100,7 +100,10 @@ pub async fn open_quic_fang(
                 // Evicted (Stage43): the session is dropped and the armed
                 // local socket closes with a reset.
                 slot.serve(async move {
-                    let _reservation = match admission.reserve(0) {
+                    let _reservation = match admission
+                        .reserve_reclaim(0, tokio::time::Instant::now() + hs::READ_WINDOW)
+                        .await
+                    {
                         Ok(reservation) => reservation,
                         Err(error) => {
                             health.setup_failed(&error);
@@ -117,6 +120,7 @@ pub async fn open_quic_fang(
                         }
                     };
                     let _connection_close = CloseClientConnection(connection);
+                    crate::transport::fang_accept::commit_current();
                     let mut tcp = tcp;
                     let _ = proxy_streams(&mut tcp, send, recv).await;
                 })
@@ -241,9 +245,12 @@ impl QuicPeer {
             })
             .await
         };
-        tokio::time::timeout(hs::READ_WINDOW, raced)
-            .await
-            .map_err(|_| hs::no_answer())?
+        tokio::time::timeout_at(
+            crate::transport::fang_accept::dial_deadline(hs::READ_WINDOW),
+            raced,
+        )
+        .await
+        .map_err(|_| hs::no_answer())?
     }
 }
 
