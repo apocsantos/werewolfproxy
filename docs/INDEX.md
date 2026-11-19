@@ -54,7 +54,8 @@ contract is consolidated for the 1.0.0-rc.2 candidate.
 - [Stage53 shared peer-quota fairness](STAGE53_PEER_QUOTA_FAIRNESS_SURVEY.md) (historical baseline reproduction and reviewed admission design)
 - [Stage53 M2 reserved peer-session shares](STAGE53_M2_PEER_QUOTA_ADMISSION.md) (merged runtime and admission/commitment controls)
 - [Stage53 M3 regression](STAGE53_M3_REGRESSION.md) (merged membership, routed contention and transport/resource controls)
-- [Stage54 smaller-share idle admission](STAGE54_IDLE_PEER_SHARE_SURVEY.md) (baseline reproduction and policy proposal for review)
+- [Stage54 smaller-share idle admission](STAGE54_IDLE_PEER_SHARE_SURVEY.md) (merged baseline reproduction and reviewed policy)
+- [Stage54 M2 bounded idle reclamation](STAGE54_M2_IDLE_RECLAMATION.md) (candidate runtime and commitment/cleanup controls)
 
 The current Stage21 release uses the Stage20S-certified dependency graph:
 rustls 0.23.45 and rustls-webpki 0.103.15. Earlier stage reports retain the
