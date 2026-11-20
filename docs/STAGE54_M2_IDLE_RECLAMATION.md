@@ -1,6 +1,9 @@
 # Stage54 M2 — bounded idle reclamation at peer shares
 
-**Status: M2 implemented and locally validated; for review, 2026-11-19.**
+**Status: M2 merged in [PR #171](https://github.com/apocsantos/werewolfproxy/pull/171), 2026-11-20.**
+Merge commit: `a8bcc1266a8c68808cccfcc0cbca6ba0d27ac13a`.
+The [M3 regression record](STAGE54_M3_REGRESSION.md) tracks continuation;
+the validation below retains the reviewed M2 candidate's evidence.
 The owner merged [PR #170](https://github.com/apocsantos/werewolfproxy/pull/170)
 as `4dd8ddaf735084041c8e6f34a2566383138f8494` and instructed continuation.
 The [reviewed design](STAGE54_IDLE_PEER_SHARE_SURVEY.md) decisions
