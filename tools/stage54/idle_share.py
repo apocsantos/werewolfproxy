@@ -70,7 +70,7 @@ def fd_count(lab):
     return len(list(pathlib.Path(f'/proc/{lab.wolves[0].pid}/fd').iterdir()))
 
 
-def scenario(lab, transport, phase):
+def scenario(lab, transport, phase, expectation):
     targets, connections = {}, []
     try:
         targets = {wolf: support.faults.ControlledEcho() for wolf in ('b', 'c', 'd', 'e')}
@@ -136,21 +136,29 @@ def scenario(lab, transport, phase):
                 support.pulse(lab, survivors + newcomer)
                 recovered = None
             else:
-                require(all(p['outcome'] == 'reset' for p in probes),
-                        'smaller-share baseline denial did not reproduce')
-                require(observed == ['open'] * share, 'smaller share evicted an old client')
-                require(targets[wolf].hits == before_hits, 'denied clients reached target')
+                if expectation == 'baseline':
+                    require(all(p['outcome'] == 'reset' for p in probes),
+                            'smaller-share baseline denial did not reproduce')
+                    require(observed == ['open'] * share, 'smaller share evicted an old client')
+                    require(targets[wolf].hits == before_hits, 'denied clients reached target')
+                else:
+                    require(all(p['outcome'] == 'echo' for p in probes),
+                            'smaller-share reclamation did not admit all newcomers')
+                    require(observed.count('reset') == 3 and observed.count('open') == share - 3,
+                            f'smaller share must replace exactly one old client per newcomer: {observed}')
+                    require(targets[wolf].hits - before_hits == 3, 'wrong reclaimed target count')
                 health = next(row for row in lab.fang_list() if row['id'] == owner['id'])
-                require(health['sessions_failed'] == 6 and
+                require(health['sessions_failed'] == (6 if expectation == 'baseline' else 3) and
                         health['last_failure']['class'] == 'dial', health)
                 # Explicitly releasing one slot must recover without reopen.
                 # Probe remaining idle sessions only AFTER observing denial.
-                idle[-1].close()
+                survivors = [conn for conn, state in zip(idle, observed) if state == 'open']
+                survivors.pop().close()
                 support.expect(lab, wolf, share + group['siblings'] - 1)
                 recovered = attempt(owner['port'], newcomer)
-                connections.extend(newcomer)
+                connections.append(newcomer[-1])
                 require(recovered['outcome'] == 'echo', 'release-one recovery failed')
-                support.pulse(lab, idle[:-1] + newcomer)
+                support.pulse(lab, survivors + newcomer)
             authority = support.expect(lab, wolf, share + group['siblings'])
             rows.append({'share': share, 'members': group['members'], 'receiver': wolf,
                          'before_idle_probes': group['before_idle_probes'],
@@ -158,7 +166,8 @@ def scenario(lab, transport, phase):
                          'idle_before_newcomer': share,
                          'after_idle_probes': probes,
                          'old_client_states': dict(collections.Counter(observed)),
-                         'newcomer_payload_streams': 1 if share == 64 else 0,
+                         'newcomer_payload_streams': (1 if share == 64 else
+                                                     0 if expectation == 'baseline' else 3),
                          'release_one_recovery': recovered,
                          'after_authority': authority})
         support.pulse(lab, controls)
@@ -190,6 +199,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('transports', nargs='*')
     parser.add_argument('--rounds', type=int, default=3)
+    parser.add_argument('--expect', choices=('baseline', 'reclaimed'), default='baseline')
     parser.add_argument('--out', type=pathlib.Path, required=True)
     args = parser.parse_args()
     transports = args.transports or ('quic', 'tcp')
@@ -199,7 +209,7 @@ def main():
         handle.write('{}\n')
     os.umask(0o077)
     source = inputs()
-    document = {'expectation': 'baseline-limitation', 'status': 'RUNNING',
+    document = {'expectation': args.expect, 'status': 'RUNNING',
                 'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
                                                   text=True).strip(),
                 'source_inputs': source, 'rows': []}
@@ -214,7 +224,8 @@ def main():
                 checkpoint(args.out, document)
                 print(json.dumps(document['running']), flush=True)
             try:
-                row.update(scenario(lab, transport, phase), status='REPRODUCED')
+                row.update(scenario(lab, transport, phase, args.expect),
+                           status='REPRODUCED' if args.expect == 'baseline' else 'PASS')
                 source_guard(source)
             except Exception as exc:
                 row.update(status='FAIL', error=f'{type(exc).__name__}: {exc}',
@@ -238,7 +249,7 @@ def main():
                 document['status'] = 'FAIL'
                 checkpoint(args.out, document)
                 return 1
-    document['status'] = 'REPRODUCED'
+    document['status'] = 'REPRODUCED' if args.expect == 'baseline' else 'PASS'
     checkpoint(args.out, document)
     return 0
 

@@ -67,7 +67,23 @@ struct Member {
 pub(crate) struct Reservation {
     membership: Membership,
     plan: usize,
+    session: Option<super::fang_accept::Registration>,
 }
+
+/// Actual live attempt keys, never the union of unused alternatives.
+pub(crate) struct Demand {
+    membership: Membership,
+    plan: usize,
+}
+
+#[derive(Debug)]
+struct CapacityDenied;
+impl fmt::Display for CapacityDenied {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("dial failed locally: local peer-session share exhausted")
+    }
+}
+impl std::error::Error for CapacityDenied {}
 
 impl Coordinator {
     /// Register the union of all potential paths atomically. Plain TCP does
@@ -136,10 +152,7 @@ fn unavailable() -> io::Error {
     io::Error::other(RegistrationError::Unavailable)
 }
 fn denied() -> io::Error {
-    hs::local_dial_failed(io::Error::new(
-        io::ErrorKind::WouldBlock,
-        "local peer-session share exhausted",
-    ))
+    io::Error::new(io::ErrorKind::AddrNotAvailable, CapacityDenied)
 }
 
 impl Membership {
@@ -169,15 +182,115 @@ impl Membership {
                 .get_mut(&member.serial)
                 .expect("checked member") += 1;
         }
-        Ok(Reservation {
+        // Never acquire a Fang registry while holding the coordinator:
+        // reclamation and committed release use registry -> coordinator.
+        drop(state);
+        let mut reservation = Reservation {
             membership: self.clone(),
             plan,
-        })
+            session: None,
+        };
+        if let Some(session) = super::fang_accept::Session::current() {
+            reservation.session = Some(session.attach(Demand {
+                membership: self.clone(),
+                plan,
+            })?);
+        }
+        Ok(reservation)
+    }
+
+    /// One useful idle victim, at most once per newcomer. A real release
+    /// wakes this waiter; capacity is never credited before cleanup.
+    pub(crate) async fn reserve_reclaim(
+        &self,
+        plan: usize,
+        deadline: tokio::time::Instant,
+    ) -> io::Result<Reservation> {
+        use super::fang_accept::{Session, EVICT_WAIT};
+        use tokio::time::Instant;
+        let began = Instant::now();
+        if began >= deadline {
+            return Err(hs::no_answer());
+        }
+        let session = Session::current();
+        if let Some(session) = &session {
+            session.clear_first_dial()?;
+        }
+        let error = match self.reserve(plan) {
+            Ok(reservation) => return Ok(reservation),
+            Err(error) => error,
+        };
+        if !error
+            .get_ref()
+            .is_some_and(|error| error.is::<CapacityDenied>())
+        {
+            return Err(error);
+        }
+        let Some(session) = session else {
+            return Err(error);
+        };
+        let dial_deadline = deadline.min(began + hs::READ_WINDOW);
+        let release_deadline = dial_deadline.min(began + EVICT_WAIT);
+        let Some(victim) = session.reclaim(
+            |held| held.permits_replacement(self, plan),
+            release_deadline,
+        ) else {
+            return Err(error);
+        };
+        if !victim.wait(release_deadline).await || Instant::now() >= dial_deadline {
+            return Err(error);
+        }
+        session.charge_first_dial(dial_deadline)?;
+        self.reserve(plan)
     }
 }
 
-impl Drop for Reservation {
-    fn drop(&mut self) {
+impl Demand {
+    fn permits_replacement(&self, requested: &Membership, plan: usize) -> bool {
+        // A Fang registry is already held. This is the only nested lock
+        // direction; a reservation removes its metadata before releasing.
+        if !Arc::ptr_eq(&self.membership.0, &requested.0) {
+            return false;
+        }
+        let member = &requested.0;
+        let Some(keys) = member.plans.get(plan) else {
+            return false;
+        };
+        let Some(held) = member.plans.get(self.plan) else {
+            return false;
+        };
+        let Ok(state) = member.coordinator.0.lock() else {
+            return false;
+        };
+        let mut pressure = false;
+        let fits_after_release = keys.iter().all(|key| {
+            let Some(peer) = state.peers.get(key) else {
+                return false;
+            };
+            let Some(position) = peer.members.keys().position(|id| *id == member.serial) else {
+                return false;
+            };
+            let share =
+                BUDGET / peer.members.len() + usize::from(position < BUDGET % peer.members.len());
+            pressure |= peer.used >= BUDGET || peer.members[&member.serial] >= share;
+            let release = usize::from(held.contains(key));
+            match (
+                peer.used.checked_sub(release),
+                peer.members[&member.serial].checked_sub(release),
+            ) {
+                (Some(total), Some(own)) => total < BUDGET && own < share,
+                _ => false,
+            }
+        });
+        // Another session can release capacity after the original denial.
+        // An already-admissible plan has no useful eviction victim, even
+        // if subtracting an unrelated reservation would also leave it free.
+        pressure && fits_after_release
+    }
+}
+
+impl Reservation {
+    fn release_usage(&self) {
         let member = &self.membership.0;
         // Poisoning fails future admission closed. Do not grant capacity by
         // guessing at possibly damaged state during unwinding.
@@ -190,6 +303,16 @@ impl Drop for Reservation {
                     .get_mut(&member.serial)
                     .expect("live reservation member") -= 1;
             }
+        }
+    }
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        if let Some(session) = &self.session {
+            session.release(|| self.release_usage());
+        } else {
+            self.release_usage();
         }
     }
 }

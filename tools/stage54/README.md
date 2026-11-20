@@ -54,3 +54,34 @@ Fangs. Routed/failover reclamation, membership changes during reclamation,
 non-loopback source limits, WANs and performance comparisons are not
 measured. The [policy proposal](../../docs/STAGE54_IDLE_PEER_SHARE_SURVEY.md)
 separates these observations from implementation choices requiring review.
+
+## Stage54 candidate reclamation and providers
+
+```sh
+python3 -B tools/stage54/idle_share.py --expect reclaimed --rounds 3 \
+  --out target/stage54-m2/idle-shares.json
+python3 -B tools/stage54/providers.py \
+  --out target/stage54-m2/idle-providers.json
+```
+
+The original default `--expect baseline` preserves the M1 denial checks.
+`--expect reclaimed` instead requires three smaller-share newcomers to
+echo after 65 s, each replacing exactly one old idle client. All earlier
+pre-threshold, independent/sibling, release-one and cleanup controls remain.
+
+`providers.py` accepts optional positional paths `quic`, `tcp`,
+`routed-quic`, `routed-tcp` (default: all). A primary with 32 recently
+active sessions must use fallback for its next client. After 65 s with
+only fallback/independent controls active, three new clients must reclaim
+idle primary sessions, with exactly three old resets and zero additional
+fallback payload streams. A primary target fault must reset all 32
+committed primary clients without replay, keep the existing fallback
+healthy, then recover the primary without reopen. Independent new/held
+clients, zero final authority, descriptor and target-handler drain,
+owned-process and private-directory cleanup are required.
+
+The same disposable lab and permissions apply. No resolver interposition,
+namespace or installed-node operations are used. Output paths must be new;
+unexpected results, source changes, guards and cleanup failures return
+nonzero and are retained. These M2 controls do not replace the broader
+regression listed in the [implementation record](../../docs/STAGE54_M2_IDLE_RECLAMATION.md).

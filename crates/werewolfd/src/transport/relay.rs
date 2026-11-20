@@ -208,7 +208,9 @@ pub(crate) async fn run_routed_forwarder(
             let (established_tx, mut established) = tokio::sync::oneshot::channel();
             let result = slot
                 .serve(async {
-                    let _reservation = admission.reserve(0)?;
+                    let _reservation = admission
+                        .reserve_reclaim(0, tokio::time::Instant::now() + hs::READ_WINDOW)
+                        .await?;
                     routed_session(
                         &mut inbound,
                         &routed,
@@ -406,6 +408,7 @@ where
 {
     let mut tls = connect_authenticated_over(carrier, routed.destination.ip(), destination).await?;
     let key = client_handshake(&mut tls, remote, identity, destination).await?;
+    super::fang_accept::commit_current();
     if let Some(established) = established {
         let _ = established.send(());
     }

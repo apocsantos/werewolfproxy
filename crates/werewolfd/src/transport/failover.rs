@@ -250,7 +250,11 @@ async fn select_and_serve(
     let mut class = FailureClass::Dial;
     let mut errors = Vec::new();
     for (index, ready) in providers.iter().enumerate() {
-        let _reservation = match admission.reserve(index) {
+        if Instant::now() >= deadline {
+            errors.push(format!("{}: selection window ended", ready.provider.peer));
+            break;
+        }
+        let _reservation = match admission.reserve_reclaim(index, deadline).await {
             Ok(reservation) => reservation,
             Err(error) => {
                 errors.push(format!("{}: {error}", ready.provider.peer));
@@ -315,6 +319,7 @@ async fn attempt(
                 SetupRetry::NotAConnectTimeout,
             )
             .await?;
+            super::fang_accept::commit_current();
             let _ = established.send(());
             secure_copy_client_side(inbound, outbound, key).await
         }
@@ -322,6 +327,7 @@ async fn attempt(
             let (connection, send, recv) =
                 connect_v3_on(peer, &provider.remote, identity, &provider.expected).await?;
             let _close = CloseClientConnection(connection);
+            super::fang_accept::commit_current();
             let _ = established.send(());
             proxy_streams(inbound, send, recv)
                 .await

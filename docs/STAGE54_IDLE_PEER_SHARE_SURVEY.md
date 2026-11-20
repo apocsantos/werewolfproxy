@@ -1,5 +1,11 @@
 # Stage54 — idle sessions at reserved peer shares
 
+**Implementation note:** the owner merged this design in PR #170
+(`4dd8dda`) and instructed continuation. S54-D0–D6 are applied as
+recommended in the [M2 record](STAGE54_M2_IDLE_RECLAMATION.md), including
+I2's idle-primary-before-fallback choice. The baseline, proposal and M1
+validation wording below retain their original pre-implementation scope.
+
 **Status: M1 reproduction and policy proposal for review, 2026-11-19.**
 The owner authorised the next reproduction/design step after
 [Stage53 closure](STAGE53_CLOSURE.md). This step changes only a disposable

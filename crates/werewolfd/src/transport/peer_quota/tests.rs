@@ -248,3 +248,41 @@ fn concurrent_attempts_cannot_exceed_either_share_or_total() {
     drop(members);
     assert!(coordinator.0.lock().unwrap().peers.is_empty());
 }
+
+#[test]
+fn freed_capacity_does_not_make_an_idle_victim_useful() {
+    for limit in [32, 64] {
+        let coordinator = Arc::new(Coordinator::default());
+        let a = identity();
+        let b = identity();
+        let member = coordinator.register(vec![vec![&a], vec![&b]]).unwrap();
+        let _sibling = (limit == 32).then(|| coordinator.register(vec![vec![&a]]).unwrap());
+        let mut held_a = fill(&member, 0, limit);
+        let _held_b = member.reserve(1).unwrap();
+        let idle_a = Demand {
+            membership: member.clone(),
+            plan: 0,
+        };
+        let idle_b = Demand {
+            membership: member.clone(),
+            plan: 1,
+        };
+        assert!(member.reserve(0).is_err());
+        assert!(idle_a.permits_replacement(&member, 0));
+        assert!(!idle_b.permits_replacement(&member, 0));
+
+        // Another connection releases A between the initial denial and
+        // candidate selection. At that snapshot the attempt already fits:
+        // neither its own A session nor an unrelated idle B is useful.
+        held_a.pop();
+        assert!(member.reserve(0).is_ok());
+        assert!(
+            !idle_b.permits_replacement(&member, 0),
+            "already-free capacity must not select an unrelated provider victim"
+        );
+        assert!(
+            !idle_a.permits_replacement(&member, 0),
+            "already-free capacity must not select even a same-provider victim"
+        );
+    }
+}

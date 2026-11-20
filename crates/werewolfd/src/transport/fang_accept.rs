@@ -15,8 +15,9 @@
 //!
 //! - **Idle eviction.** When a Fang is full, its longest-idle connection is
 //!   ended to admit the newcomer, if no byte has passed on it in either
-//!   direction for [`IDLE_EVICT_AFTER`]. A Fang under its ceiling never
-//!   evicts. Activity is recorded by [`Tracked`] on the local side of the
+//!   direction for [`IDLE_EVICT_AFTER`]. Stage54 also permits one useful
+//!   own-Fang idle replacement under local peer-share pressure. Activity
+//!   is recorded by [`Tracked`] on the local side of the
 //!   copy paths, through a task-local set by [`FangSlot::serve`].
 //! - **Per-source share.** At most [`SOURCE_SHARE`] of a Fang's slots per
 //!   non-loopback source: an IPv4 address, or an IPv6 /64 (Stage44 V2), the
@@ -63,7 +64,7 @@ pub(crate) const SOURCE_SHARE: usize = 16;
 /// IPv6 sources share by /64: the low 64 bits are ignored (Stage44 V2).
 const IPV6_SHARE_HOST_BITS: u32 = 64;
 /// How long a newcomer waits for an evicted connection to release its slot.
-const EVICT_WAIT: Duration = Duration::from_secs(1);
+pub(crate) const EVICT_WAIT: Duration = Duration::from_secs(1);
 /// At most one log line per event kind per Fang in this interval.
 const LOG_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -170,6 +171,7 @@ struct Entry {
     evict: Arc<Notify>,
     source: Option<IpAddr>,
     evicting: bool,
+    reservation: Option<session::LiveReservation>,
 }
 
 /// The open connections of one Fang (at most its ceiling, 64).
@@ -177,6 +179,7 @@ struct Entry {
 struct Registry {
     next: u64,
     entries: HashMap<u64, Entry>,
+    peer_evictions: Option<RateLimitedLog>,
 }
 
 impl Registry {
@@ -218,6 +221,7 @@ pub(crate) struct FangSlot {
     registry: Arc<Mutex<Registry>>,
     activity: Arc<Activity>,
     evict: Arc<Notify>,
+    session: Session,
 }
 
 impl FangSlot {
@@ -227,12 +231,15 @@ impl FangSlot {
     pub(crate) async fn serve<F: Future>(self, session: F) -> Option<F::Output> {
         let evict = self.evict.clone();
         ACTIVITY
-            .scope(self.activity.clone(), async move {
-                tokio::select! {
-                    output = session => Some(output),
-                    _ = evict.notified() => None,
-                }
-            })
+            .scope(
+                self.activity.clone(),
+                session::scope(self.session.clone(), async move {
+                    tokio::select! {
+                        output = session => Some(output),
+                        _ = evict.notified() => None,
+                    }
+                }),
+            )
             .await
     }
 }
@@ -336,6 +343,7 @@ pub(crate) struct FangAcceptor {
     global: Arc<Semaphore>,
     policy: Policy,
     registry: Arc<Mutex<Registry>>,
+    peer_reclaim: Arc<Semaphore>,
     accept_errors: RateLimitedLog,
     over_ceiling: RateLimitedLog,
     over_share: RateLimitedLog,
@@ -376,6 +384,7 @@ impl FangAcceptor {
             global,
             policy,
             registry: Arc::default(),
+            peer_reclaim: Arc::new(Semaphore::new(1)),
             accept_errors: RateLimitedLog::new("accept failed, retrying"),
             over_ceiling: RateLimitedLog::new("connection ceiling reached, connection reset"),
             over_share: RateLimitedLog::new("source address at its share, connection reset"),
@@ -423,7 +432,7 @@ impl FangAcceptor {
         }
         let fang = match self.per_fang.clone().try_acquire_owned() {
             Ok(permit) => permit,
-            Err(_) => self.evict_for(address, evicted).await?,
+            Err(_) => self.evict_for(address, &mut evicted).await?,
         };
         let Ok(global) = self.global.clone().try_acquire_owned() else {
             self.over_ceiling.event(&self.fang, &address);
@@ -441,6 +450,7 @@ impl FangAcceptor {
                 evict: evict.clone(),
                 source,
                 evicting: false,
+                reservation: None,
             },
         );
         drop(registry);
@@ -451,6 +461,14 @@ impl FangAcceptor {
             registry: self.registry.clone(),
             activity,
             evict,
+            session: Session::new(
+                id,
+                self.registry.clone(),
+                self.peer_reclaim.clone(),
+                self.fang.clone(),
+                self.policy.idle_evict_after,
+                evicted.is_some(),
+            ),
         })
     }
 
@@ -460,7 +478,7 @@ impl FangAcceptor {
     async fn evict_for(
         &mut self,
         address: SocketAddr,
-        evicted: Option<Duration>,
+        evicted: &mut Option<Duration>,
     ) -> Option<OwnedSemaphorePermit> {
         if evicted.is_none() {
             let Some(idle) = self
@@ -471,6 +489,7 @@ impl FangAcceptor {
                 return None;
             };
             self.log_eviction(idle, address);
+            *evicted = Some(idle);
         }
         match tokio::time::timeout(EVICT_WAIT, self.per_fang.clone().acquire_owned()).await {
             Ok(Ok(permit)) => Some(permit),
@@ -504,3 +523,6 @@ fn reset(stream: TcpStream) {
 
 #[cfg(test)]
 mod tests;
+
+mod session;
+pub(crate) use session::{commit_current, dial_deadline, Registration, Session};
