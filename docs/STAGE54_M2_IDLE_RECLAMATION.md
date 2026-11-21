@@ -194,12 +194,11 @@ local records are not committed release artifacts or private identities.
 
 ## Remaining work and boundaries
 
-M3 remains the broader regression required by the reviewed design:
-22-slot remainder, mixed paths, recent activity, non-loopback sources,
-half-close, over-share and membership changes, common relay/destination
-constraints, concurrent pressure/slow cleanup, resolver faults,
-address/refusal/resource controls and S2/S3/S4/S7 P0. M4 limitations and
-closure follow that reviewed evidence. M2 does not claim universal
+The broader regression required by the reviewed design is now recorded
+in [M3](STAGE54_M3_REGRESSION.md), with native boundaries and the distinct
+unit-level membership-during-wait/slow-cleanup checks identified there.
+M3 results await owner review; M4 limitations and closure follow that
+reviewed evidence. M2 does not claim universal
 fairness, admission after every attempted reclamation, per-user shares
 or service during active saturation.
 
