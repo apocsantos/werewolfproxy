@@ -1,6 +1,6 @@
 # Stage55 — idle admission at the daemon-wide Fang ceiling
 
-**Status: M1 reproduction and policy proposal in validation, 2026-11-21.**
+**Status: M1 baseline reproduced; policy proposal for review, 2026-11-21.**
 After owner-merged [Stage54 closure](STAGE54_CLOSURE.md), the next bounded
 inspection found a separate admission boundary. Baseline `main`:
 `9b216649d706ea70288717ff48ed15a320d49a1e` (PR #173). This step adds a
@@ -59,13 +59,57 @@ All 1024 surviving clients echo before complete cleanup and descriptor drain.
 | Claim | Evidence level and boundary |
 |---|---|
 | Global denial precedes authenticated peer reclamation | Confirmed source ordering in the shared acceptor and transport callers |
-| Plain-TCP idle global denial with production caps | Native reproduction; final three-round results recorded after validation |
+| Plain-TCP idle global denial with production caps | Confirmed in all three fresh native labs below |
 | Target health, existing local idle eviction and release recovery | Native positive controls in the same saturated lab |
 | Equivalent full-cap secure/routed/failover outcomes | Supported by shared code; **not natively measured by this matrix** |
 | New global-trigger policy is correct or universally admits clients | Not established; requires review, implementation and regression |
 
-The smoke run reproduced the expected boundary and passed cleanup. The
-fresh fixed-source matrix and full local CI are separate final validation.
+### Results and provenance
+
+**CONFIRMED in three fresh plain-TCP labs** on fixed fixture/source commit
+`b743877efd0263554b104b5408a635ec4d6c6c48`, with the runtime unchanged from
+`9b21664`. The matrix worker and overall validation manager both exited
+**0**; `REPRODUCED` means the expected baseline denial was observed.
+
+| Observation | Result in all three rounds |
+|---|---|
+| Held workload | 30 × 32 + 64 = **1024** echoed sessions; extra empty Fang holds none |
+| Idle interval | At least **65 monotonic seconds** per lab; all 1024 old clients remain open before demand |
+| Owner holding 32, after idle | All **nine** newcomers across three labs reset; no old victim and zero target payload growth |
+| Empty Fang, after idle | All **nine** newcomers reset; no sibling victim or target payload growth |
+| Full local 64 positive control | All **three** newcomers echo, each resets exactly one old client in that Fang; all other Fangs' 960 clients survive |
+| Global total after replacement | Still 1024; all three further probes through the 32-owner reset |
+| Release one different Fang's slot | All three recover through the 32-owner without another victim; **1024 surviving clients echo** in each lab |
+| Descriptors / idle CPU | Initiator **16 → 2096 → 16**, below its 4096 limit; two-second idle CPU **0.0%** in each lab |
+| Targets / survival / cleanup | Target streams drain to zero, both daemons survive and every owned process/private directory is removed |
+
+Each lab records exactly **1026** target payload streams: the original
+1024, the local-full positive control and the explicit-release recovery.
+The **six** pre-idle probes also reset as expected. The production global
+cap and the absence of descriptor exhaustion are checked together; there
+is no lowered-cap or abbreviated-idle substitute.
+
+Evidence root: `target/stage55-m1/`. The matrix records all **318** source
+input hashes, actual client outcomes/timings, descriptor/CPU samples,
+target counts and cleanup. `verified.json` checks the scenario results and
+retains worker commands, source/driver/helper hashes and actual exits;
+`manager-result.json` records observation of the native overall exit 0.
+The matrix worker completed in **214.9 s**. Native debug daemon SHA-256:
+`6183b3155cb5613b8be193dbbebac2a7a425f713477748b72ddffbe86870f43b`.
+Lockfile SHA-256:
+`411ef3b496dfd8c21f97eb2285d55bd0d12ae604436acfdfa16044e80a0d91d0`.
+The separate development smoke exited 0 with the same assertions and
+cleanup; no failed smoke, failed campaign worker or silent rerun occurred.
+These ignored evidence files are not release artifacts or private identities.
+
+Full disposable local CI passes **13/13**, all actual gate exits and the
+overall manager exit 0, at `target/ci-local/20261121T231650Z/summary.tsv`
+(**342.4 s**), including all **68** Python tests and a fresh advisory audit.
+The fixture and four Markdown files stayed fixed through the matrix and
+full CI; final result notes followed afterward. All 318 source hashes,
+all **88** local document links and whitespace checks pass. Existing
+runtime, tests/gates, dependencies, scripts, workflows and release inputs
+remain unchanged. No separate local Rust/proof/chaos campaign is claimed.
 
 ## Policy choices
 
@@ -77,7 +121,13 @@ fresh fixed-source matrix and full local CI are separate final validation.
 | G3 — repartition global slots among Fangs | New membership/utilisation policy and late-activation rules; substantially broader than this boundary, not recommended |
 
 Recommend **G1** if the owner wants to address the measured boundary.
-G0 remains a valid explicit choice. G1 should retain these constraints:
+G0 remains a valid explicit choice.
+
+G1 deliberately leaves an empty Fang without a reclaimable victim when
+siblings occupy global capacity. It improves a loaded Fang's own admission;
+it does not establish global fairness between Fangs or users.
+
+G1 should retain these constraints:
 
 - Trigger on actual current global exhaustion, with local admission room;
   recheck pressure before marking so an already-free slot does not cause
