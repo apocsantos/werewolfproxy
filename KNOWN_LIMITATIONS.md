@@ -120,6 +120,15 @@ and archive have not been rewritten, patched or recertified.
   [M3](docs/STAGE53_M3_REGRESSION.md) and the
   [closure record](docs/STAGE53_CLOSURE.md). This is local admission
   validation, not a WAN, throughput or comparative liveness claim.
+- **Stage54, local disposable fixtures**: 64/32/21 idle shares, the mixed
+  22-slot remainder, recent/active protection, half-close, late over-share
+  activation, common relay/destination pressure and provider victim budgets.
+  All 24 new boundary/routed/source labs, six share labs and four provider
+  paths pass; all 31 campaign workers and 12 hosted checks pass. See
+  [M3](docs/STAGE54_M3_REGRESSION.md) and the
+  [closure record](docs/STAGE54_CLOSURE.md). Membership-during-wait and
+  slow cleanup have deterministic unit coverage. No WAN or comparative
+  performance certification follows; frozen archives remain unchanged.
 - **Not run:** the Stage32 impairments over a real WAN; IPv6 on a real
   network (router advertisements, path MTU, a WAN) or with the Stage32
   impairments; real host
@@ -250,7 +259,9 @@ Found by Stage43 ([M1](docs/STAGE43_M1_FAIRNESS_REPRODUCTION.md)):
     address, and active connections are never evicted;
   - while a Fang is full, a legitimate session idle for 60 s or more (an
     idle SSH session, say) can be ended to admit a newcomer. A Fang
-    under its local and applicable per-source ceilings never evicts;
+    under its local and applicable per-source ceilings did not evict under
+    Stage43 alone. Stage54 (below) adds one useful own-Fang idle replacement
+    on authenticated peer-share pressure, including below those ceilings;
   - Fangs to the same peer shared that peer's 64-session quota first come,
     first served (S43-D4). Stage53 (below) replaces this local admission
     policy on `main` with reserved shares;
@@ -572,12 +583,11 @@ Found by Stage53 ([reproduction and design](docs/STAGE53_PEER_QUOTA_FAIRNESS_SUR
     receiver prevents activation with `FANG_PEER_CAPACITY`; preparations and
     retiring work count toward this bound;
   - late activation preserves existing sessions above their recalculated
-    share. It cannot reclaim their capacity or guarantee admission until
-    they release slots. There is no active-session preemption or queue;
-  - idle eviction still runs at the local Fang ceiling or an applicable
-    per-source ceiling. Exhausting only a smaller peer share (32 or 21)
-    does not invoke it. This is code-derived; M3's Stage43 controls use
-    one Fang with 64 slots and do not measure smaller-share idle eviction;
+    share. It does not force rebalance or guarantee admission while that
+    capacity is occupied. There is no active-session preemption or queue;
+  - Stage53 alone did not invoke idle eviction on smaller-share exhaustion.
+    Stage54 (below) adds bounded replacement only when one own-Fang idle
+    victim would make the current attempt admissible;
   - this coordinates one daemon's authenticated outgoing Fangs, not local
     users, other processes using the same key, RPCs or remote pressure.
     Receiver lease release may lag local cleanup. The local 64 budget is
@@ -590,6 +600,51 @@ Found by Stage53 ([reproduction and design](docs/STAGE53_PEER_QUOTA_FAIRNESS_SUR
     zero extra fallback payload streams after committed failure, not zero
     empty handshakes. No universal fairness or saturation-service
     guarantee follows.
+
+Found by Stage54 ([reproduction and design](docs/STAGE54_IDLE_PEER_SHARE_SURVEY.md)):
+
+- after Stage53, one Fang could retain its 32- or 21-slot peer share with
+  idle sessions and deny newcomers indefinitely while staying below its
+  local/source ceiling. M1 reproduced this over QUIC and encrypted TCP.
+
+  Fixed on `main` after rc.2 ([M2](docs/STAGE54_M2_IDLE_RECLAMATION.md),
+  owner-merged PR #171, `a8bcc12`): a typed local peer-capacity denial may
+  replace one committed session in the same Fang, idle for at least 60 s,
+  whose actual receiver keys make one release useful for the current
+  attempt. Current pressure and activity are rechecked before marking.
+  Real cleanup must release quota; one nonblocking operation per Fang
+  waits at most 1 s within existing deadlines. The one-victim budget is
+  shared with local/source eviction and all provider attempts.
+
+  Eligible idle primary capacity is reclaimed before using a free fallback;
+  active primary saturation retains fallback. After verified destination
+  ACK there is no provider retry or payload replay. Owner-merged
+  [M3](docs/STAGE54_M3_REGRESSION.md) (PR #172, `4ff2fee`) records 497 Rust
+  tests, 34 Stage54 native labs, the broader regression, 13/13 local CI
+  gates and all 12 hosted checks passing. See the
+  [closure](docs/STAGE54_CLOSURE.md). Frozen rc.1/rc.2 archives are unchanged.
+
+  **What remains:**
+
+  - a legitimate SSH/database session idle for 60 s may reset below the
+    local 64-slot ceiling. Transport keep-alives do not protect it as
+    payload activity; sampling/rechecking cannot guarantee application
+    idleness against bytes racing cancellation;
+  - reclaiming one victim does not guarantee admission. Slow cleanup,
+    changing membership or competing capacity can still deny the newcomer.
+    A source eviction may consume its budget before peer quota is released;
+    that client can reset, then a later client recover in the released slot;
+  - no idle expiry timer, borrowing, multi-victim rebalance, active-session
+    preemption or queue is added. If one release cannot fit an over-share
+    attempt, peer reclamation chooses no victim. Unused memberships remain
+    reserved until owned work ends;
+  - this remains daemon-local admission, not per-user fairness or protection
+    from active floods, independent daemons, RPCs or remote saturation.
+    Local release does not establish remote availability;
+  - the measured source addresses and routes are confined to local labs.
+    Native half-close release is measured through target-handler identities;
+    exact membership/slow-cleanup wait injection is unit-only. No WAN,
+    throughput, comparative liveness or universal admission claim follows.
 
 ## Discovery, services and routing
 

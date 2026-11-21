@@ -5,6 +5,9 @@
 recommended in the [M2 record](STAGE54_M2_IDLE_RECLAMATION.md), including
 I2's idle-primary-before-fallback choice. The baseline, proposal and M1
 validation wording below retain their original pre-implementation scope.
+Implementation and broader regression are owner-merged in PRs #171/#172;
+the [closure record](STAGE54_CLOSURE.md) gives delivery, validated outcomes
+and remaining compatibility limits. The proposal language below is historical.
 
 **Status: M1 reproduction and policy proposal for review, 2026-11-19.**
 The owner authorised the next reproduction/design step after

@@ -1,13 +1,16 @@
 # Stage54 M3 — idle-reclamation regression
 
-**Status: M3 complete and locally validated; for review, 2026-11-21.** The owner merged
+**Status: M3 merged in [PR #172](https://github.com/apocsantos/werewolfproxy/pull/172), 2026-11-21.**
+Merge commit: `4ff2feef7191e5a0f476cc3820aee2bb66b58951`.
+The [M4 closure](STAGE54_CLOSURE.md) records delivery and remaining limits;
+the validation below retains the reviewed M3 source's evidence. The owner merged
 [PR #171](https://github.com/apocsantos/werewolfproxy/pull/171) as
 `a8bcc1266a8c68808cccfcc0cbca6ba0d27ac13a` on 2026-11-20 and instructed
 continuation. M3 preserves that runtime, dependencies, existing tests,
 gate definitions, workflows and release inputs. The
 [reviewed design](STAGE54_IDLE_PEER_SHARE_SURVEY.md) and
 [M2 implementation](STAGE54_M2_IDLE_RECLAMATION.md) define the contract.
-Stage54 closure follows reviewed M3 results in M4.
+Stage54 closure is documented separately in M4.
 
 Fixed fixture and campaign source commit:
 `4b48bb5b3ff2473684ce9e9c2875bd97560c1028`.

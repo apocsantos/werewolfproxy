@@ -93,7 +93,8 @@ neither changing a message:
 
 ## Idle sessions and liveness
 
-An idle Fang session stays open while the path and peer are alive:
+Transport liveness keeps an idle session alive while the path and peer
+respond, subject to the local admission rules below:
 
 - **QUIC:** the initiator sends a keep-alive PING after 10 s of silence
   (`quic_fang.rs`). The 30 s idle timeout still applies, so a dead path
@@ -108,6 +109,16 @@ about 30 s on QUIC (Stage16: no keep-alive) and 60 s on encrypted TCP (a
 per-frame read timeout), which broke idle interactive sessions such as SSH.
 Keep-alive PINGs and TCP probes are additional observable traffic; they do
 not change any frame format or handshake.
+
+On development `main` after rc.2, Stage43's local/source pressure rule
+can reset an idle client after 60 s without payload activity. Stage54 also
+permits one useful committed own-Fang replacement on authenticated peer-share
+pressure, even below 64 local slots. Transport keep-alives do not count as
+payload activity. There is no automatic expiry at 60 s; a newcomer must
+encounter applicable pressure. One victim is shared across local, source
+and peer triggers; cleanup/capacity races can still deny admission.
+See the [Stage54 closure](docs/STAGE54_CLOSURE.md) and
+[current limitations](KNOWN_LIMITATIONS.md). Frozen archives are unchanged.
 
 Stage32 certified these limits under impairment: a session whose data
 stays unacknowledged for 60 s (encrypted TCP) or that hears nothing for
