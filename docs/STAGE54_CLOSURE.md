@@ -1,6 +1,9 @@
 # Stage54 — bounded idle peer-share reclamation closure
 
-**Status: M1–M3 merged; M4 closure for review, 2026-11-21.** The owner
+**Status: Stage54 CLOSED; M1–M4 owner-merged, 2026-11-21.**
+The owner merged [M4 PR #173](https://github.com/apocsantos/werewolfproxy/pull/173)
+as `9b216649d706ea70288717ff48ed15a320d49a1e`. The validation and
+baseline below retain the M4 handoff's original scope. The owner
 merged the reviewed contract, implementation and regression, then
 instructed continuation. This documentation step starts from merged
 `main` `4ff2feef7191e5a0f476cc3820aee2bb66b58951`.
@@ -144,7 +147,7 @@ actual worker/manager exits and final verification.
 The [current limitations](../KNOWN_LIMITATIONS.md), [status](STATUS.md)
 and [transport overview](../TRANSPORT_ARCHITECTURE.md) now describe the
 implemented policy and its compatibility cost. M1–M3 deliver the approved
-runtime and regression; M4 is the documentation closure handoff for review.
+runtime and regression; M4's documentation closure is owner-merged.
 No further runtime work is required by the approved Stage54 scope.
 
 Frozen rc.1/rc.2 artifacts, S3-P2/S2-P4 exclusions, Stage38 closure,
