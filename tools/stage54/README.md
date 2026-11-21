@@ -85,3 +85,37 @@ namespace or installed-node operations are used. Output paths must be new;
 unexpected results, source changes, guards and cleanup failures return
 nonzero and are retained. These M2 controls do not replace the broader
 regression listed in the [implementation record](../../docs/STAGE54_M2_IDLE_RECLAMATION.md).
+
+## M3 broader regression
+
+```sh
+python3 -B tools/stage54/regression.py boundary-quic boundary-tcp \
+  --rounds 3 --out target/stage54-m3/idle-boundaries.json
+python3 -B tools/stage54/regression.py \
+  relay-quic relay-tcp destination-quic destination-tcp \
+  --rounds 3 --out target/stage54-m3/idle-routes.json
+python3 -B tools/stage54/regression.py source-quic source-tcp \
+  --rounds 3 --out target/stage54-m3/idle-sources.json
+```
+
+Optional cases default to all eight; `--rounds` defaults to three.
+Run sequentially with other native labs. Source cases require Linux
+user/mount/network namespace privileges and create a private root, a
+512 MiB `/tmp`, and `10.54.0.1–4/32` on their own loopback interface.
+There are no host network changes. Other cases need the same protected
+filesystem permissions as the existing lab.
+
+Boundary cases combine a 22-slot mixed-transport share, active/recent
+protection, late over-share activation/shrink, a peer-first shared victim
+budget across two providers, and target-first half-close. Routed cases
+test common-relay/destination pressure, twelve concurrent idle newcomers,
+and 600 active-pressure denials with bounded health/log counts. Source
+cases combine source/peer pressure and a source-first provider victim
+budget. Every case uses a full 65-second idle observation and independent
+held/new controls, then requires zero receiver authority, target-handler
+and descriptor drain, low idle CPU, daemon survival and private cleanup.
+
+All output paths must be new. Rows/phases checkpoint atomically and a
+failed row stops the matrix. Input hashes and the checkout-built daemon
+hash accompany results. See the [M3 record](../../docs/STAGE54_M3_REGRESSION.md)
+for precise expectations, regression scope and timing limitations.
