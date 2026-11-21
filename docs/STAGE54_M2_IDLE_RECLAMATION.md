@@ -197,8 +197,8 @@ local records are not committed release artifacts or private identities.
 The broader regression required by the reviewed design is now recorded
 in [M3](STAGE54_M3_REGRESSION.md), with native boundaries and the distinct
 unit-level membership-during-wait/slow-cleanup checks identified there.
-M3 results await owner review; M4 limitations and closure follow that
-reviewed evidence. M2 does not claim universal
+M3 is owner-merged in PR #172; the [M4 closure](STAGE54_CLOSURE.md) records
+delivery and remaining limits from that reviewed evidence. M2 does not claim universal
 fairness, admission after every attempted reclamation, per-user shares
 or service during active saturation.
 

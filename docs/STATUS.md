@@ -63,13 +63,45 @@ regressions and 13/13 local CI gates. All 26 campaign workers recorded
 successful actual exits. All 11 hosted jobs on the M3 head were prevented
 from starting by the account billing lock; no hosted pass is claimed.
 
-The [closure handoff](STAGE53_CLOSURE.md) and
-[current limitations](../KNOWN_LIMITATIONS.md) record unused reserved
-capacity, the 64-member activation bound, no bounded admission after late
-activation, and the idle-eviction boundary: peer-share exhaustion alone
-does not invoke the local/per-source idle rule. This is fairness between
-configured Fangs in one daemon, not a per-user or saturation-service
-guarantee. Receiver authority and frozen releases remain unchanged.
+The [Stage53 closure](STAGE53_CLOSURE.md) records unused reserved capacity,
+the 64-member activation bound and no bounded admission after late
+activation. Its smaller-share idle boundary is addressed by Stage54 below.
+This remains fairness between configured Fangs in one daemon, not a per-user
+or saturation-service guarantee. Receiver authority and frozen releases
+remain unchanged.
+
+## Current development idle reclamation
+
+Stage54 bounded idle reclamation is on `main` through owner-merged
+[PR #171](https://github.com/apocsantos/werewolfproxy/pull/171) (`a8bcc12`),
+with [M3 regression](STAGE54_M3_REGRESSION.md) merged in
+[PR #172](https://github.com/apocsantos/werewolfproxy/pull/172) (`4ff2fee`,
+2026-11-21). On local peer-capacity denial, one useful committed session
+in the same Fang, idle for at least 60 s, may be cancelled. Actual held
+receiver keys and current share/total checks determine usefulness; real
+cleanup releases quota. One nonblocking operation per Fang waits at most
+1 s within existing deadlines. The one-victim budget includes earlier
+local/source eviction and subsequent provider attempts.
+
+Eligible idle primary capacity is reclaimed before advancing to fallback;
+active saturation retains fallback. Verified destination ACK commits the
+provider, with no replay after failure. Sibling/recent/setup work is
+protected, and there is no forced multi-victim rebalance or idle expiry.
+
+M3 passes 497 Rust tests, all 31 campaign workers, 34 Stage54 native labs,
+the resolver/address/resource/fairness controls, twelve S2/S3/S4/S7 P0
+trials and 13/13 local CI gates. All **12 hosted checks** on `0a61c8d`
+pass, including Rust CI and CodeQL with no new alerts. Earlier stages'
+billing-blocked hosted records describe their original publication dates.
+
+The [closure handoff](STAGE54_CLOSURE.md) and
+[current limitations](../KNOWN_LIMITATIONS.md) record the compatibility
+cost: a legitimate idle session can reset below 64 local slots. Admission
+can still lose a cleanup/capacity race after one victim; active saturation,
+unused reserved shares and late over-share membership remain limits.
+Validation is local, with exact membership/slow-cleanup wait cases covered
+by deterministic unit tests. Frozen releases, S3-P2/S2-P4 exclusions,
+Stage38 closure, Tokio 1.52.3 and advisory policy remain unchanged.
 
 ## Certified
 
