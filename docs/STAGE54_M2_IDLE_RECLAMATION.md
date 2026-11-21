@@ -1,6 +1,9 @@
 # Stage54 M2 — bounded idle reclamation at peer shares
 
-**Status: M2 implemented and locally validated; for review, 2026-11-19.**
+**Status: M2 merged in [PR #171](https://github.com/apocsantos/werewolfproxy/pull/171), 2026-11-20.**
+Merge commit: `a8bcc1266a8c68808cccfcc0cbca6ba0d27ac13a`.
+The [M3 regression record](STAGE54_M3_REGRESSION.md) tracks continuation;
+the validation below retains the reviewed M2 candidate's evidence.
 The owner merged [PR #170](https://github.com/apocsantos/werewolfproxy/pull/170)
 as `4dd8ddaf735084041c8e6f34a2566383138f8494` and instructed continuation.
 The [reviewed design](STAGE54_IDLE_PEER_SHARE_SURVEY.md) decisions
@@ -191,12 +194,11 @@ local records are not committed release artifacts or private identities.
 
 ## Remaining work and boundaries
 
-M3 remains the broader regression required by the reviewed design:
-22-slot remainder, mixed paths, recent activity, non-loopback sources,
-half-close, over-share and membership changes, common relay/destination
-constraints, concurrent pressure/slow cleanup, resolver faults,
-address/refusal/resource controls and S2/S3/S4/S7 P0. M4 limitations and
-closure follow that reviewed evidence. M2 does not claim universal
+The broader regression required by the reviewed design is now recorded
+in [M3](STAGE54_M3_REGRESSION.md), with native boundaries and the distinct
+unit-level membership-during-wait/slow-cleanup checks identified there.
+M3 results await owner review; M4 limitations and closure follow that
+reviewed evidence. M2 does not claim universal
 fairness, admission after every attempted reclamation, per-user shares
 or service during active saturation.
 
