@@ -53,6 +53,10 @@ python3 -B tools/stage55/admission.py quic tcp --expect baseline --rounds 1 \
   --out target/stage55-m2-baseline/secure.json
 python3 -B tools/stage55/admission.py --expect reclaimed --rounds 3 \
   --out target/stage55-m2/global.json
+python3 -B tools/stage55/admission.py quic tcp --expect reclaimed --rounds 1 \
+  --routed-owner --out target/stage55-m3/routed.json
+python3 -B tools/stage55/admission.py --expect reclaimed --rounds 1 \
+  --concurrent-probes 12 --out target/stage55-m3/concurrent.json
 ```
 
 The baseline invocation is for the unfixed runtime. The original M1
@@ -74,3 +78,13 @@ Same loopback-only lab, 4096 task-owned descriptor bound, 50 MiB log guard,
 atomic phase/row checkpoints and source hashes as M1. No native peer quota
 or global limit is reduced. See the [M2 record](../../docs/STAGE55_M2_GLOBAL_RECLAMATION.md)
 for the shared victim budget and setup deadline accounting.
+
+M3's `--routed-owner` control uses a generated relay and holds the secure
+owner path through the same 1024 global slots; its 992 plain siblings remain
+independent. `--concurrent-probes N` starts N owner demands together after
+the idle interval, retains successful sessions, and verifies the corresponding
+number of owner victims while siblings survive. Both controls preserve the
+empty-Fang, recent-owner, local-capacity, release-recovery, echo, descriptor,
+authority and cleanup checks. The checkpointed campaign also retains the
+Stage54 source, route/provider, membership, resolver, resource, fairness and
+chaos matrices plus full local CI. See the [M3 regression record](../../docs/STAGE55_M3_REGRESSION.md).

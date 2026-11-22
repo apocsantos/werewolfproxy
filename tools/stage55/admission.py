@@ -7,6 +7,7 @@ fillers hold 992, avoiding receiver/peer exhaustion. No installed nodes.
 """
 import argparse
 import collections
+import concurrent.futures
 import json
 import os
 import pathlib
@@ -21,19 +22,31 @@ from global_idle import idle, support, require, until, open_fang, attempt, excha
 from regression import replacement
 
 
-def scenario(lab, transport, expectation, phase):
+def scenario(lab, transport, expectation, phase, concurrent_probes=0, routed_owner=False):
     target, connections = base.Echo(), []
     try:
         lab.boot()
         baseline = idle.fd_count(lab)
-        for wolf, peer in (('a', 'b'), ('b', 'a')):
+        peers = (('a', 'b'), ('b', 'a'))
+        if routed_owner:
+            peers += (('a', 'c'), ('c', 'a'))
+        for wolf, peer in peers:
             require(lab.pack_literal(wolf, peer)['exit'] == 0, 'Pack setup')
         lab.ctl('b', 'target', 'allow', 'wolf-a', target.address)
-        lab.ctl('a', 'service', 'add', 'global', 'wolf-b', target.address, 'tcp')
+        if routed_owner:
+            lab.ctl('c', 'target', 'allow', 'wolf-a', target.address)
+            lab.ctl('c', 'target', 'allow', 'wolf-a', lab.address('b_tcp'))
+            lab.ctl('a', 'route', 'set', 'wolf-b', '--via', 'wolf-c', '--hop', transport)
+            lab.ctl('a', 'service', 'add', 'global-owner', 'wolf-b', target.address, 'tcp')
+            lab.ctl('a', 'service', 'add', 'global-fill', 'wolf-c', target.address, 'tcp')
+        else:
+            lab.ctl('a', 'service', 'add', 'global', 'wolf-b', target.address, 'tcp')
         specs = [(transport, 32)] + [('tcp-plain', 32)] * 29 + [('tcp-plain', 64)]
-        groups = [{'fang': open_fang(lab, 'global', kind), 'clients': [], 'slots': n}
-                  for kind, n in specs]
-        unused = open_fang(lab, 'global', 'tcp-plain')
+        groups = [{'fang': open_fang(lab, 'global-owner' if routed_owner and i == 0 else
+                                     'global-fill' if routed_owner else 'global', kind),
+                   'clients': [], 'slots': n}
+                  for i, (kind, n) in enumerate(specs)]
+        unused = open_fang(lab, 'global-fill' if routed_owner else 'global', 'tcp-plain')
         def guard():
             lab.guard()
             require(all(p.poll() is None for p in lab.wolves), 'fixture daemon exited')
@@ -47,6 +60,8 @@ def scenario(lab, transport, expectation, phase):
         require(len(connections) == base.GLOBAL, 'wrong production-cap workload')
         until(lab, lambda: target.snapshot()[:2] == (1024, 1024), '1024 target streams')
         authority = support.expect(lab, 'b', 0 if transport == 'tcp-plain' else 32)
+        if routed_owner:
+            relay_authority = support.expect(lab, 'c', 32)
         expected_fds = baseline + 32 + (2017 if transport == 'quic' else 2048)
         until(lab, lambda: idle.fd_count(lab) == expected_fds, 'stable saturated descriptors')
         require(expected_fds < base.NOFILE, 'descriptor exhaustion instead of global saturation')
@@ -63,13 +78,31 @@ def scenario(lab, transport, expectation, phase):
         require(idle.states(connections) == ['open'] * 1024, 'old session ended without demand')
         phase('post-idle', {})
         newcomers = []
-        probes = [attempt(owner['fang']['port'], newcomers) for _ in range(3)]
+        if concurrent_probes:
+            def concurrent_attempt(_):
+                held = []
+                result = attempt(owner['fang']['port'], held)
+                return result, held
+            with concurrent.futures.ThreadPoolExecutor(max_workers=concurrent_probes) as pool:
+                paired = list(pool.map(concurrent_attempt, range(concurrent_probes)))
+            probes = [result for result, _ in paired]
+            for _, held in paired:
+                newcomers.extend(held)
+            successes = [r for r in probes if r['outcome'] == 'echo']
+            require(1 <= len(successes) <= concurrent_probes, probes)
+            victims = len(successes)
+        else:
+            probes = [attempt(owner['fang']['port'], newcomers) for _ in range(3)]
+            victims = 3 if expectation == 'reclaimed' else 0
         connections.extend(newcomers)
-        victims = 3 if expectation == 'reclaimed' else 0
-        require(all(r['outcome'] == ('echo' if victims else 'reset') for r in probes), probes)
-        if victims:
+        if concurrent_probes:
+            require(all(r['outcome'] in ('echo', 'reset') for r in probes), probes)
             owner['clients'] = replacement(lab, owner['clients'], victims)
         else:
+            require(all(r['outcome'] == ('echo' if victims else 'reset') for r in probes), probes)
+        if victims and not concurrent_probes:
+            owner['clients'] = replacement(lab, owner['clients'], victims)
+        elif not victims:
             require(idle.states(owner['clients']) == ['open'] * 32, 'baseline selected a victim')
         siblings = sum((g['clients'] for g in groups[1:]), [])
         require(idle.states(siblings) == ['open'] * 992, 'global pressure evicted another Fang')
@@ -100,6 +133,8 @@ def scenario(lab, transport, expectation, phase):
             guard()
             exchange(conn)
         after_authority = support.expect(lab, 'b', 0 if transport == 'tcp-plain' else 33)
+        if routed_owner:
+            relay_after_authority = support.expect(lab, 'c', 33)
         until(lab, lambda: target.snapshot()[:2] == (1024, 1026 + victims), 'recovery target count')
         cpu = support.idle_cpu(lab)
         phase('cleanup', {})
@@ -107,11 +142,15 @@ def scenario(lab, transport, expectation, phase):
             lab.control('a', 'fang.close', {'fang_id': fang['id']})
         for conn in connections:
             conn.close()
-        final = {w: support.expect(lab, w, 0) for w in ('a', 'b')}
+        final = {w: support.expect(lab, w, 0) for w in (('a', 'b', 'c') if routed_owner else ('a', 'b'))}
         until(lab, lambda: target.snapshot()[0] == 0, 'targets drained')
         until(lab, lambda: idle.fd_count(lab) <= baseline, 'initiator descriptors drained')
         guard()
-        return {'transport': transport, 'idle_seconds': round(elapsed, 3),
+        return {'transport': transport, 'routed_owner': routed_owner,
+                'concurrent_probe_count': concurrent_probes,
+                'route_authority_before': relay_authority if routed_owner else None,
+                'route_authority_after_recovery': relay_after_authority if routed_owner else None,
+                'idle_seconds': round(elapsed, 3),
                 'global_slots': 1024, 'secure_owner_sessions': 0 if transport == 'tcp-plain' else 32,
                 'initial_authority': authority, 'after_recovery_authority': after_authority,
                 'before_idle_probes': before, 'post_idle_probes': probes,
@@ -133,10 +172,17 @@ def main():
     parser.add_argument('transports', nargs='*')
     parser.add_argument('--expect', choices=('baseline', 'reclaimed'), default='baseline')
     parser.add_argument('--rounds', type=int, default=3)
+    parser.add_argument('--concurrent-probes', type=int, default=0,
+                        help='hold this many simultaneous owner probes after idle')
+    parser.add_argument('--routed-owner', action='store_true',
+                        help='route the secure owner through a second generated node')
     parser.add_argument('--out', type=pathlib.Path, required=True)
     args = parser.parse_args()
     transports = args.transports or ('quic', 'tcp', 'tcp-plain')
-    require(args.rounds > 0 and all(t in ('quic', 'tcp', 'tcp-plain') for t in transports), 'invalid matrix')
+    require(args.rounds > 0 and args.concurrent_probes >= 0 and
+            all(t in ('quic', 'tcp', 'tcp-plain') for t in transports), 'invalid matrix')
+    require(not args.routed_owner or all(t in ('quic', 'tcp') for t in transports),
+            'routed owner requires a secure transport')
     _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     require(hard == resource.RLIM_INFINITY or hard >= base.NOFILE, '4096 descriptor limit unavailable')
     resource.setrlimit(resource.RLIMIT_NOFILE, (base.NOFILE, base.NOFILE))
@@ -153,14 +199,15 @@ def main():
         for transport in transports:
             idle.source_guard(source)
             lab = support.refresh.dial.DialLab()
-            lab.WOLVES = ('a', 'b')
+            lab.WOLVES = ('a', 'b', 'c') if args.routed_owner else ('a', 'b')
             row = {'round': repetition, 'transport': transport}
             def phase(label, detail):
                 document['running'] = {**row, 'phase': label, **detail}
                 idle.checkpoint(args.out, document)
                 print(json.dumps(document['running']), flush=True)
             try:
-                row.update(scenario(lab, transport, args.expect, phase), status='PASS')
+                row.update(scenario(lab, transport, args.expect, phase,
+                                    args.concurrent_probes, args.routed_owner), status='PASS')
                 idle.source_guard(source)
             except Exception as exc:
                 row.update(status='FAIL', error=f'{type(exc).__name__}: {exc}',
