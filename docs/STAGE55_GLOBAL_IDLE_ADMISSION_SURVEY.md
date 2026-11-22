@@ -1,5 +1,11 @@
 # Stage55 — idle admission at the daemon-wide Fang ceiling
 
+**Implementation note:** the owner merged this proposal in PR #174
+(`5ce2a54`) and instructed continuation. S55-D0–D6 are applied as
+recommended in the [M2 record](STAGE55_M2_GLOBAL_RECLAMATION.md), including
+G1's same-Fang ownership and compatibility cost. The proposal and M1
+measurements below retain their original pre-implementation scope.
+
 **Status: M1 baseline reproduced; policy proposal for review, 2026-11-21.**
 After owner-merged [Stage54 closure](STAGE54_CLOSURE.md), the next bounded
 inspection found a separate admission boundary. Baseline `main`:

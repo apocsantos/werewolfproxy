@@ -24,6 +24,11 @@
 //!   prefix one host or link normally holds. Loopback clients all share one
 //!   address and are exempt.
 //!
+//! Stage55 also permits one established own-Fang idle replacement at the
+//! daemon-wide ceiling, below the local ceiling. Its victim budget and
+//! operation gate are shared with peer reclamation; real slot cleanup
+//! precedes acquisition, and its wait is charged to setup budgets.
+//!
 //! A connection that cannot be admitted is accepted and reset at once, so
 //! the client fails fast and never sees a session that looks complete. These
 //! events are logged at a bounded rate.
@@ -172,6 +177,8 @@ struct Entry {
     source: Option<IpAddr>,
     evicting: bool,
     reservation: Option<session::LiveReservation>,
+    established: bool,
+    released: Arc<Notify>,
 }
 
 /// The open connections of one Fang (at most its ceiling, 64).
@@ -215,13 +222,14 @@ impl Registry {
 
 /// Held by a Fang connection's task for as long as the session lives.
 pub(crate) struct FangSlot {
-    _fang: OwnedSemaphorePermit,
-    _global: OwnedSemaphorePermit,
+    _fang: Option<OwnedSemaphorePermit>,
+    _global: Option<OwnedSemaphorePermit>,
     id: u64,
     registry: Arc<Mutex<Registry>>,
     activity: Arc<Activity>,
     evict: Arc<Notify>,
     session: Session,
+    released: Arc<Notify>,
 }
 
 impl FangSlot {
@@ -249,6 +257,11 @@ impl Drop for FangSlot {
         if let Ok(mut registry) = self.registry.lock() {
             registry.remove(self.id);
         }
+        // A global waiter observes the real slot release, never just a
+        // cancellation request or removal from the candidate registry.
+        drop(self._fang.take());
+        drop(self._global.take());
+        self.released.notify_one();
     }
 }
 
@@ -348,6 +361,7 @@ pub(crate) struct FangAcceptor {
     over_ceiling: RateLimitedLog,
     over_share: RateLimitedLog,
     evicted: RateLimitedLog,
+    global_evictions: RateLimitedLog,
 }
 
 impl FangAcceptor {
@@ -389,6 +403,7 @@ impl FangAcceptor {
             over_ceiling: RateLimitedLog::new("connection ceiling reached, connection reset"),
             over_share: RateLimitedLog::new("source address at its share, connection reset"),
             evicted: RateLimitedLog::new("Fang full, ended an idle connection for a new one"),
+            global_evictions: RateLimitedLog::new("global ceiling full, ended an idle connection"),
         }
     }
 
@@ -434,12 +449,13 @@ impl FangAcceptor {
             Ok(permit) => permit,
             Err(_) => self.evict_for(address, &mut evicted).await?,
         };
-        let Ok(global) = self.global.clone().try_acquire_owned() else {
+        let Some((global, global_started)) = self.acquire_global(evicted.is_some()).await else {
             self.over_ceiling.event(&self.fang, &address);
             return None;
         };
         let activity = Arc::new(Activity::new());
         let evict = Arc::new(Notify::new());
+        let released = Arc::new(Notify::new());
         let mut registry = self.registry();
         let id = registry.next;
         registry.next += 1;
@@ -451,24 +467,31 @@ impl FangAcceptor {
                 source,
                 evicting: false,
                 reservation: None,
+                established: false,
+                released: released.clone(),
             },
         );
         drop(registry);
+        let mut session = Session::new(
+            id,
+            self.registry.clone(),
+            self.peer_reclaim.clone(),
+            self.fang.clone(),
+            self.policy.idle_evict_after,
+            evicted.is_some() || global_started.is_some(),
+        );
+        if let Some(started) = global_started {
+            session.charge_global_wait(started);
+        }
         Some(FangSlot {
-            _fang: fang,
-            _global: global,
+            _fang: Some(fang),
+            _global: Some(global),
             id,
             registry: self.registry.clone(),
             activity,
             evict,
-            session: Session::new(
-                id,
-                self.registry.clone(),
-                self.peer_reclaim.clone(),
-                self.fang.clone(),
-                self.policy.idle_evict_after,
-                evicted.is_some(),
-            ),
+            session,
+            released,
         })
     }
 
@@ -524,5 +547,9 @@ fn reset(stream: TcpStream) {
 #[cfg(test)]
 mod tests;
 
+mod global;
 mod session;
-pub(crate) use session::{commit_current, dial_deadline, Registration, Session};
+pub(crate) use session::{
+    commit_current, dial_deadline, plain_connected_current, selection_deadline, Registration,
+    Session,
+};

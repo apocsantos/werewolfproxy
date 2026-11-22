@@ -34,13 +34,14 @@ pub(super) async fn run_plain_tcp_forwarder(
             // the log.
             let session = async {
                 // Every address the target names, raced (Stage46 T1).
-                match tokio::time::timeout(
-                    Duration::from_secs(5),
+                match tokio::time::timeout_at(
+                    super::fang_accept::dial_deadline(Duration::from_secs(5)),
                     super::dial::connect_tcp(&remote),
                 )
                 .await
                 {
                     Ok(Ok(mut outbound)) => {
+                        super::fang_accept::plain_connected_current();
                         // Local activity, for Stage43 idle eviction.
                         let mut local = super::fang_accept::Tracked::new(&mut inbound);
                         if let Err(e) =
