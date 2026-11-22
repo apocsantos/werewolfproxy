@@ -1,11 +1,17 @@
 # Stage55 M2 — bounded global idle reclamation
 
-**Status: implementation in validation, 2026-11-22.** The owner merged
+**Status: M2 implemented and locally validated; for review, 2026-11-22.** The owner merged
 [PR #174](https://github.com/apocsantos/werewolfproxy/pull/174) as
 `5ce2a544975a9567ac5f48f3c71cadc65e361767` and instructed continuation.
 The [reviewed proposal](STAGE55_GLOBAL_IDLE_ADMISSION_SURVEY.md) decisions
 S55-D0–D6 are applied as recommended: G1, same Fang only, all Fang kinds.
 This record covers M2; broader M3 regression and M4 closure remain separate.
+
+Fixed runtime/test/fixture source:
+`37218382c1352e9fa717761706996be7297f49f1`.
+All **17** campaign workers and the overall manager exited **0**;
+separate scenario verification passed. The suite completed at
+**2026-11-22 18:32:55 UTC**. Final documentation notes followed full CI.
 
 ## Secure reproduction before runtime changes
 
@@ -85,11 +91,66 @@ real release, slow cleanup, cancellation/busy gate, pressure disappearing,
 competing acquisitions, shared victim budgets and deadline accounting.
 Development evidence is under `target/stage55-m2-red/`.
 
-The fixed-source campaign will record workspace format/Clippy/tests,
-release build, advisory audits, debug/release authentication proofs,
-three native rounds over QUIC/TCP/plain TCP, Stage54 idle/provider controls,
-reserved-share and migration controls, and full local CI. Its final
-results are recorded after completion, with source hashes and actual exits.
+### Fixed-source results
+
+| Control | Result |
+|---|---|
+| Workspace, release and audits | Format, Clippy with warnings denied, all **513** Rust tests, locked release build and both workspace/Quinn-proof advisory audits pass |
+| New deterministic safety coverage | **16** added tests cover eligibility, real quota release, busy/cancelled operations, stale reservations, stable/longest-idle selection, pressure/deadline races, one-second wait and shared budgets |
+| Authentication proofs | Debug and release each pass TLS **8/8**, Quinn **3/3**, UDP environment and pinned Quinn version checks |
+| Global production cap | **Nine** labs, three rounds each over QUIC/TCP/plain TCP, all hold 1024 real sessions for at least 65 s; **27** newcomers echo and exactly **27** own idle clients reset |
+| Global ownership/protection | All **8,928** sibling sessions survive; all **27** empty-Fang and **27** recent-owner probes reset; no second victim or cross-Fang selection |
+| Local and release controls | All nine local-64 controls replace exactly one old client; all nine different-Fang release recoveries pass; **9,216** surviving-client echoes |
+| Global resource controls | Saturated initiator descriptors **2065** (QUIC) or **2096** (TCP/plain), below 4096; every lab returns **16 → 16**; two-second idle CPU **0.0%**; zero final target streams/receiver authority; survival and private cleanup pass |
+| Stage54 idle shares | **18 groups / six labs**, three rounds per transport, **42** exact idle replacements and all twelve smaller-share release-one recoveries |
+| Stage54 providers | All **four** direct/routed paths; twelve idle-primary replacements; **128** committed resets with **zero** fallback payload replay; active fallback and primary recovery pass |
+| Reserved-share/provider/migration compatibility | **12** share cases, **five** provider/activation cases and **21** hostname migration cases pass |
+| Full local CI | **13/13** actual gate exits zero, including **68** Python unit tests and fresh advisory audit |
+
+All **19** global/share/provider native labs use full 65-second idle
+observations, drain targets/authority, return initiator descriptors to
+**16 → 16**, preserve daemon survival and remove owned processes/private
+Dens. In secure global-cap labs, receiver usage is 32 before replacement
+and 33 only after explicit release/recovery, below its quota. These are
+local functional checks, not throughput or comparative liveness evidence.
+
+Full CI: `target/ci-local/20261122T182659Z/`, **355.1 s**. Evidence root:
+`target/stage55-m2/`, including all 17 actual worker exits, commands,
+matrix digests, scenario verification, source provenance and observation
+of the overall manager exit 0. All **321** source hashes still match the
+fixed candidate; result notes are documentation-only changes afterward.
+These ignored evidence files are not release artifacts or private identities.
+
+Native debug daemon SHA-256:
+`73538f6d6fdbf00713b931a589427dace5c7c4dbaf3b399e03008e2486b71ae1`.
+Lockfile SHA-256:
+`411ef3b496dfd8c21f97eb2285d55bd0d12ae604436acfdfa16044e80a0d91d0`.
+RustSec snapshot observed after the final suite:
+`d1fe6ac3eba823a3515e849045f36dc34543885d`.
+
+The secure baseline used the exact same admission fixture bytes with
+`--expect baseline` before runtime changes; the fixed campaign uses
+`--expect reclaimed`. A separate fixed-source smoke passed all three
+transports. One development compilation failed because a cancellation-test
+`unwrap_err` required a `Debug` implementation for `FangSlot`; inspecting
+the error variant fixed that test helper without changing its assertion.
+The expected red regression and development compile output remain separate
+from the final campaign. No failed final worker was retried or existing
+gate assertion relaxed.
+
+Final verification passes all **87** local document links and whitespace
+checks. Existing integration tests/gates, scripts, dependency/lock inputs,
+workflows and release inputs remain unchanged from merged M1 `5ce2a54`.
+
+### Remaining scope
+
+The full-cap native portion here measures direct QUIC/TCP/plain owners
+with plain fillers. Routed/provider checks above validate the existing
+Stage54 scenarios below global exhaustion. Full-cap routed/provider/source,
+membership and concurrent-storm combinations remain M3 work. The waiter
+holds a local permit while awaiting its selected victim; it gains no global
+permit until actual release and reacquisition. The global limit counts
+admitted slots, not kernel backlog or temporarily accepted waiting sockets.
 
 M3 retains broader global-pressure routing/provider, source, concurrency,
 membership and resource regression from the reviewed proposal. M2 does
