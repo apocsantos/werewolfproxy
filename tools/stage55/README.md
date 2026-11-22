@@ -45,3 +45,32 @@ that secure paths also use this global gate before session setup; their
 full-cap native behaviour and any proposed fix still require separate
 validation. See the [survey](../../docs/STAGE55_GLOBAL_IDLE_ADMISSION_SURVEY.md)
 for evidence levels, policy choices and scope.
+
+## Stage55 M2 secure/plain admission controls
+
+```sh
+python3 -B tools/stage55/admission.py quic tcp --expect baseline --rounds 1 \
+  --out target/stage55-m2-baseline/secure.json
+python3 -B tools/stage55/admission.py --expect reclaimed --rounds 3 \
+  --out target/stage55-m2/global.json
+```
+
+The baseline invocation is for the unfixed runtime. The original M1
+`global_idle.py` remains unchanged and retains its old denial assertions.
+`admission.py` defaults to QUIC, encrypted TCP and plain TCP; optional
+positional transports select a subset. Output paths must be new.
+
+Each secure lab uses one 32-session secure owner and 992 plain fillers,
+reaching production global capacity while receiver authority is only 32.
+After 65 s, baseline mode requires three resets and zero old victims;
+reclaimed mode requires three echoes and exactly three own idle victims.
+All 992 sibling sessions survive. Empty-Fang probes still reset, and
+refreshing all owner's sessions protects them from further reclamation.
+The full-local 64 positive control and different-Fang release recovery
+remain, with 1024 surviving echoes, bounded idle CPU, zero final receiver
+authority, target/descriptor drain and private cleanup.
+
+Same loopback-only lab, 4096 task-owned descriptor bound, 50 MiB log guard,
+atomic phase/row checkpoints and source hashes as M1. No native peer quota
+or global limit is reduced. See the [M2 record](../../docs/STAGE55_M2_GLOBAL_RECLAMATION.md)
+for the shared victim budget and setup deadline accounting.

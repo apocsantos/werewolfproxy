@@ -19,6 +19,8 @@ pub(crate) struct Session {
     idle_after: Duration,
     eviction_used: Arc<AtomicBool>,
     first_dial: Arc<Mutex<Option<Instant>>>,
+    global_started: Option<Instant>,
+    global_dial_used: Arc<AtomicBool>,
 }
 
 tokio::task_local! {
@@ -46,11 +48,17 @@ impl Session {
             idle_after,
             eviction_used: Arc::new(AtomicBool::new(eviction_used)),
             first_dial: Arc::default(),
+            global_started: None,
+            global_dial_used: Arc::default(),
         }
     }
 
     pub(crate) fn current() -> Option<Self> {
         CURRENT.try_with(Clone::clone).ok()
+    }
+
+    pub(super) fn charge_global_wait(&mut self, began: Instant) {
+        self.global_started = Some(began);
     }
 
     pub(crate) fn attach(&self, demand: Demand) -> io::Result<Registration> {
@@ -177,6 +185,7 @@ impl Registration {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(entry) = registry.entries.get_mut(&self.session.id) {
             entry.reservation = None;
+            entry.established = false;
         }
         release();
         drop(registry);
@@ -189,15 +198,41 @@ impl Registration {
 pub(crate) fn commit_current() {
     let _ = CURRENT.try_with(|session| {
         if let Ok(mut registry) = session.registry.lock() {
-            if let Some(held) = registry
-                .entries
-                .get_mut(&session.id)
-                .and_then(|e| e.reservation.as_mut())
-            {
-                held.committed = true;
+            if let Some(entry) = registry.entries.get_mut(&session.id) {
+                if let Some(held) = entry.reservation.as_mut() {
+                    held.committed = true;
+                    entry.established = true;
+                }
             }
         }
     });
+}
+
+/// Plain TCP has no authenticated peer reservation. Only its successful
+/// target connect establishes eligibility; an absent reservation alone does not.
+pub(crate) fn plain_connected_current() {
+    let _ = CURRENT.try_with(|session| {
+        if let Ok(mut registry) = session.registry.lock() {
+            if let Some(entry) = registry.entries.get_mut(&session.id) {
+                if entry.reservation.is_none() {
+                    entry.established = true;
+                }
+            }
+        }
+    });
+}
+
+/// Only a newcomer that actually reclaimed global capacity carries an
+/// earlier selection start. Ordinary paths keep their existing deadlines.
+pub(crate) fn selection_deadline(window: Duration) -> Instant {
+    let normal = Instant::now() + window;
+    CURRENT
+        .try_with(|session| {
+            session
+                .global_started
+                .map_or(normal, |began| normal.min(began + window))
+        })
+        .unwrap_or(normal)
 }
 
 /// Charge reclamation time to the first dial, not a fresh five-second
@@ -206,9 +241,18 @@ pub(crate) fn commit_current() {
 pub(crate) fn dial_deadline(window: Duration) -> Instant {
     let normal = Instant::now() + window;
     CURRENT
-        .try_with(|session| match session.first_dial.lock() {
-            Ok(mut deadline) => deadline.take().map_or(normal, |end| end.min(normal)),
-            Err(_) => Instant::now(),
+        .try_with(|session| {
+            let global = if !session.global_dial_used.swap(true, Ordering::Relaxed) {
+                session
+                    .global_started
+                    .map_or(normal, |began| normal.min(began + window))
+            } else {
+                normal
+            };
+            match session.first_dial.lock() {
+                Ok(mut deadline) => deadline.take().map_or(global, |end| end.min(global)),
+                Err(_) => Instant::now(),
+            }
         })
         .unwrap_or(normal)
 }

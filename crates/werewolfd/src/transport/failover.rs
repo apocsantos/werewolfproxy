@@ -246,7 +246,7 @@ async fn select_and_serve(
     identity: &PeltIdentity,
     admission: &super::peer_quota::Membership,
 ) -> Served {
-    let deadline = Instant::now() + hs::CLIENT_WINDOW;
+    let deadline = super::fang_accept::selection_deadline(hs::CLIENT_WINDOW);
     let mut class = FailureClass::Dial;
     let mut errors = Vec::new();
     for (index, ready) in providers.iter().enumerate() {

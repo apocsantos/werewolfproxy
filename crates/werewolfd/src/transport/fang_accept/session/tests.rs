@@ -12,6 +12,73 @@ fn identity() -> ExpectedPeerIdentity {
     }
 }
 
+#[tokio::test]
+async fn global_ceiling_reclaims_an_own_committed_idle_session() {
+    let coordinator = Arc::new(Coordinator::default());
+    let peer = identity();
+    let member = coordinator.register(vec![vec![&peer]]).unwrap();
+    let mut acceptor = acceptor(64, Duration::ZERO, false).await;
+    acceptor.global = Arc::new(Semaphore::new(1));
+    let old = serving(slot(&mut acceptor).await, member.clone(), 0).await;
+    let newcomer = acceptor.admit("127.0.0.1:1234".parse().unwrap()).await;
+    assert!(
+        newcomer.is_some(),
+        "global pressure below the local ceiling must replace an own committed idle session"
+    );
+    assert!(old.await.unwrap());
+    assert_eq!(acceptor.global.available_permits(), 0);
+    drop(newcomer);
+    assert_eq!(acceptor.global.available_permits(), 1);
+}
+
+#[tokio::test]
+async fn global_eviction_consumes_the_later_peer_provider_budget() {
+    let coordinator = Arc::new(Coordinator::default());
+    let a = identity();
+    let b = identity();
+    let member = coordinator.register(vec![vec![&a], vec![&b]]).unwrap();
+    let _sibling = coordinator.register(vec![vec![&a, &b]]).unwrap();
+    let _a = fill(&member, 0, 31);
+    let _b = fill(&member, 1, 31);
+    let mut acceptor = acceptor(64, Duration::ZERO, false).await;
+    acceptor.global = Arc::new(Semaphore::new(2));
+    let old_a = serving(slot(&mut acceptor).await, member.clone(), 0).await;
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let old_b = serving(slot(&mut acceptor).await, member.clone(), 1).await;
+    let newcomer = slot(&mut acceptor).await;
+    assert!(old_a.await.unwrap());
+    assert!(newcomer.session.eviction_used.load(Ordering::Relaxed));
+    assert!(scope(
+        newcomer.session.clone(),
+        member.reserve_reclaim(1, Instant::now() + Duration::from_secs(5)),
+    )
+    .await
+    .is_err());
+    assert!(!old_b.is_finished());
+    old_b.abort();
+    assert!(old_b.await.unwrap_err().is_cancelled());
+}
+
+#[tokio::test]
+async fn released_secure_reservation_is_not_a_global_candidate_during_slot_cleanup() {
+    let coordinator = Arc::new(Coordinator::default());
+    let peer = identity();
+    let member = coordinator.register(vec![vec![&peer]]).unwrap();
+    let mut acceptor = acceptor(64, Duration::ZERO, false).await;
+    acceptor.global = Arc::new(Semaphore::new(1));
+    let old = slot(&mut acceptor).await;
+    let reservation = hold(&old, &member, 0, true).await;
+    drop(reservation);
+    assert!(acceptor
+        .admit("127.0.0.1:1234".parse().unwrap())
+        .await
+        .is_none());
+    assert!(!acceptor.registry.lock().unwrap().entries[&old.id].evicting);
+    assert_eq!(acceptor.global.available_permits(), 0);
+    drop(old);
+    assert_eq!(acceptor.global.available_permits(), 1);
+}
+
 async fn acceptor(limit: usize, idle: Duration, source: bool) -> FangAcceptor {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     FangAcceptor::with_limits(
