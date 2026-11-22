@@ -15,12 +15,14 @@ variant sends the secure owner through a second generated node. The concurrent
 variant starts twelve simultaneous owner probes after idle and retains every
 success so each reclaimed slot remains occupied during verification.
 
-Every case checks actual echoes, exact owner-victim counts, sibling and empty
+Every case checks actual echoes, owner-victim counts, sibling and empty
 Fang protection, recent-session protection, the local-64 positive control,
 release-one recovery, receiver authority, daemon survival, idle CPU, descriptor
 drain and owned-process cleanup. Concurrency may deny contenders after the
-single-victim gate or capacity race; the fixture requires successful claims
-to match actual owner victims and never permits sibling theft.
+single-victim gate, capacity race or secure setup failure after an idle
+victim has been released. Such a failed setup can leave a free global slot;
+the fixture records the extra victim and refills the slot before continuing
+full-cap controls. It never permits sibling theft.
 
 ## Retained regression scope
 

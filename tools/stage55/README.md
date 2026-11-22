@@ -82,8 +82,10 @@ for the shared victim budget and setup deadline accounting.
 M3's `--routed-owner` control uses a generated relay and holds the secure
 owner path through the same 1024 global slots; its 992 plain siblings remain
 independent. `--concurrent-probes N` starts N owner demands together after
-the idle interval, retains successful sessions, and verifies the corresponding
-number of owner victims while siblings survive. Both controls preserve the
+the idle interval, retains successful sessions, and verifies owner victims
+while siblings survive. If victim release is followed by a secure setup
+failure, the fixture refills that now-free global slot and records the extra
+victim. Both controls preserve the
 empty-Fang, recent-owner, local-capacity, release-recovery, echo, descriptor,
 authority and cleanup checks. The checkpointed campaign also retains the
 Stage54 source, route/provider, membership, resolver, resource, fairness and

@@ -90,14 +90,41 @@ def scenario(lab, transport, expectation, phase, concurrent_probes=0, routed_own
                 newcomers.extend(held)
             successes = [r for r in probes if r['outcome'] == 'echo']
             require(1 <= len(successes) <= concurrent_probes, probes)
-            victims = len(successes)
+            states = ['open'] * len(owner['clients'])
+            stable_since, last_states = time.monotonic(), None
+            settle_deadline = stable_since + 5
+            while time.monotonic() < settle_deadline:
+                current = idle.states(owner['clients'])
+                require(all(state in ('open', 'reset', 'eof') for state in current),
+                        f'unexpected concurrent victim states: {current}')
+                if current == last_states:
+                    if time.monotonic() - stable_since >= .5:
+                        states = current
+                        break
+                else:
+                    stable_since, last_states = time.monotonic(), current
+                time.sleep(.05)
+            else:
+                require(False, f'concurrent victim states did not settle: {last_states}')
+            victims = states.count('reset') + states.count('eof')
+            require(successes and len(successes) <= victims <= concurrent_probes,
+                    f'concurrent outcomes/victims: {len(successes)}, {victims}, {probes}')
+            owner['clients'] = [conn for conn, state in zip(owner['clients'], states)
+                                if state == 'open']
+            refills = victims - len(successes)
+            for _ in range(refills):
+                refill = []
+                outcome = attempt(owner['fang']['port'], refill)
+                require(outcome['outcome'] == 'echo',
+                        f'could not refill a slot after failed concurrent setup: {outcome}')
+                newcomers.extend(refill)
         else:
             probes = [attempt(owner['fang']['port'], newcomers) for _ in range(3)]
             victims = 3 if expectation == 'reclaimed' else 0
+            refills = 0
         connections.extend(newcomers)
         if concurrent_probes:
             require(all(r['outcome'] in ('echo', 'reset') for r in probes), probes)
-            owner['clients'] = replacement(lab, owner['clients'], victims)
         else:
             require(all(r['outcome'] == ('echo' if victims else 'reset') for r in probes), probes)
         if victims and not concurrent_probes:
@@ -148,6 +175,9 @@ def scenario(lab, transport, expectation, phase, concurrent_probes=0, routed_own
         guard()
         return {'transport': transport, 'routed_owner': routed_owner,
                 'concurrent_probe_count': concurrent_probes,
+                'concurrent_refills': refills,
+                'concurrent_echoes': sum(r['outcome'] == 'echo' for r in probes)
+                if concurrent_probes else None,
                 'route_authority_before': relay_authority if routed_owner else None,
                 'route_authority_after_recovery': relay_after_authority if routed_owner else None,
                 'idle_seconds': round(elapsed, 3),
