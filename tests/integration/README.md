@@ -346,3 +346,19 @@ failed loudly and cleaned up; it is not counted as an acceptance pass. The
 successful run used the commands above with local socket permission. Future runs
 emit their own JSON results and provenance; this table records execution during
 Stage 1 rather than guaranteeing later environments.
+
+## Stage56 Unix Fang endpoint
+
+```bash
+python3 -B tests/integration/unix_fang_gate.py [--keep-temp]
+```
+
+The Stage56 M4 gate opens Linux Unix local endpoints through direct QUIC,
+encrypted TCP, plain TCP, routed QUIC and provider failover Fangs. It checks
+exact echoed bytes, listener-path cleanup and daemon survival. All live
+connections use the current UID; distinct UID share isolation is covered by
+deterministic acceptor tests.
+
+The full local CI gate also runs `unix_uid_gate.py`, which tests real UID 0
+and UID 1 peer credentials inside a private user namespace when the host allows
+unprivileged namespaces.

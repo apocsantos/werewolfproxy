@@ -128,17 +128,17 @@ remain unchanged.
 
 ## Local Fang client fairness
 
-The active-loopback flood remains an explicit Stage43 limitation. Stage56 M1
-reviewed the current accept path: it receives a TCP stream and remote socket
-address, and loopback clients share the per-source exemption. The current TCP
-interface does not identify a local process or Unix user. A per-user quota
-would require a separately designed credential-bearing local endpoint or
-application handshake; neither is part of the current contract. The
-[Stage56 M1 survey](STAGE56_LOCAL_FANG_IDENTITY_SURVEY.md) and
-[M2 design](STAGE56_M2_LOCAL_UNIX_DESIGN.md) record the identity gap and an
-optional Linux Unix-socket interface proposal. No runtime change or new test
-result is claimed; the M2 document identifies the owner decisions required
-before implementation.
+The active-loopback flood remains an explicit TCP limitation. Stage56 M1
+confirmed that TCP loopback accepts no local user identity. The owner accepted
+the optional Linux Unix endpoint in M2 PR #180; M3 implementation PR #181
+merged at `5eeafe2`. Its `SO_PEERCRED` UID feeds the shared 16-session source
+share while legacy TCP behavior remains unchanged. M4 adds a Linux integration
+gate that exercises direct QUIC, encrypted TCP, plain TCP, routed and provider
+failover Fangs over Unix streams. Exact bytes, socket cleanup and daemon
+survival passed. A private user-namespace test also verified SO_PEERCRED
+attribution from UID 1. See the [M1 survey](STAGE56_LOCAL_FANG_IDENTITY_SURVEY.md),
+[accepted M2 design](STAGE56_M2_LOCAL_UNIX_DESIGN.md), [M3 implementation](STAGE56_M3_UNIX_ENDPOINT_IMPLEMENTATION.md)
+and [M4 regression](STAGE56_M4_UNIX_TRANSPORT_REGRESSION.md).
 
 ## Certified
 

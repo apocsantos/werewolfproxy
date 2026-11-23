@@ -35,9 +35,13 @@ handling remain on TCP streams.
 Coverage includes legacy TCP admission tests, UID key isolation and share
 enforcement, live peer-credential attribution, socket type/mode/group checks,
 unsafe path and parent rejection, stale-path refusal, replaced-path cleanup,
-and profile endpoint syntax. The full existing transport suite exercises the
-unchanged TCP paths. This implementation does not claim multi-UID namespace
-testing or per-transport Unix end-to-end coverage.
+profile endpoint syntax. At the M3 merge, per-transport Unix end-to-end and
+multi-UID namespace coverage were outstanding; the M4 [regression report](STAGE56_M4_UNIX_TRANSPORT_REGRESSION.md)
+now records both the five-path exact-byte gate and real UID 0/UID 1 credential
+test.
+
+`werewolfctl service connect` accepts `--local-endpoint unix:/absolute/path`
+for these endpoints; its existing `--local-port` behavior is unchanged.
 
 ## Validation
 
@@ -45,4 +49,11 @@ testing or per-transport Unix end-to-end coverage.
   CLI tests, and 402 daemon tests. The 10,000-session short-lived QUIC test
   took about 245 seconds.
 - `scripts/ci-local.sh --fast`: passed (`target/ci-local/20261123T210622Z`).
+- `python3 -B tests/integration/unix_fang_gate.py --keep-temp`: passed outside
+  the sandbox on the merged M3 code; all five paths returned exact payloads,
+  removed their socket paths on close, and left all daemons alive.
 - `cargo fmt --check` and `git diff --check`: passed.
+
+The sandboxed gate attempt failed before listener setup because its root
+filesystem reports `/` as UID/GID 65534, which the daemon's existing private
+filesystem guard rejects. The successful run used the host filesystem view.

@@ -33,6 +33,7 @@ runtime before the change is saved. `silver on` fences all new forwarding;
 ```bash
 werewolfctl service add web node-b 127.0.0.1:8080 http
 werewolfctl service connect web --local-port 18080
+werewolfctl service connect web --local-endpoint unix:/run/werewolf/web.sock
 werewolfctl service provider add web node-c 127.0.0.1:8080
 werewolfctl service publish web 127.0.0.1:8080 http
 werewolfctl service published

@@ -121,8 +121,8 @@ Named services (Stage23), service discovery (Stage25) and providers
 
 - service add NAME PEER TARGET tcp|http|https|ssh
 - service list; service show NAME; service remove NAME
-- service connect NAME --local-port PORT [--bind ADDR] [--transport
-  quic|tcp|tcp-plain]
+- service connect NAME (--local-port PORT [--bind ADDR] | --local-endpoint ENDPOINT)
+  [--transport quic|tcp|tcp-plain]
 
 The registry records intent only: a name, a Pack peer name, a target on that
 peer and a kind label. It grants no access. `service add` does not require the
@@ -137,7 +137,11 @@ daemon resolves the name to its registered peer and target and opens the Fang
 through the same path as `fang open`, so Pack membership, Pelt, Silver and the
 receiver's deny-by-default Target Policy apply unchanged. The request cannot
 override the peer or target. `--bind` defaults to 127.0.0.1 and `--transport`
-to quic; tcp-plain stays an explicit choice.
+to quic; tcp-plain stays an explicit choice. On Linux,
+`--local-endpoint unix:/absolute/path` opens a credential-bearing Unix stream
+listener. It cannot be combined with `--local-port` or `--bind` and follows the
+operator-managed directory and socket-permission requirements in the
+[Stage56 M3 endpoint notes](STAGE56_M3_UNIX_ENDPOINT_IMPLEMENTATION.md).
 
 Service mutations and `service connect` serialize with other protected
 mutations and are refused while storage is degraded; Silver refuses

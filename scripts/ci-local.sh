@@ -64,7 +64,7 @@ check audit 600 cargo audit --deny warnings
 if [ "$MODE" = full ]; then
   check acceptance 1800 python3 -B tests/integration/run.py
   for gate in activation auto_sync death discovery governance provider \
-              routed_fang service service_discovery sync; do
+              routed_fang service service_discovery sync unix_fang unix_uid; do
     check "gate-$gate" 1800 python3 -B "tests/integration/${gate}_gate.py"
   done
 fi
