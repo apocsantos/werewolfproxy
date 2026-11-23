@@ -21,8 +21,7 @@ use crate::{
     quic_fang::{connect_v3_on, proxy_streams, CloseClientConnection},
 };
 use tokio::{
-    io,
-    net::{TcpListener, TcpStream},
+    io::{self, AsyncRead, AsyncWrite},
     sync::oneshot,
     time::{sleep_until, Instant},
 };
@@ -172,7 +171,7 @@ pub(crate) async fn run_failover_forwarder(
         };
         prepared.push(Ready { provider, endpoint });
     }
-    let listener = match TcpListener::bind(local).await {
+    let listener = match super::fang_accept::FangListener::bind(local).await {
         Ok(listener) => {
             let _ = ready.send(Ok(()));
             listener
@@ -192,10 +191,10 @@ pub(crate) async fn run_failover_forwarder(
     );
     let prepared = std::sync::Arc::new(prepared);
 
-    let mut acceptor = super::fang_accept::FangAcceptor::new(listener, fang_id);
+    let mut acceptor = super::fang_accept::FangAcceptor::new_listener(listener, fang_id);
     loop {
         let (mut inbound, _, slot) = acceptor.accept().await;
-        if super::arm_reset_on_close(&inbound).is_err() {
+        if inbound.arm_reset_on_close().is_err() {
             continue;
         }
         let prepared = prepared.clone();
@@ -213,7 +212,7 @@ pub(crate) async fn run_failover_forwarder(
                 .await;
             match served {
                 Some(Served::Clean) => {
-                    let _ = super::disarm_reset_on_close(&inbound);
+                    let _ = inbound.disarm_reset_on_close();
                 }
                 // No provider established a session (Stage45).
                 Some(Served::NoProvider(class, detail)) => health.record(class, &detail),
@@ -241,7 +240,7 @@ enum Served {
 
 /// Tries the providers in order for one local connection.
 async fn select_and_serve(
-    inbound: &mut TcpStream,
+    inbound: &mut (impl AsyncRead + AsyncWrite + Unpin),
     providers: &[Ready],
     identity: &PeltIdentity,
     admission: &super::peer_quota::Membership,
@@ -301,7 +300,7 @@ async fn select_and_serve(
 /// One ordinary session to one provider. `established` fires after the
 /// provider's ACK verifies and before the first read from `inbound`.
 async fn attempt(
-    inbound: &mut TcpStream,
+    inbound: &mut (impl AsyncRead + AsyncWrite + Unpin),
     ready: &Ready,
     identity: &PeltIdentity,
     established: oneshot::Sender<()>,

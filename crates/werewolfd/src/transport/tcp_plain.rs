@@ -1,6 +1,6 @@
 use super::fang_health::FailureClass;
 use std::time::Duration;
-use tokio::{io, net::TcpListener};
+use tokio::io;
 
 pub(super) async fn run_plain_tcp_forwarder(
     fang_id: &str,
@@ -9,7 +9,7 @@ pub(super) async fn run_plain_tcp_forwarder(
     cancellation: crate::fang_registry::FangCancellation,
     ready: tokio::sync::oneshot::Sender<io::Result<()>>,
 ) -> io::Result<()> {
-    let listener = match TcpListener::bind(local).await {
+    let listener = match super::fang_accept::FangListener::bind(local).await {
         Ok(listener) => {
             let _ = ready.send(Ok(()));
             listener
@@ -22,7 +22,7 @@ pub(super) async fn run_plain_tcp_forwarder(
     cancellation.await_activation().await?;
     println!("🦷 {} plain TCP listening locally on {}", fang_id, local);
 
-    let mut acceptor = super::fang_accept::FangAcceptor::new(listener, fang_id);
+    let mut acceptor = super::fang_accept::FangAcceptor::new_listener(listener, fang_id);
     loop {
         let (mut inbound, client_addr, slot) = acceptor.accept().await;
         let remote = remote.to_string();
@@ -64,7 +64,7 @@ pub(super) async fn run_plain_tcp_forwarder(
             if slot.serve(session).await.is_none() {
                 // Evicted (Stage43): close with a reset, not a FIN that
                 // would look like a completed session.
-                let _ = super::arm_reset_on_close(&inbound);
+                let _ = inbound.arm_reset_on_close();
             }
         });
     }

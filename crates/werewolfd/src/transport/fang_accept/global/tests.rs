@@ -19,7 +19,10 @@ async fn acceptor(global: Arc<Semaphore>, idle: Duration) -> FangAcceptor {
 }
 
 async fn held(acceptor: &mut FangAcceptor, established: bool) -> FangSlot {
-    let slot = acceptor.admit(address()).await.unwrap();
+    let slot = acceptor
+        .admit(ClientIdentity::Tcp(address()))
+        .await
+        .unwrap();
     if established {
         session::scope(slot.session.clone(), async { plain_connected_current() }).await;
     }
@@ -69,7 +72,7 @@ async fn global_setup_and_recent_sessions_are_protected() {
         )
         .await;
         let old = held(&mut a, established).await;
-        assert!(a.admit(address()).await.is_none());
+        assert!(a.admit(ClientIdentity::Tcp(address())).await.is_none());
         assert!(!a.registry.lock().unwrap().entries[&old.id].evicting);
     }
 }
@@ -81,7 +84,7 @@ async fn absent_peer_reservation_does_not_establish_plain_tcp() {
     let old = held(&mut a, false).await;
     session::scope(old.session.clone(), async { commit_current() }).await;
     assert!(!a.registry.lock().unwrap().entries[&old.id].established);
-    assert!(a.admit(address()).await.is_none());
+    assert!(a.admit(ClientIdentity::Tcp(address())).await.is_none());
     session::scope(old.session.clone(), async { plain_connected_current() }).await;
     let released = a
         .registry
@@ -104,7 +107,7 @@ async fn empty_fang_never_steals_a_siblings_global_slot() {
     let mut a = acceptor(global.clone(), Duration::ZERO).await;
     let mut b = acceptor(global.clone(), Duration::ZERO).await;
     let old = running(&mut a).await;
-    assert!(b.admit(address()).await.is_none());
+    assert!(b.admit(ClientIdentity::Tcp(address())).await.is_none());
     assert!(!old.is_finished());
     old.abort();
     assert!(old.await.unwrap_err().is_cancelled());
@@ -117,11 +120,11 @@ async fn busy_peer_gate_does_not_start_global_reclamation() {
     let mut a = acceptor(global, Duration::ZERO).await;
     let old = running(&mut a).await;
     let gate = a.peer_reclaim.clone().acquire_owned().await.unwrap();
-    assert!(a.admit(address()).await.is_none());
+    assert!(a.admit(ClientIdentity::Tcp(address())).await.is_none());
     assert!(!old.is_finished());
     assert!(!a.registry.lock().unwrap().entries[&0].evicting);
     drop(gate);
-    let new = a.admit(address()).await.unwrap();
+    let new = a.admit(ClientIdentity::Tcp(address())).await.unwrap();
     assert!(old.await.unwrap());
     drop(new);
 }
@@ -143,9 +146,12 @@ async fn slow_global_cleanup_never_credits_quota_or_selects_two_victims() {
     let second = held(&mut a, true).await;
     first.activity.0.store(0, Ordering::Relaxed);
     second.activity.0.store(0, Ordering::Relaxed);
-    assert!(timeout(Duration::from_millis(30), a.admit(address()))
-        .await
-        .is_err());
+    assert!(timeout(
+        Duration::from_millis(30),
+        a.admit(ClientIdentity::Tcp(address()))
+    )
+    .await
+    .is_err());
     assert_eq!(global.available_permits(), 0);
     let registry = a.registry.lock().unwrap();
     assert!(registry.entries[&first.id].evicting);
@@ -229,7 +235,7 @@ async fn global_wait_charges_first_dial_and_selection_but_not_the_tcp_retry() {
     let mut a = acceptor(global, Duration::ZERO).await;
     let old = held(&mut a, true).await;
     let registry = a.registry.clone();
-    let request = tokio::spawn(async move { a.admit(address()).await });
+    let request = tokio::spawn(async move { a.admit(ClientIdentity::Tcp(address())).await });
     marked(&registry, old.id).await;
     sleep(Duration::from_millis(30)).await;
     let earlier = Instant::now() - Duration::from_millis(20);
@@ -255,7 +261,7 @@ async fn competitor_can_win_released_global_capacity_without_a_queue_or_second_v
     second.activity.0.store(0, Ordering::Relaxed);
     let registry = a.registry.clone();
     let gate = a.peer_reclaim.clone();
-    let request = tokio::spawn(async move { a.admit(address()).await });
+    let request = tokio::spawn(async move { a.admit(ClientIdentity::Tcp(address())).await });
     marked(&registry, first.id).await;
     drop(first);
     let competitor = global.clone().try_acquire_owned().unwrap();
@@ -278,7 +284,7 @@ async fn cancelling_global_wait_releases_gate_without_speculative_capacity() {
     let old = held(&mut a, true).await;
     let registry = a.registry.clone();
     let gate = a.peer_reclaim.clone();
-    let request = tokio::spawn(async move { a.admit(address()).await });
+    let request = tokio::spawn(async move { a.admit(ClientIdentity::Tcp(address())).await });
     marked(&registry, old.id).await;
     request.abort();
     assert!(request.await.err().unwrap().is_cancelled());
@@ -294,12 +300,13 @@ async fn global_cleanup_wait_is_bounded_by_the_existing_one_second_window() {
     let mut a = acceptor(global.clone(), Duration::ZERO).await;
     let old = held(&mut a, true).await;
     let began = Instant::now();
-    assert!(
-        timeout(EVICT_WAIT + Duration::from_secs(1), a.admit(address()))
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(timeout(
+        EVICT_WAIT + Duration::from_secs(1),
+        a.admit(ClientIdentity::Tcp(address()))
+    )
+    .await
+    .unwrap()
+    .is_none());
     assert!(began.elapsed() >= EVICT_WAIT);
     assert_eq!(global.available_permits(), 0);
     assert_eq!(a.peer_reclaim.available_permits(), 1);

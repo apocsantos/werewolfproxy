@@ -1,13 +1,13 @@
 use super::*;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::mpsc,
     time::{sleep, timeout},
 };
 
 /// Runs `acceptor` in a task that hands each accepted connection and its slot
 /// to the test, which then decides when the slot is released.
-fn serve(mut acceptor: FangAcceptor) -> mpsc::UnboundedReceiver<(TcpStream, FangSlot)> {
+fn serve(mut acceptor: FangAcceptor) -> mpsc::UnboundedReceiver<(FangClientStream, FangSlot)> {
     let (tx, rx) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         loop {
@@ -165,7 +165,7 @@ fn echo_sessions(mut acceptor: FangAcceptor) -> mpsc::UnboundedReceiver<bool> {
             tokio::spawn(async move {
                 let evicted = slot.serve(echo(&mut stream)).await.is_none();
                 if evicted {
-                    let _ = crate::transport::arm_reset_on_close(&stream);
+                    let _ = stream.arm_reset_on_close();
                 }
                 drop(stream);
                 let _ = tx.send(evicted);
@@ -175,7 +175,7 @@ fn echo_sessions(mut acceptor: FangAcceptor) -> mpsc::UnboundedReceiver<bool> {
     rx
 }
 
-async fn echo(stream: &mut TcpStream) {
+async fn echo(stream: &mut (impl AsyncRead + AsyncWrite + Unpin)) {
     let mut local = Tracked::new(stream);
     let mut buf = [0u8; 1024];
     while let Ok(n) = local.read(&mut buf).await {
@@ -297,7 +297,7 @@ async fn a_source_address_is_held_to_its_share() {
         registry
             .lock()
             .unwrap()
-            .source_count("127.0.0.1".parse().unwrap()),
+            .source_count(ShareKey::Ip("127.0.0.1".parse().unwrap())),
         2
     );
 }
@@ -356,18 +356,18 @@ fn only_non_loopback_sources_are_shared() {
         "[::ffff:127.0.0.1]:1",
     ] {
         assert_eq!(
-            production.share_key(loopback.parse().unwrap()),
+            production.share_key(ClientIdentity::Tcp(loopback.parse().unwrap())),
             None,
             "{loopback}"
         );
     }
     assert_eq!(
-        production.share_key("10.43.0.2:1".parse().unwrap()),
-        Some("10.43.0.2".parse().unwrap())
+        production.share_key(ClientIdentity::Tcp("10.43.0.2:1".parse().unwrap())),
+        Some(ShareKey::Ip("10.43.0.2".parse().unwrap()))
     );
     assert_eq!(
-        production.share_key("[::ffff:10.43.0.2]:1".parse().unwrap()),
-        Some("10.43.0.2".parse().unwrap()),
+        production.share_key(ClientIdentity::Tcp("[::ffff:10.43.0.2]:1".parse().unwrap())),
+        Some(ShareKey::Ip("10.43.0.2".parse().unwrap())),
         "an IPv4-mapped address shares with its IPv4 form"
     );
     assert_eq!(production.idle_evict_after, IDLE_EVICT_AFTER);
@@ -378,8 +378,8 @@ fn only_non_loopback_sources_are_shared() {
 #[test]
 fn ipv6_sources_share_by_slash_64() {
     let policy = Policy::default();
-    let key = |a: &str| policy.share_key(a.parse().unwrap());
-    let prefix = Some("fd43::".parse().unwrap());
+    let key = |a: &str| policy.share_key(ClientIdentity::Tcp(a.parse().unwrap()));
+    let prefix = Some(ShareKey::Ip("fd43::".parse().unwrap()));
     for same in [
         "[fd43::10]:1",
         "[fd43::13]:2",
@@ -389,7 +389,7 @@ fn ipv6_sources_share_by_slash_64() {
     }
     assert_eq!(
         key("[fd43:0:0:1::2]:1"),
-        Some("fd43:0:0:1::".parse().unwrap())
+        Some(ShareKey::Ip("fd43:0:0:1::".parse().unwrap()))
     );
     assert_ne!(
         key("[fd43:0:0:1::2]:1"),
@@ -397,10 +397,13 @@ fn ipv6_sources_share_by_slash_64() {
         "another /64 is another source"
     );
     // IPv4 and IPv4-mapped keep their exact address.
-    assert_eq!(key("10.43.0.2:1"), Some("10.43.0.2".parse().unwrap()));
+    assert_eq!(
+        key("10.43.0.2:1"),
+        Some(ShareKey::Ip("10.43.0.2".parse().unwrap()))
+    );
     assert_eq!(
         key("[::ffff:10.43.0.2]:1"),
-        Some("10.43.0.2".parse().unwrap())
+        Some(ShareKey::Ip("10.43.0.2".parse().unwrap()))
     );
     assert_ne!(key("10.43.0.2:1"), key("10.43.0.3:1"));
     assert_eq!(key("[::1]:1"), None);
@@ -435,4 +438,157 @@ async fn tracked_records_activity_only_inside_a_fang_session() {
             );
         })
         .await;
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn unix_endpoint_uses_peer_uid_and_managed_socket_permissions() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let parent = std::env::temp_dir().join(format!(
+        "werewolf-fang-unix-{}-{}",
+        std::process::id(),
+        origin().elapsed().as_nanos()
+    ));
+    std::fs::create_dir(&parent).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o2750)).unwrap();
+    let path = parent.join("fang.sock");
+    let endpoint = format!("unix:{}", path.display());
+
+    let listener = FangListener::bind(&endpoint).await.unwrap();
+    let metadata = std::fs::symlink_metadata(&path).unwrap();
+    assert!(metadata.file_type().is_socket());
+    assert_eq!(metadata.mode() & 0o777, 0o660);
+    assert_eq!(metadata.gid(), std::fs::metadata(&parent).unwrap().gid());
+
+    let mut acceptor = FangAcceptor::new_listener(listener, "unix-test");
+    let client = tokio::net::UnixStream::connect(&path);
+    let (client, accepted) = tokio::join!(client, acceptor.accept());
+    let client = client.unwrap();
+    let (stream, identity, slot) = accepted;
+    let expected_uid = client.peer_cred().unwrap().uid();
+    assert!(matches!(identity, ClientIdentity::UnixUid(uid) if uid == expected_uid));
+    assert_eq!(
+        Policy::default().share_key(identity),
+        Some(ShareKey::Uid(expected_uid))
+    );
+    drop(slot);
+    drop(stream);
+    drop(client);
+    drop(acceptor);
+    assert!(!path.exists(), "managed socket path was not removed");
+    std::fs::remove_dir(parent).unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn unix_endpoint_rejects_unsafe_paths_and_parent_modes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    assert!(validate_unix_path("relative/fang.sock").is_err());
+    assert!(validate_unix_path("/tmp/../fang.sock").is_err());
+    assert!(validate_unix_path("/tmp/./fang.sock").is_err());
+    let parent = std::env::temp_dir().join(format!(
+        "werewolf-fang-unix-mode-{}-{}",
+        std::process::id(),
+        origin().elapsed().as_nanos()
+    ));
+    std::fs::create_dir(&parent).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o0770)).unwrap();
+    let endpoint = format!("unix:{}/fang.sock", parent.display());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let error = runtime
+        .block_on(FangListener::bind(&endpoint))
+        .map(|_| ())
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    std::fs::remove_dir(parent).unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn unix_listener_cleanup_preserves_a_replaced_path() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let parent = std::env::temp_dir().join(format!(
+        "werewolf-fang-unix-replace-{}-{}",
+        std::process::id(),
+        origin().elapsed().as_nanos()
+    ));
+    std::fs::create_dir(&parent).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o2750)).unwrap();
+    let path = parent.join("fang.sock");
+    let endpoint = format!("unix:{}", path.display());
+    let listener = FangListener::bind(&endpoint).await.unwrap();
+
+    std::fs::remove_file(&path).unwrap();
+    std::fs::write(&path, b"replacement").unwrap();
+    drop(listener);
+
+    assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+    std::fs::remove_file(path).unwrap();
+    std::fs::remove_dir(parent).unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn uid_share_keys_are_distinct_and_enforced_independently() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut acceptor = FangAcceptor::with_limits(
+        listener,
+        "uid-share-test",
+        Arc::new(Semaphore::new(4)),
+        Arc::new(Semaphore::new(4)),
+        Policy {
+            idle_evict_after: Duration::from_secs(30),
+            source_share: 1,
+            exempt_loopback: true,
+        },
+    );
+    let uid_a = acceptor
+        .admit(ClientIdentity::UnixUid(41001))
+        .await
+        .unwrap();
+    assert!(acceptor
+        .admit(ClientIdentity::UnixUid(41001))
+        .await
+        .is_none());
+    let uid_b = acceptor
+        .admit(ClientIdentity::UnixUid(41002))
+        .await
+        .unwrap();
+    assert_eq!(acceptor.registry().source_count(ShareKey::Uid(41001)), 1);
+    assert_eq!(acceptor.registry().source_count(ShareKey::Uid(41002)), 1);
+    drop((uid_a, uid_b));
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn unix_bind_reports_stale_path_without_unlinking_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let parent = std::env::temp_dir().join(format!(
+        "werewolf-fang-unix-stale-{}-{}",
+        std::process::id(),
+        origin().elapsed().as_nanos()
+    ));
+    std::fs::create_dir(&parent).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o2750)).unwrap();
+    let path = parent.join("fang.sock");
+    let endpoint = format!("unix:{}", path.display());
+    let stale = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    drop(stale);
+
+    let error = FangListener::bind(&endpoint).await.map(|_| ()).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
+    assert!(error.to_string().contains("active or stale"));
+    assert!(std::fs::symlink_metadata(&path)
+        .unwrap()
+        .file_type()
+        .is_socket());
+    std::fs::remove_file(path).unwrap();
+    std::fs::remove_dir(parent).unwrap();
 }

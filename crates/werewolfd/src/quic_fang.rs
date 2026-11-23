@@ -11,8 +11,7 @@ use std::{
     net::{Ipv4Addr, Ipv6Addr, SocketAddr},
 };
 use tokio::{
-    io::{copy, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
+    io::{copy, AsyncRead, AsyncWrite, AsyncWriteExt},
     task::JoinHandle,
 };
 use werewolf_core::pelt::PeltIdentity;
@@ -62,7 +61,7 @@ pub async fn open_quic_fang(
                 return;
             }
         };
-        let listener = match TcpListener::bind(&local_addr).await {
+        let listener = match crate::transport::fang_accept::FangListener::bind(&local_addr).await {
             Ok(v) => v,
             Err(e) => {
                 let _ = ready.send(Err(std::io::Error::new(e.kind(), e.to_string())));
@@ -82,10 +81,11 @@ pub async fn open_quic_fang(
             remote_addr
         );
 
-        let mut acceptor = crate::transport::fang_accept::FangAcceptor::new(listener, &local_addr);
+        let mut acceptor =
+            crate::transport::fang_accept::FangAcceptor::new_listener(listener, &local_addr);
         loop {
             let (tcp, _, slot) = acceptor.accept().await;
-            if crate::transport::arm_reset_on_close(&tcp).is_err() {
+            if tcp.arm_reset_on_close().is_err() {
                 continue;
             }
 
@@ -122,7 +122,9 @@ pub async fn open_quic_fang(
                     let _connection_close = CloseClientConnection(connection);
                     crate::transport::fang_accept::commit_current();
                     let mut tcp = tcp;
-                    let _ = proxy_streams(&mut tcp, send, recv).await;
+                    if proxy_streams(&mut tcp, send, recv).await.is_ok() {
+                        let _ = tcp.disarm_reset_on_close();
+                    }
                 })
                 .await;
             });
@@ -454,7 +456,7 @@ impl Drop for AbortiveSend {
 }
 
 pub(crate) async fn proxy_streams(
-    tcp: &mut TcpStream,
+    tcp: &mut (impl AsyncRead + AsyncWrite + Unpin),
     send: SendStream,
     mut recv: RecvStream,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -464,7 +466,7 @@ pub(crate) async fn proxy_streams(
     };
     // Borrowed halves do not shut down on drop, so a failed session closes
     // the armed socket with RST instead of an implicit FIN.
-    let (rd, wr) = tcp.split();
+    let (rd, wr) = tokio::io::split(tcp);
     // Local activity, for Stage43 idle eviction.
     let (mut rd, mut wr) = (Tracked::new(rd), Tracked::new(wr));
 
@@ -492,7 +494,8 @@ pub(crate) async fn proxy_streams(
         _ => return Err("upload not acknowledged by the receiver".into()),
     }
     send.clean = true;
-    crate::transport::disarm_reset_on_close(tcp)?;
+    // TCP sockets need the reset guard disarmed after a clean shutdown. The
+    // generic stream wrapper owns that transport-specific behavior at the caller.
 
     Ok(())
 }
