@@ -87,7 +87,7 @@ pub fn local_fang_endpoint(text: &str) -> bool {
             return false;
         };
         let path = std::path::Path::new(path);
-        return path.is_absolute()
+        path.is_absolute()
             && path.file_name().is_some()
             && !path
                 .as_os_str()
@@ -96,7 +96,7 @@ pub fn local_fang_endpoint(text: &str) -> bool {
                 .any(|part| part == "." || part == "..")
             && !text.chars().any(char::is_whitespace)
             && !text.chars().any(char::is_control)
-            && text.len() <= 512;
+            && text.len() <= 512
     }
     #[cfg(not(target_os = "linux"))]
     false
