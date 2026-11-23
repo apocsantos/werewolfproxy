@@ -1,9 +1,10 @@
 # Stage53 — reserved peer-session share closure
 
-**Status: M1–M3 merged; M4 closure for review, 2026-11-18.** The owner
-merged the design, runtime and passing regression, then instructed
-continuation. This record completes the approved documentation step on
-baseline `main` `d3758e9ebad2c5b750ac6e23f6d52a591580481b`.
+**Status: Stage53 CLOSED; M1–M4 owner-merged, 2026-11-18.** The owner
+merged [M4 PR #169](https://github.com/apocsantos/werewolfproxy/pull/169) as
+`8f86202c91a41b2758c5112e7d0e91dce8b2f3f0`. This record completes the
+approved documentation step on baseline `main`
+`d3758e9ebad2c5b750ac6e23f6d52a591580481b`.
 
 ## Delivery and resulting behaviour
 
@@ -12,6 +13,7 @@ baseline `main` `d3758e9ebad2c5b750ac6e23f6d52a591580481b`.
 | M1 reproduction and Q2 contract | [PR #166](https://github.com/apocsantos/werewolfproxy/pull/166), `4fed878`, 2026-11-17 | [Design](STAGE53_PEER_QUOTA_FAIRNESS_SURVEY.md) |
 | M2 reserved shares | [PR #167](https://github.com/apocsantos/werewolfproxy/pull/167), `b1fc389`, 2026-11-17 | [Implementation](STAGE53_M2_PEER_QUOTA_ADMISSION.md) |
 | M3 membership and transport regression | [PR #168](https://github.com/apocsantos/werewolfproxy/pull/168), `d3758e9`, 2026-11-18 | [Results](STAGE53_M3_REGRESSION.md) |
+| M4 limitations and closure | [PR #169](https://github.com/apocsantos/werewolfproxy/pull/169), `8f86202`, 2026-11-18 | this record; documentation only |
 
 Before Stage53, one Fang could fill the receiver's 64-session quota and
 deny its already-open siblings, including across QUIC and encrypted TCP.
@@ -142,9 +144,9 @@ evidence, not new M4 Rust/proof/chaos runs.
 
 The [current limitations](../KNOWN_LIMITATIONS.md), [status](STATUS.md)
 and [index](INDEX.md) now distinguish the implemented policy from the
-historical first-come allocation. M1–M3 deliver the approved change and
-its local regression evidence; M4 is the closure handoff for review.
-No further runtime work is required by the approved Stage53 scope.
+historical first-come allocation. M1–M4 deliver the approved change, its
+local regression evidence and documented disposition. No further runtime
+work is required by the approved Stage53 scope.
 Per-user fairness, lending, queuing or smaller-share idle eviction would
 need a separate design decision and validation.
 

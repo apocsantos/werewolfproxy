@@ -1,6 +1,6 @@
 # Stage55 M3 — full-cap regression
 
-**Status: M3 owner-merged in PR #176; M4 closure is for review.** M2 PR #175 merged as
+**Status: M3 owner-merged in PR #176; M4 closure merged in PR #177.** M2 PR #175 merged as
 `16d67a572a471f090f2e95ab0cca78588e92b42b`. M3 adds native controls at the
 real 1024 global-session ceiling and reruns the Stage54 regression and local
 gate scope. No runtime policy or cap change is part of this step.

@@ -6,6 +6,10 @@ as `d3758e9` on 2026-11-18. The [M4 closure handoff](STAGE53_CLOSURE.md)
 records delivery and current limits; the pending-M4 wording below is
 retained as the historical M3 disposition.
 
+**M4 closure:** the owner merged [PR #169](https://github.com/apocsantos/werewolfproxy/pull/169)
+as `8f86202` on 2026-11-18; Stage53 is closed and its remaining limits are
+recorded in [STAGE53_CLOSURE.md](STAGE53_CLOSURE.md).
+
 The owner merged [PR #167](https://github.com/apocsantos/werewolfproxy/pull/167)
 as `b1fc389cab71da277e9c67b098f2f22205c9a225` and instructed continuation.
 Application code, dependencies, existing gate definitions and release

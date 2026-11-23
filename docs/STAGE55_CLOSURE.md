@@ -1,9 +1,10 @@
 # Stage55 — global idle reclamation closure
 
-**Status: M1–M3 owner-merged; M4 documentation closure for review, 2026-11-23.**
-This record summarizes the delivered policy, regression evidence and remaining
-limits. M4 changes documentation only; it does not claim new runtime or test
-results.
+**Status: Stage55 CLOSED; M1–M4 owner-merged, 2026-11-23.** The owner merged
+[M4 PR #177](https://github.com/apocsantos/werewolfproxy/pull/177) as
+`406f68a9c82abce4c15088bb8f22b98e5618701f`. This record summarizes the
+delivered policy, regression evidence and remaining limits. M4 changed
+documentation only; it did not claim new runtime or test results.
 
 ## Delivery
 
@@ -12,7 +13,7 @@ results.
 | M1 baseline and policy proposal | [PR #174](https://github.com/apocsantos/werewolfproxy/pull/174), `5ce2a54` | [Survey](STAGE55_GLOBAL_IDLE_ADMISSION_SURVEY.md) |
 | M2 bounded global idle reclamation | [PR #175](https://github.com/apocsantos/werewolfproxy/pull/175), `16d67a5` | [Implementation](STAGE55_M2_GLOBAL_RECLAMATION.md) |
 | M3 full-cap and retained regression | [PR #176](https://github.com/apocsantos/werewolfproxy/pull/176), `80c86a5` | [Results](STAGE55_M3_REGRESSION.md) |
-| M4 limitations and closure | this PR | this record; documentation only |
+| M4 limitations and closure | [PR #177](https://github.com/apocsantos/werewolfproxy/pull/177), `406f68a` | this record; documentation only |
 
 The measured boundary was a Fang with local room being denied at the daemon's
 1024-session ceiling while it held established idle sessions of its own. M2

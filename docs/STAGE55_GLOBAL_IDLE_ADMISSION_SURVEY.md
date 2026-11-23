@@ -6,9 +6,11 @@ are applied as recommended in the [M2 record](STAGE55_M2_GLOBAL_RECLAMATION.md),
 including G1's same-Fang ownership and compatibility cost. The proposal and
 M1 measurements below retain their original pre-implementation scope.
 
-**Status: M1–M3 owner-merged; M4 closure for review, 2026-11-23.** M1
-reproduced the global idle-admission boundary; M2 implemented the reviewed G1
-policy; M3 completed the full-cap and retained regression. The
+**Status: Stage55 CLOSED; M1–M4 owner-merged, 2026-11-23.** M1 reproduced
+the global idle-admission boundary; M2 implemented the reviewed G1 policy; M3
+completed the full-cap and retained regression; M4 recorded their delivery
+and limits in [PR #177](https://github.com/apocsantos/werewolfproxy/pull/177)
+(`406f68a`). The
 [closure record](STAGE55_CLOSURE.md) summarizes delivery, evidence and
 remaining limits. The M1 baseline and proposal below retain their original
 scope and dates.
