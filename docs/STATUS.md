@@ -126,6 +126,19 @@ primary/provider commitment paths remain covered below the cap by Stage54.
 Frozen releases and the documented fairness, idle-reset, race and WAN limits
 remain unchanged.
 
+## Local Fang client fairness
+
+The active-loopback flood remains an explicit Stage43 limitation. Stage56 M1
+reviewed the current accept path: it receives a TCP stream and remote socket
+address, and loopback clients share the per-source exemption. The current TCP
+interface does not identify a local process or Unix user. A per-user quota
+would require a separately designed credential-bearing local endpoint or
+application handshake; neither is part of the current contract. The
+[Stage56 survey](STAGE56_LOCAL_FANG_IDENTITY_SURVEY.md) recommends keeping the
+existing TCP behavior until the owner chooses whether a new local identity
+interface is worth its compatibility and platform costs. No runtime change or
+new test result is claimed.
+
 ## Certified
 
 | Area | Records |
