@@ -63,6 +63,7 @@ contract is consolidated for the 1.0.0-rc.2 candidate.
 - [Stage55 M3 full-cap regression](STAGE55_M3_REGRESSION.md) (routed, concurrent and retained regression campaign)
 - [Stage55 closure](STAGE55_CLOSURE.md) (M1–M4 merged; frozen releases unchanged)
 - [Stage56 local Fang identity survey](STAGE56_LOCAL_FANG_IDENTITY_SURVEY.md) (M1 source review; per-user fairness requires a new local identity interface)
+- [Stage56 M2 optional Unix endpoint design](STAGE56_M2_LOCAL_UNIX_DESIGN.md) (per-UID fairness proposal; implementation awaits review)
 
 The current Stage21 release uses the Stage20S-certified dependency graph:
 rustls 0.23.45 and rustls-webpki 0.103.15. Earlier stage reports retain the
