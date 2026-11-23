@@ -90,7 +90,7 @@ slot cleanup on every exit path.
 | S56-D3 | Platform | Linux only until another platform has peer-credential evidence |
 | S56-D4 | Scope | All local Fang kinds through one stream abstraction; no TCP proxy bridge |
 | S56-D5 | Compatibility | Keep existing TCP values/defaults and raw byte-stream semantics unchanged |
-| S56-D6 | Authorize implementation and tests? | Accepted in PR #180; implementation and tests merged in PR #181 |
+| S56-D6 | Authorize implementation and tests? | Accepted in PR #180; implementation merged in PR #181 and transport/UID regressions in PR #182 |
 
 The M1-recommended TCP-only disposition would have remained in effect if D0
 or D6 had not been accepted. The Linux `SO_PEERCRED` scope is described by

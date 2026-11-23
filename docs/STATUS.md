@@ -128,17 +128,15 @@ remain unchanged.
 
 ## Local Fang client fairness
 
-The active-loopback flood remains an explicit TCP limitation. Stage56 M1
-confirmed that TCP loopback accepts no local user identity. The owner accepted
-the optional Linux Unix endpoint in M2 PR #180; M3 implementation PR #181
-merged at `5eeafe2`. Its `SO_PEERCRED` UID feeds the shared 16-session source
-share while legacy TCP behavior remains unchanged. M4 adds a Linux integration
-gate that exercises direct QUIC, encrypted TCP, plain TCP, routed and provider
-failover Fangs over Unix streams. Exact bytes, socket cleanup and daemon
-survival passed. A private user-namespace test also verified SO_PEERCRED
-attribution from UID 1. See the [M1 survey](STAGE56_LOCAL_FANG_IDENTITY_SURVEY.md),
-[accepted M2 design](STAGE56_M2_LOCAL_UNIX_DESIGN.md), [M3 implementation](STAGE56_M3_UNIX_ENDPOINT_IMPLEMENTATION.md)
-and [M4 regression](STAGE56_M4_UNIX_TRANSPORT_REGRESSION.md).
+The active-loopback flood remains an explicit TCP limitation. Stage56 is closed:
+M1–M4 are owner-merged through [M4 PR #182](https://github.com/apocsantos/werewolfproxy/pull/182)
+(`ec30713`). The optional Linux Unix endpoint uses `SO_PEERCRED` UID identity
+in the shared 16-session source share; `service connect --local-endpoint`
+provides the public client path while legacy TCP behavior remains unchanged.
+M4's five-path exact-byte gate and UID 0/UID 1 namespace test passed, and all
+hosted Rust CI jobs passed. See the [M1 survey](STAGE56_LOCAL_FANG_IDENTITY_SURVEY.md),
+[M2 design](STAGE56_M2_LOCAL_UNIX_DESIGN.md), [M3 implementation](STAGE56_M3_UNIX_ENDPOINT_IMPLEMENTATION.md),
+[M4 regression](STAGE56_M4_UNIX_TRANSPORT_REGRESSION.md) and [closure](STAGE56_CLOSURE.md).
 
 ## Certified
 
