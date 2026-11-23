@@ -19,10 +19,7 @@ use crate::{
     quic_fang::{AbortiveSend, CloseClientConnection, UPLOAD_ACK_WINDOW},
 };
 use std::net::SocketAddr;
-use tokio::{
-    io::{self, AsyncRead, AsyncWrite},
-    net::{TcpListener, TcpStream},
-};
+use tokio::io::{self, AsyncRead, AsyncWrite};
 use werewolf_core::{pack::PeerRecord, pelt::PeltIdentity, route::RouteHop};
 
 /// A route resolved against the current Pack at Fang open.
@@ -175,7 +172,7 @@ pub(crate) async fn run_routed_forwarder(
         },
         RouteHop::Tcp => None,
     };
-    let listener = match TcpListener::bind(local).await {
+    let listener = match super::fang_accept::FangListener::bind(local).await {
         Ok(listener) => {
             let _ = ready.send(Ok(()));
             listener
@@ -191,10 +188,10 @@ pub(crate) async fn run_routed_forwarder(
         fang_id, local, routed.destination, routed.via
     );
 
-    let mut acceptor = super::fang_accept::FangAcceptor::new(listener, fang_id);
+    let mut acceptor = super::fang_accept::FangAcceptor::new_listener(listener, fang_id);
     loop {
         let (mut inbound, _, slot) = acceptor.accept().await;
-        if super::arm_reset_on_close(&inbound).is_err() {
+        if inbound.arm_reset_on_close().is_err() {
             continue;
         }
         let routed = routed.clone();
@@ -234,7 +231,7 @@ pub(crate) async fn run_routed_forwarder(
             // armed, so the application sees a reset, never a session that
             // looks complete.
             if matches!(result, Some(Ok(()))) {
-                let _ = super::disarm_reset_on_close(&inbound);
+                let _ = inbound.disarm_reset_on_close();
             }
         });
     }
@@ -244,7 +241,7 @@ pub(crate) async fn run_routed_forwarder(
 /// the destination's ACK has verified and before any application byte is
 /// read (Stage27: a provider may be abandoned only before that point).
 pub(crate) async fn routed_session(
-    inbound: &mut TcpStream,
+    inbound: &mut (impl AsyncRead + AsyncWrite + Unpin),
     routed: &Routed,
     endpoint: Option<&crate::quic_fang::QuicPeer>,
     remote: &str,
@@ -395,7 +392,7 @@ where
 
 /// The unchanged encrypted-TCP client to the destination, over `carrier`.
 async fn inner_session<C>(
-    inbound: &mut TcpStream,
+    inbound: &mut (impl AsyncRead + AsyncWrite + Unpin),
     carrier: C,
     routed: &Routed,
     remote: &str,

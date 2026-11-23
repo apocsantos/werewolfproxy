@@ -20,7 +20,9 @@ async fn global_ceiling_reclaims_an_own_committed_idle_session() {
     let mut acceptor = acceptor(64, Duration::ZERO, false).await;
     acceptor.global = Arc::new(Semaphore::new(1));
     let old = serving(slot(&mut acceptor).await, member.clone(), 0).await;
-    let newcomer = acceptor.admit("127.0.0.1:1234".parse().unwrap()).await;
+    let newcomer = acceptor
+        .admit(ClientIdentity::Tcp("127.0.0.1:1234".parse().unwrap()))
+        .await;
     assert!(
         newcomer.is_some(),
         "global pressure below the local ceiling must replace an own committed idle session"
@@ -70,7 +72,7 @@ async fn released_secure_reservation_is_not_a_global_candidate_during_slot_clean
     let reservation = hold(&old, &member, 0, true).await;
     drop(reservation);
     assert!(acceptor
-        .admit("127.0.0.1:1234".parse().unwrap())
+        .admit(ClientIdentity::Tcp("127.0.0.1:1234".parse().unwrap()))
         .await
         .is_none());
     assert!(!acceptor.registry.lock().unwrap().entries[&old.id].evicting);
@@ -96,7 +98,7 @@ async fn acceptor(limit: usize, idle: Duration, source: bool) -> FangAcceptor {
 
 async fn slot(acceptor: &mut FangAcceptor) -> FangSlot {
     acceptor
-        .admit("127.0.0.1:1234".parse().unwrap())
+        .admit(ClientIdentity::Tcp("127.0.0.1:1234".parse().unwrap()))
         .await
         .unwrap()
 }

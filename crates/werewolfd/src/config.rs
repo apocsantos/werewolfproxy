@@ -84,7 +84,7 @@ pub(super) fn validate_startup_config(state: &DaemonState) {
             );
         }
 
-        if profile.local.parse::<std::net::SocketAddr>().is_err() {
+        if !werewolf_core::state_validation::local_fang_endpoint(&profile.local) {
             eprintln!(
                 "⚠️ Config warning: Fang profile {} has invalid local address {}",
                 profile.name, profile.local

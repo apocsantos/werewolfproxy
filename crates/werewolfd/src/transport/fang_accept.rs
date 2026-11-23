@@ -38,6 +38,7 @@ use std::{
     future::Future,
     io,
     net::{IpAddr, Ipv6Addr, SocketAddr},
+    path::{Path, PathBuf},
     pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -52,6 +53,273 @@ use tokio::{
     sync::{Notify, OwnedSemaphorePermit, Semaphore},
     time::Instant,
 };
+
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+#[cfg(target_os = "linux")]
+use tokio::net::{UnixListener, UnixStream};
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum ShareKey {
+    Ip(IpAddr),
+    Uid(u32),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ClientIdentity {
+    Tcp(SocketAddr),
+    #[cfg(target_os = "linux")]
+    UnixUid(u32),
+}
+
+impl std::fmt::Display for ClientIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Tcp(address) => address.fmt(f),
+            #[cfg(target_os = "linux")]
+            Self::UnixUid(uid) => write!(f, "uid {uid}"),
+        }
+    }
+}
+
+impl ClientIdentity {
+    fn share_key(self, exempt_loopback: bool) -> Option<ShareKey> {
+        match self {
+            Self::Tcp(address) => {
+                let ip = address.ip().to_canonical();
+                if exempt_loopback && ip.is_loopback() {
+                    return None;
+                }
+                Some(ShareKey::Ip(match ip {
+                    IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(
+                        u128::from(v6) & !((1u128 << IPV6_SHARE_HOST_BITS) - 1),
+                    )),
+                    v4 => v4,
+                }))
+            }
+            #[cfg(target_os = "linux")]
+            Self::UnixUid(uid) => Some(ShareKey::Uid(uid)),
+        }
+    }
+}
+
+pub(crate) enum FangClientStream {
+    Tcp(TcpStream),
+    #[cfg(target_os = "linux")]
+    Unix(UnixStream),
+}
+
+impl FangClientStream {
+    fn reset(self) {
+        if let Self::Tcp(stream) = self {
+            reset(stream);
+        }
+    }
+
+    pub(crate) fn arm_reset_on_close(&self) -> io::Result<()> {
+        match self {
+            Self::Tcp(stream) => super::arm_reset_on_close(stream),
+            #[cfg(target_os = "linux")]
+            Self::Unix(_) => Ok(()),
+        }
+    }
+
+    pub(crate) fn disarm_reset_on_close(&self) -> io::Result<()> {
+        match self {
+            Self::Tcp(stream) => super::disarm_reset_on_close(stream),
+            #[cfg(target_os = "linux")]
+            Self::Unix(_) => Ok(()),
+        }
+    }
+}
+
+impl AsyncRead for FangClientStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.as_mut().get_mut() {
+            Self::Tcp(stream) => Pin::new(stream).poll_read(cx, buf),
+            #[cfg(target_os = "linux")]
+            Self::Unix(stream) => Pin::new(stream).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for FangClientStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        data: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match self.as_mut().get_mut() {
+            Self::Tcp(stream) => Pin::new(stream).poll_write(cx, data),
+            #[cfg(target_os = "linux")]
+            Self::Unix(stream) => Pin::new(stream).poll_write(cx, data),
+        }
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.as_mut().get_mut() {
+            Self::Tcp(stream) => Pin::new(stream).poll_flush(cx),
+            #[cfg(target_os = "linux")]
+            Self::Unix(stream) => Pin::new(stream).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.as_mut().get_mut() {
+            Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
+            #[cfg(target_os = "linux")]
+            Self::Unix(stream) => Pin::new(stream).poll_shutdown(cx),
+        }
+    }
+}
+
+pub(crate) struct ManagedUnixListener {
+    listener: UnixListener,
+    path: PathBuf,
+    device: u64,
+    inode: u64,
+}
+
+impl Drop for ManagedUnixListener {
+    fn drop(&mut self) {
+        if let Ok(metadata) = std::fs::symlink_metadata(&self.path) {
+            if metadata.file_type().is_socket()
+                && metadata.dev() == self.device
+                && metadata.ino() == self.inode
+            {
+                let _ = std::fs::remove_file(&self.path);
+            }
+        }
+    }
+}
+
+pub(crate) enum FangListener {
+    Tcp(TcpListener),
+    #[cfg(target_os = "linux")]
+    Unix(ManagedUnixListener),
+}
+
+impl FangListener {
+    pub(crate) async fn bind(local: &str) -> io::Result<Self> {
+        let Some(raw_path) = local.strip_prefix("unix:") else {
+            return TcpListener::bind(local).await.map(Self::Tcp);
+        };
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = raw_path;
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "Unix Fang endpoints are supported only on Linux",
+            ));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let requested_path = validate_unix_path(raw_path)?;
+            let parent = requested_path.parent().ok_or_else(invalid_unix_path)?;
+            let canonical_parent = std::fs::canonicalize(parent)?;
+            if canonical_parent != parent {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Unix Fang socket parent path must not traverse symlinks",
+                ));
+            }
+            let path =
+                canonical_parent.join(requested_path.file_name().ok_or_else(invalid_unix_path)?);
+            let parent_meta = std::fs::symlink_metadata(&canonical_parent)?;
+            let parent_mode = parent_meta.mode();
+            if !parent_meta.is_dir()
+                || parent_meta.file_type().is_symlink()
+                || parent_mode & 0o2000 == 0
+                || parent_mode & 0o022 != 0
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Unix Fang socket parent must be an operator-managed setgid directory not writable by group or others",
+                ));
+            }
+            let listener = match UnixListener::bind(&path) {
+                Ok(listener) => listener,
+                Err(error) if error.kind() == io::ErrorKind::AddrInUse => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        format!(
+                            "Unix Fang socket path {} already exists; active or stale sockets are never unlinked automatically",
+                            path.display()
+                        ),
+                    ));
+                }
+                Err(error) => return Err(error),
+            };
+            let created_meta = std::fs::symlink_metadata(&path)?;
+            if !created_meta.file_type().is_socket() {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Unix Fang endpoint path is not a socket",
+                ));
+            }
+            let managed = ManagedUnixListener {
+                listener,
+                path: path.clone(),
+                device: created_meta.dev(),
+                inode: created_meta.ino(),
+            };
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o660))?;
+            let socket_meta = std::fs::symlink_metadata(&path)?;
+            if !socket_meta.file_type().is_socket()
+                || socket_meta.gid() != parent_meta.gid()
+                || socket_meta.dev() != created_meta.dev()
+                || socket_meta.ino() != created_meta.ino()
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Unix Fang socket type or group does not match its managed parent",
+                ));
+            }
+            Ok(Self::Unix(managed))
+        }
+    }
+
+    async fn accept(&self) -> io::Result<(FangClientStream, ClientIdentity)> {
+        match self {
+            Self::Tcp(listener) => {
+                let (stream, address) = listener.accept().await?;
+                Ok((FangClientStream::Tcp(stream), ClientIdentity::Tcp(address)))
+            }
+            #[cfg(target_os = "linux")]
+            Self::Unix(listener) => {
+                let (stream, _) = listener.listener.accept().await?;
+                let uid = stream.peer_cred()?.uid();
+                Ok((FangClientStream::Unix(stream), ClientIdentity::UnixUid(uid)))
+            }
+        }
+    }
+}
+
+fn invalid_unix_path() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "Unix Fang endpoint must use unix:/absolute/path without dot components",
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn validate_unix_path(raw: &str) -> io::Result<PathBuf> {
+    let path = Path::new(raw);
+    if !path.is_absolute()
+        || path.file_name().is_none()
+        || raw.len() > 512
+        || raw.chars().any(char::is_whitespace)
+        || raw.chars().any(char::is_control)
+        || raw.split('/').any(|part| part == "." || part == "..")
+    {
+        return Err(invalid_unix_path());
+    }
+    Ok(path.to_path_buf())
+}
 
 /// Concurrent local connections per Fang: the receiver's per-peer session
 /// quota (`authority::PEER_SESSIONS`), beyond which it refuses anyway.
@@ -174,7 +442,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for Tracked<T> {
 struct Entry {
     activity: Arc<Activity>,
     evict: Arc<Notify>,
-    source: Option<IpAddr>,
+    source: Option<ShareKey>,
     evicting: bool,
     reservation: Option<session::LiveReservation>,
     established: bool,
@@ -191,7 +459,7 @@ struct Registry {
 
 impl Registry {
     /// Connections `source` holds, not counting those already being evicted.
-    fn source_count(&self, source: IpAddr) -> usize {
+    fn source_count(&self, source: ShareKey) -> usize {
         self.entries
             .values()
             .filter(|entry| entry.source == Some(source) && !entry.evicting)
@@ -200,7 +468,11 @@ impl Registry {
 
     /// Signals the longest-idle connection idle for at least `after` (from
     /// `source` only, if given) to end. Returns how long it had been idle.
-    fn evict_longest_idle(&mut self, after: Duration, source: Option<IpAddr>) -> Option<Duration> {
+    fn evict_longest_idle(
+        &mut self,
+        after: Duration,
+        source: Option<ShareKey>,
+    ) -> Option<Duration> {
         let now = Instant::now();
         let (idle, entry) = self
             .entries
@@ -332,25 +604,13 @@ impl Default for Policy {
 }
 
 impl Policy {
-    /// The source a connection's share is counted under, if any: the IPv4
-    /// address (an IPv4-mapped address counts as its IPv4 form), or the /64
-    /// of an IPv6 address.
-    fn share_key(&self, address: SocketAddr) -> Option<IpAddr> {
-        let ip = address.ip().to_canonical();
-        if self.exempt_loopback && ip.is_loopback() {
-            return None;
-        }
-        Some(match ip {
-            IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(
-                u128::from(v6) & !((1u128 << IPV6_SHARE_HOST_BITS) - 1),
-            )),
-            v4 => v4,
-        })
+    fn share_key(&self, identity: ClientIdentity) -> Option<ShareKey> {
+        identity.share_key(self.exempt_loopback)
     }
 }
 
 pub(crate) struct FangAcceptor {
-    listener: TcpListener,
+    listener: FangListener,
     fang: String,
     per_fang: Arc<Semaphore>,
     global: Arc<Semaphore>,
@@ -365,17 +625,24 @@ pub(crate) struct FangAcceptor {
 }
 
 impl FangAcceptor {
+    #[cfg(test)]
     pub(crate) fn new(listener: TcpListener, fang: &str) -> Self {
-        if let Ok(local) = listener.local_addr() {
-            if !local.ip().to_canonical().is_loopback() {
-                // S43-D5: a Fang does no authentication of its own.
-                eprintln!(
-                    "🦷 {fang} listens on {local}: reachable by any host that can \
+        Self::new_listener(FangListener::Tcp(listener), fang)
+    }
+
+    pub(crate) fn new_listener(listener: FangListener, fang: &str) -> Self {
+        if let FangListener::Tcp(tcp) = &listener {
+            if let Ok(local) = tcp.local_addr() {
+                if !local.ip().to_canonical().is_loopback() {
+                    // S43-D5: a Fang does no authentication of its own.
+                    eprintln!(
+                        "🦷 {fang} listens on {local}: reachable by any host that can \
                      reach this address, not only this machine"
-                );
+                    );
+                }
             }
         }
-        Self::with_limits(
+        Self::with_listener_limits(
             listener,
             fang,
             Arc::new(Semaphore::new(FANG_CONNECTIONS)),
@@ -384,8 +651,19 @@ impl FangAcceptor {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn with_limits(
         listener: TcpListener,
+        fang: &str,
+        per_fang: Arc<Semaphore>,
+        global: Arc<Semaphore>,
+        policy: Policy,
+    ) -> Self {
+        Self::with_listener_limits(FangListener::Tcp(listener), fang, per_fang, global, policy)
+    }
+
+    fn with_listener_limits(
+        listener: FangListener,
         fang: &str,
         per_fang: Arc<Semaphore>,
         global: Arc<Semaphore>,
@@ -411,9 +689,9 @@ impl FangAcceptor {
     /// Never returns an error: accept failures back off and retry, and
     /// connections that cannot be admitted are reset. Cancel-safe (the
     /// Fang's cancellation drops it).
-    pub(crate) async fn accept(&mut self) -> (TcpStream, SocketAddr, FangSlot) {
+    pub(crate) async fn accept(&mut self) -> (FangClientStream, ClientIdentity, FangSlot) {
         loop {
-            let (stream, address) = match self.listener.accept().await {
+            let (stream, identity) = match self.listener.accept().await {
                 Ok(accepted) => accepted,
                 Err(error) => {
                     self.accept_errors.event(&self.fang, &error);
@@ -421,15 +699,15 @@ impl FangAcceptor {
                     continue;
                 }
             };
-            match self.admit(address).await {
-                Some(slot) => return (stream, address, slot),
-                None => reset(stream),
+            match self.admit(identity).await {
+                Some(slot) => return (stream, identity, slot),
+                None => stream.reset(),
             }
         }
     }
 
-    async fn admit(&mut self, address: SocketAddr) -> Option<FangSlot> {
-        let source = self.policy.share_key(address);
+    async fn admit(&mut self, identity: ClientIdentity) -> Option<FangSlot> {
+        let source = self.policy.share_key(identity);
         let mut evicted = None;
         if let Some(source) = source {
             if self.registry().source_count(source) >= self.policy.source_share {
@@ -439,18 +717,18 @@ impl FangAcceptor {
                     .registry()
                     .evict_longest_idle(self.policy.idle_evict_after, Some(source));
                 let Some(idle) = evicted else {
-                    self.over_share.event(&self.fang, &address);
+                    self.over_share.event(&self.fang, &identity);
                     return None;
                 };
-                self.log_eviction(idle, address);
+                self.log_eviction(idle, identity);
             }
         }
         let fang = match self.per_fang.clone().try_acquire_owned() {
             Ok(permit) => permit,
-            Err(_) => self.evict_for(address, &mut evicted).await?,
+            Err(_) => self.evict_for(identity, &mut evicted).await?,
         };
         let Some((global, global_started)) = self.acquire_global(evicted.is_some()).await else {
-            self.over_ceiling.event(&self.fang, &address);
+            self.over_ceiling.event(&self.fang, &identity);
             return None;
         };
         let activity = Arc::new(Activity::new());
@@ -500,7 +778,7 @@ impl FangAcceptor {
     /// and take the slot it releases.
     async fn evict_for(
         &mut self,
-        address: SocketAddr,
+        identity: ClientIdentity,
         evicted: &mut Option<Duration>,
     ) -> Option<OwnedSemaphorePermit> {
         if evicted.is_none() {
@@ -508,25 +786,25 @@ impl FangAcceptor {
                 .registry()
                 .evict_longest_idle(self.policy.idle_evict_after, None)
             else {
-                self.over_ceiling.event(&self.fang, &address);
+                self.over_ceiling.event(&self.fang, &identity);
                 return None;
             };
-            self.log_eviction(idle, address);
+            self.log_eviction(idle, identity);
             *evicted = Some(idle);
         }
         match tokio::time::timeout(EVICT_WAIT, self.per_fang.clone().acquire_owned()).await {
             Ok(Ok(permit)) => Some(permit),
             _ => {
-                self.over_ceiling.event(&self.fang, &address);
+                self.over_ceiling.event(&self.fang, &identity);
                 None
             }
         }
     }
 
-    fn log_eviction(&mut self, idle: Duration, address: SocketAddr) {
+    fn log_eviction(&mut self, idle: Duration, identity: ClientIdentity) {
         self.evicted.event(
             &self.fang,
-            &format_args!("idle {} s, admitting {address}", idle.as_secs()),
+            &format_args!("idle {} s, admitting {identity}", idle.as_secs()),
         );
     }
 

@@ -74,6 +74,33 @@ pub fn endpoint(text: &str) -> bool {
     };
     !host.is_empty() && port.parse::<u16>().is_ok_and(|p| p != 0)
 }
+
+/// Local Fang bind syntax: the legacy TCP socket address, or a Linux
+/// filesystem Unix socket explicitly tagged with `unix:`.
+pub fn local_fang_endpoint(text: &str) -> bool {
+    if text.parse::<std::net::SocketAddr>().is_ok() {
+        return true;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let Some(path) = text.strip_prefix("unix:") else {
+            return false;
+        };
+        let path = std::path::Path::new(path);
+        return path.is_absolute()
+            && path.file_name().is_some()
+            && !path
+                .as_os_str()
+                .to_string_lossy()
+                .split('/')
+                .any(|part| part == "." || part == "..")
+            && !text.chars().any(char::is_whitespace)
+            && !text.chars().any(char::is_control)
+            && text.len() <= 512;
+    }
+    #[cfg(not(target_os = "linux"))]
+    false
+}
 pub fn pack(peers: &[PeerRecord]) -> io::Result<()> {
     if peers.len() > 1024 {
         return Err(invalid());
@@ -128,7 +155,7 @@ pub fn profile_document(profiles: &[FangProfile]) -> io::Result<()> {
         if !name(&p.name)
             || !names.insert(&p.name)
             || !name(&p.peer)
-            || p.local.parse::<std::net::SocketAddr>().is_err()
+            || !local_fang_endpoint(&p.local)
             || !endpoint(&p.remote)
             || !matches!(p.transport.as_str(), "quic" | "tcp" | "tcp-plain")
         {
@@ -189,5 +216,19 @@ mod tests {
         let mut bad = peer;
         bad.public_key_b64 = Some(generate_identity().public_key_b64.clone());
         assert!(pack(&[bad]).is_err());
+    }
+
+    #[test]
+    fn local_fang_endpoint_keeps_tcp_and_accepts_only_safe_linux_unix_syntax() {
+        assert!(local_fang_endpoint("127.0.0.1:1234"));
+        #[cfg(target_os = "linux")]
+        {
+            assert!(local_fang_endpoint("unix:/run/werewolf/fang.sock"));
+            assert!(!local_fang_endpoint("unix:relative/fang.sock"));
+            assert!(!local_fang_endpoint("unix:/run/../fang.sock"));
+            assert!(!local_fang_endpoint("unix:/run/./fang.sock"));
+        }
+        #[cfg(not(target_os = "linux"))]
+        assert!(!local_fang_endpoint("unix:/run/werewolf/fang.sock"));
     }
 }

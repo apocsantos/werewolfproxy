@@ -291,7 +291,7 @@ pub(super) async fn run_local_fang_forwarder(
             return Ok(());
         }
     };
-    let listener = match TcpListener::bind(local).await {
+    let listener = match super::fang_accept::FangListener::bind(local).await {
         Ok(listener) => {
             let _ = ready.send(Ok(()));
             listener
@@ -304,10 +304,10 @@ pub(super) async fn run_local_fang_forwarder(
     cancellation.await_activation().await?;
     println!("🦷 {} listening locally on {}", fang_id, local);
 
-    let mut acceptor = super::fang_accept::FangAcceptor::new(listener, fang_id);
+    let mut acceptor = super::fang_accept::FangAcceptor::new_listener(listener, fang_id);
     loop {
         let (mut inbound, _, slot) = acceptor.accept().await;
-        if super::arm_reset_on_close(&inbound).is_err() {
+        if inbound.arm_reset_on_close().is_err() {
             continue;
         }
         let peer_addr = peer_addr.to_string();
@@ -338,14 +338,14 @@ pub(super) async fn run_local_fang_forwarder(
                 })
                 .await;
             if matches!(result, Some(Ok(()))) {
-                let _ = super::disarm_reset_on_close(&inbound);
+                let _ = inbound.disarm_reset_on_close();
             }
         });
     }
 }
 
 async fn pipe_one_fang_connection(
-    inbound: &mut TcpStream,
+    inbound: &mut (impl AsyncRead + AsyncWrite + Unpin),
     peer_addr: &str,
     remote: &str,
     identity: PeltIdentity,
