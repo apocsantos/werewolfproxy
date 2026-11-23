@@ -63,7 +63,8 @@ regressions and 13/13 local CI gates. All 26 campaign workers recorded
 successful actual exits. All 11 hosted jobs on the M3 head were prevented
 from starting by the account billing lock; no hosted pass is claimed.
 
-The [Stage53 closure](STAGE53_CLOSURE.md) records unused reserved capacity,
+The Stage53 M1–M4 work is owner-merged; the [closure](STAGE53_CLOSURE.md)
+records unused reserved capacity,
 the 64-member activation bound and no bounded admission after late
 activation. Its smaller-share idle boundary is addressed by Stage54 below.
 This remains fairness between configured Fangs in one daemon, not a per-user
@@ -105,8 +106,8 @@ Stage38 closure, Tokio 1.52.3 and advisory policy remain unchanged.
 
 ## Current development global idle reclamation
 
-Stage55 M1–M3 are owner-merged; the [M4 closure](STAGE55_CLOSURE.md) is for
-review. Owner-merged [M1](STAGE55_GLOBAL_IDLE_ADMISSION_SURVEY.md),
+Stage55 is closed; M1–M4 are owner-merged through [M4 PR #177](https://github.com/apocsantos/werewolfproxy/pull/177)
+(`406f68a`). Owner-merged [M1](STAGE55_GLOBAL_IDLE_ADMISSION_SURVEY.md),
 [M2](STAGE55_M2_GLOBAL_RECLAMATION.md) and [M3](STAGE55_M3_REGRESSION.md)
 records document the policy and validation. M2 PR #175 (`16d67a5`) added bounded same-Fang
 reclamation when a Fang with local room is denied by the daemon-wide 1024
