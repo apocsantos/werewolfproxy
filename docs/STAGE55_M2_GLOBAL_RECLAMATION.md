@@ -1,11 +1,12 @@
 # Stage55 M2 — bounded global idle reclamation
 
-**Status: M2 implemented and locally validated; for review, 2026-11-22.** The owner merged
-[PR #174](https://github.com/apocsantos/werewolfproxy/pull/174) as
-`5ce2a544975a9567ac5f48f3c71cadc65e361767` and instructed continuation.
+**Status: Stage55 M2 owner-merged in PR #175; M3 is merged and M4 is for review.** The owner merged
+[PR #175](https://github.com/apocsantos/werewolfproxy/pull/175) as
+`16d67a572a471f090f2e95ab0cca78588e92b42b` and instructed continuation.
 The [reviewed proposal](STAGE55_GLOBAL_IDLE_ADMISSION_SURVEY.md) decisions
 S55-D0–D6 are applied as recommended: G1, same Fang only, all Fang kinds.
-This record covers M2; broader M3 regression and M4 closure remain separate.
+This record documents the implementation; the [M3 regression](STAGE55_M3_REGRESSION.md)
+is merged and the [M4 closure](STAGE55_CLOSURE.md) is under review.
 
 Fixed runtime/test/fixture source:
 `37218382c1352e9fa717761706996be7297f49f1`.

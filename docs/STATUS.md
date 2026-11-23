@@ -103,6 +103,28 @@ Validation is local, with exact membership/slow-cleanup wait cases covered
 by deterministic unit tests. Frozen releases, S3-P2/S2-P4 exclusions,
 Stage38 closure, Tokio 1.52.3 and advisory policy remain unchanged.
 
+## Current development global idle reclamation
+
+Stage55 M1–M3 are owner-merged; the [M4 closure](STAGE55_CLOSURE.md) is for
+review. Owner-merged [M1](STAGE55_GLOBAL_IDLE_ADMISSION_SURVEY.md),
+[M2](STAGE55_M2_GLOBAL_RECLAMATION.md) and [M3](STAGE55_M3_REGRESSION.md)
+records document the policy and validation. M2 PR #175 (`16d67a5`) added bounded same-Fang
+reclamation when a Fang with local room is denied by the daemon-wide 1024
+session cap. One useful established session idle for at least 60 s may be
+cancelled; actual cleanup releases capacity, and a single bounded retry stays
+within the original deadline and shared victim budget. Empty Fangs remain
+denied when siblings fill the cap; no cross-Fang eviction or active-session
+preemption is added.
+
+M3 PR #176 (`80c86a5`) passes nine direct, two routed, two provider-fallback,
+one source-bound and three concurrent full-cap cases, all 13 local-CI gates,
+and the retained regression campaign (513 Rust tests). All hosted checks on
+the merged head pass, including Rust CI, CodeQL, formatting, Clippy and release
+build. Full-cap source validation is one TCP loopback-namespace case; active
+primary/provider commitment paths remain covered below the cap by Stage54.
+Frozen releases and the documented fairness, idle-reset, race and WAN limits
+remain unchanged.
+
 ## Certified
 
 | Area | Records |
