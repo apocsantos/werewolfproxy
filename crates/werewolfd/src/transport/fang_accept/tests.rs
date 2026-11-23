@@ -592,3 +592,92 @@ async fn unix_bind_reports_stale_path_without_unlinking_it() {
     std::fs::remove_file(path).unwrap();
     std::fs::remove_dir(parent).unwrap();
 }
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn unix_peer_credentials_distinguish_kernel_uids_when_root() {
+    use std::{
+        os::unix::{
+            fs::{MetadataExt, PermissionsExt},
+            process::CommandExt,
+        },
+        process::Command,
+    };
+
+    if let Ok(path) = std::env::var("WEREWOLF_UNIX_UID_CHILD") {
+        let mut client = tokio::net::UnixStream::connect(path).await.unwrap();
+        client.write_all(b"u").await.unwrap();
+        let mut response = [0u8; 1];
+        client.read_exact(&mut response).await.unwrap();
+        assert_eq!(response, *b"u");
+        return;
+    }
+    let require_uid_test = std::env::var_os("WEREWOLF_REQUIRE_UID_TEST").is_some();
+    // The ordinary test suite runs unprivileged. A dedicated user-namespace
+    // run maps this process to UID 0 and makes UID 1 available to the client.
+    if std::fs::metadata("/proc/self").unwrap().uid() != 0 {
+        assert!(!require_uid_test, "namespace did not map the test to UID 0");
+        return;
+    }
+
+    let parent = std::env::temp_dir().join(format!(
+        "werewolf-fang-uid-ns-{}-{}",
+        std::process::id(),
+        origin().elapsed().as_nanos()
+    ));
+    std::fs::create_dir(&parent).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o2750)).unwrap();
+    let path = parent.join("fang.sock");
+    let listener = FangListener::bind(&format!("unix:{}", path.display()))
+        .await
+        .unwrap();
+    let mut acceptor = FangAcceptor::new_listener(listener, "uid-namespace-test");
+
+    // The test binary may live beneath a mode-0700 home directory. Put a
+    // copy beside the socket so the differently mapped UID can execute it.
+    let child_executable = parent.join("fang-uid-client");
+    std::fs::copy(std::env::current_exe().unwrap(), &child_executable).unwrap();
+    std::fs::set_permissions(&child_executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut command = Command::new(&child_executable);
+    command
+        .arg("--exact")
+        .arg("transport::fang_accept::tests::unix_peer_credentials_distinguish_kernel_uids_when_root")
+        .arg("--nocapture")
+        .env("WEREWOLF_UNIX_UID_CHILD", &path)
+        .uid(1)
+        .gid(0);
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            drop(acceptor);
+            let _ = std::fs::remove_file(&child_executable);
+            let _ = std::fs::remove_dir(&parent);
+            if require_uid_test {
+                panic!("could not launch the UID 1 peer: {error}");
+            }
+            return;
+        }
+    };
+    let accepted = tokio::time::timeout(Duration::from_secs(10), acceptor.accept()).await;
+    let (mut stream, identity, slot) = match accepted {
+        Ok(accepted) => accepted,
+        Err(_) => {
+            let _ = child.kill();
+            panic!("UID 1 child did not connect to the Unix Fang endpoint");
+        }
+    };
+    assert!(
+        matches!(identity, ClientIdentity::UnixUid(1)),
+        "{identity:?}"
+    );
+    let mut request = [0u8; 1];
+    stream.read_exact(&mut request).await.unwrap();
+    assert_eq!(request, *b"u");
+    stream.write_all(&request).await.unwrap();
+    drop(slot);
+    assert!(child.wait().unwrap().success());
+    drop(acceptor);
+    assert!(!path.exists());
+    std::fs::remove_file(child_executable).unwrap();
+    std::fs::remove_dir(parent).unwrap();
+}

@@ -1,7 +1,7 @@
 # Stage56 M2 — optional credential-bearing local Fang endpoint
 
-**Status: design proposal for review; no implementation authorization or
-runtime change.** Stage56 M1 confirmed that the existing transparent TCP
+**Status: accepted 2026-11-23 by the merge of PR #180; implemented in M3.**
+Stage56 M1 confirmed that the existing transparent TCP
 listener cannot identify local users. This proposal evaluates an additive
 Linux AF_UNIX endpoint for operators who need per-UID admission limits while
 retaining all existing TCP Fangs and clients unchanged.
@@ -80,7 +80,7 @@ slot cleanup on every exit path.
   container namespace UID mapping, a TCP client fairness guarantee, WAN
   behavior or application-level idleness.
 
-## Decisions required before implementation
+## Decisions recorded by PR #180
 
 | ID | Decision | Proposal |
 | --- | --- | --- |
@@ -90,9 +90,8 @@ slot cleanup on every exit path.
 | S56-D3 | Platform | Linux only until another platform has peer-credential evidence |
 | S56-D4 | Scope | All local Fang kinds through one stream abstraction; no TCP proxy bridge |
 | S56-D5 | Compatibility | Keep existing TCP values/defaults and raw byte-stream semantics unchanged |
-| S56-D6 | Authorize implementation and tests? | Only after review of this interface, UID cap and filesystem lifecycle contract |
+| S56-D6 | Authorize implementation and tests? | Accepted in PR #180; implementation and tests merged in PR #181 |
 
-If S56-D0 or S56-D6 is not accepted, the M1-recommended disposition remains:
-keep the TCP interface and retain the active-loopback flood as a documented
-local deployment limitation. The Linux `SO_PEERCRED` scope is described by
+The M1-recommended TCP-only disposition would have remained in effect if D0
+or D6 had not been accepted. The Linux `SO_PEERCRED` scope is described by
 [unix(7)](https://man7.org/linux/man-pages/man7/unix.7.html).

@@ -299,12 +299,20 @@ enum ServiceCommands {
         /// Service name from `service list`.
         name: String,
 
-        /// Local TCP port to expose.
-        #[arg(long)]
-        local_port: u16,
+        /// Local TCP port to expose (use with --bind).
+        #[arg(
+            long,
+            required_unless_present = "local_endpoint",
+            conflicts_with = "local_endpoint"
+        )]
+        local_port: Option<u16>,
+
+        /// Local listener endpoint, including `unix:/absolute/path` on Linux.
+        #[arg(long, value_name = "ENDPOINT", required_unless_present = "local_port", conflicts_with_all = ["local_port", "bind"])]
+        local_endpoint: Option<String>,
 
         /// Local bind address.
-        #[arg(long, default_value = "127.0.0.1")]
+        #[arg(long, default_value = "127.0.0.1", requires = "local_port")]
         bind: String,
 
         #[arg(long, default_value = "quic", value_parser = ["quic", "tcp", "tcp-plain"])]
@@ -679,12 +687,15 @@ fn request_for(command: Commands) -> Result<(String, Value), CliError> {
                 ServiceCommands::Connect {
                     name,
                     local_port,
+                    local_endpoint,
                     bind,
                     transport,
                 },
         } => {
             // The daemon resolves the name to its registered peer and target.
-            let local = local_listener(&bind, local_port);
+            let local = local_endpoint.unwrap_or_else(|| {
+                local_listener(&bind, local_port.expect("clap requires one local endpoint"))
+            });
             (
                 "service.connect",
                 json!({"name":name,"local":local,"transport":transport}),
@@ -1267,5 +1278,47 @@ mod tests {
             "ftp"
         ])
         .is_err());
+    }
+
+    #[test]
+    fn service_connect_accepts_unix_endpoint_without_changing_tcp_defaults() {
+        assert_eq!(
+            request(&[
+                "service",
+                "connect",
+                "web",
+                "--local-endpoint",
+                "unix:/run/werewolf/web.sock"
+            ]),
+            (
+                "service.connect".into(),
+                json!({"name":"web","local":"unix:/run/werewolf/web.sock","transport":"quic"})
+            )
+        );
+        for args in [
+            &[
+                "werewolfctl",
+                "service",
+                "connect",
+                "web",
+                "--local-port",
+                "18087",
+                "--local-endpoint",
+                "unix:/run/werewolf/web.sock",
+            ][..],
+            &[
+                "werewolfctl",
+                "service",
+                "connect",
+                "web",
+                "--local-endpoint",
+                "unix:/run/werewolf/web.sock",
+                "--bind",
+                "127.0.0.1",
+            ][..],
+            &["werewolfctl", "service", "connect", "web"][..],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err(), "{args:?}");
+        }
     }
 }
