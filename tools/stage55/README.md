@@ -53,6 +53,14 @@ python3 -B tools/stage55/admission.py quic tcp --expect baseline --rounds 1 \
   --out target/stage55-m2-baseline/secure.json
 python3 -B tools/stage55/admission.py --expect reclaimed --rounds 3 \
   --out target/stage55-m2/global.json
+python3 -B tools/stage55/admission.py quic tcp --expect reclaimed --rounds 1 \
+  --routed-owner --out target/stage55-m3/routed.json
+python3 -B tools/stage55/admission.py --expect reclaimed --rounds 1 \
+  --concurrent-probes 12 --out target/stage55-m3/concurrent.json
+python3 -B tools/stage55/admission.py quic tcp --expect reclaimed --rounds 1 \
+  --provider-owner --out target/stage55-m3/provider.json
+python3 -B tools/stage55/admission.py tcp --expect reclaimed --rounds 1 \
+  --source-owner --out target/stage55-m3/source.json
 ```
 
 The baseline invocation is for the unfixed runtime. The original M1
@@ -74,3 +82,26 @@ Same loopback-only lab, 4096 task-owned descriptor bound, 50 MiB log guard,
 atomic phase/row checkpoints and source hashes as M1. No native peer quota
 or global limit is reduced. See the [M2 record](../../docs/STAGE55_M2_GLOBAL_RECLAMATION.md)
 for the shared victim budget and setup deadline accounting.
+
+M3's `--routed-owner` control uses a generated relay and holds the secure
+owner path through the same 1024 global slots; its 992 plain siblings remain
+independent. `--concurrent-probes N` starts N owner demands together after
+the idle interval, retains successful sessions, and verifies owner victims
+while siblings survive. If victim release is followed by a secure setup
+failure, the fixture refills that now-free global slot and records the extra
+victim. Both controls preserve the
+empty-Fang, recent-owner, local-capacity, release-recovery, echo, descriptor,
+authority and cleanup checks. The checkpointed campaign also retains the
+Stage54 source, route/provider, membership, resolver, resource, fairness and
+chaos matrices plus full local CI. See the [M3 regression record](../../docs/STAGE55_M3_REGRESSION.md).
+
+`--provider-owner` reaches the owner through a configured provider chain at
+the global cap. Its primary target is deliberately unauthorized, so all
+secure owner sessions use the fallback and replacement/recovery authority is
+checked at that fallback. Existing Stage54 provider cases retain active-primary
+and post-commit no-replay coverage. `--source-owner` runs in a private
+loopback-only namespace, binds the owner listener to `10.54.0.1`, and fills
+16 secure sessions from each of `10.54.0.2` and `10.54.0.3`; it then probes
+from one saturated source while all 1024 global slots are held. Capacity-race
+denials and any additional source-owned victims are recorded, and a third
+source can refill a slot released by a failed setup.
