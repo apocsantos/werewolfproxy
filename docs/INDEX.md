@@ -61,6 +61,7 @@ contract is consolidated for the 1.0.0-rc.2 candidate.
 - [Stage55 global idle admission](STAGE55_GLOBAL_IDLE_ADMISSION_SURVEY.md) (production-cap baseline reproduction and policy proposal)
 - [Stage55 M2 global idle reclamation](STAGE55_M2_GLOBAL_RECLAMATION.md) (candidate ownership, release and deadline controls)
 - [Stage55 M3 full-cap regression](STAGE55_M3_REGRESSION.md) (routed, concurrent and retained regression campaign)
+- [Stage55 closure](STAGE55_CLOSURE.md) (M1–M3 merged; M4 documentation handoff)
 
 The current Stage21 release uses the Stage20S-certified dependency graph:
 rustls 0.23.45 and rustls-webpki 0.103.15. Earlier stage reports retain the

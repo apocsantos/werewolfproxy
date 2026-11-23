@@ -1,12 +1,19 @@
 # Stage55 — idle admission at the daemon-wide Fang ceiling
 
-**Implementation note:** the owner merged this proposal in PR #174
-(`5ce2a54`) and instructed continuation. S55-D0–D6 are applied as
-recommended in the [M2 record](STAGE55_M2_GLOBAL_RECLAMATION.md), including
-G1's same-Fang ownership and compatibility cost. The proposal and M1
-measurements below retain their original pre-implementation scope.
+**Implementation note:** M1 was owner-merged in PR #174 (`5ce2a54`), and
+the owner then merged the M2 implementation in PR #175 (`16d67a5`). S55-D0–D6
+are applied as recommended in the [M2 record](STAGE55_M2_GLOBAL_RECLAMATION.md),
+including G1's same-Fang ownership and compatibility cost. The proposal and
+M1 measurements below retain their original pre-implementation scope.
 
-**Status: M1 baseline reproduced; policy proposal for review, 2026-11-21.**
+**Status: M1–M3 owner-merged; M4 closure for review, 2026-11-23.** M1
+reproduced the global idle-admission boundary; M2 implemented the reviewed G1
+policy; M3 completed the full-cap and retained regression. The
+[closure record](STAGE55_CLOSURE.md) summarizes delivery, evidence and
+remaining limits. The M1 baseline and proposal below retain their original
+scope and dates.
+
+**Original M1 status: baseline reproduced; policy proposal for review, 2026-11-21.**
 After owner-merged [Stage54 closure](STAGE54_CLOSURE.md), the next bounded
 inspection found a separate admission boundary. Baseline `main`:
 `9b216649d706ea70288717ff48ed15a320d49a1e` (PR #173). This step adds a

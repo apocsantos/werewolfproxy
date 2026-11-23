@@ -646,6 +646,39 @@ Found by Stage54 ([reproduction and design](docs/STAGE54_IDLE_PEER_SHARE_SURVEY.
     exact membership/slow-cleanup wait injection is unit-only. No WAN,
     throughput, comparative liveness or universal admission claim follows.
 
+Found by Stage55 ([reproduction and design](docs/STAGE55_GLOBAL_IDLE_ADMISSION_SURVEY.md)):
+
+- after Stage54, a Fang with local room could still be denied at the daemon-wide
+  1024-session ceiling even while it held established idle sessions of its own.
+  M1 reproduced this at production caps; M2 implemented bounded same-Fang
+  reclamation on `main` after rc.2 (owner-merged PR #175, `16d67a5`). On actual
+  global-cap denial, one established own-Fang session idle for at least 60 s may
+  be cancelled if its release can help. Real cleanup must release the slot;
+  reclamation waits at most 1 s within the original setup deadline and tries
+  admission once. The one-victim budget is shared with local/source/peer
+  reclamation and provider attempts. No cross-Fang session is selected.
+- M3 full-cap regression (owner-merged PR #176, `80c86a5`) covers direct,
+  routed, provider-fallback, source-bound and concurrent pressure, plus the
+  retained regression and 13 local CI gates. See the [M3 results](docs/STAGE55_M3_REGRESSION.md)
+  and [closure](docs/STAGE55_CLOSURE.md). Frozen rc.1/rc.2 archives are
+  unchanged.
+
+  **What remains:**
+
+  - a legitimate idle session may reset below both its local 64-slot and
+    receiver-share ceilings when the same Fang needs global capacity. Payload
+    idleness is not proof that an application considers the connection idle;
+  - one victim does not guarantee admission. Cleanup may be slow, or a
+    competing Fang may acquire the released global slot first. Admission then
+    denies without choosing another victim;
+  - an empty Fang has no own victim and remains denied when siblings occupy the
+    global cap. Active sessions are not preempted. This is not cross-Fang or
+    per-user fairness, nor protection from active floods or remote saturation;
+  - full-cap source-bound validation is one TCP case in a private loopback
+    namespace. Provider fallback is exercised at the full cap; active-primary
+    and commitment paths are covered by Stage54 below the global cap. There is
+    no WAN, throughput, comparative-liveness or universal-admission claim.
+
 ## Discovery, services and routing
 
 - **Discovery (Stage24, Stage25)** is Pack-only: it finds addresses and
