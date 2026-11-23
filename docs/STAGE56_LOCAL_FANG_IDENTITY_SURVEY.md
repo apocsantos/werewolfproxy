@@ -1,11 +1,15 @@
 # Stage56 M1 — local Fang client identity and fairness
 
-**Status: M1 source review complete; no runtime change proposed for the
-existing TCP interface, 2026-11-23.** This survey follows the active-loopback
+**Status: M1 source review merged in PR #179; M2 interface design is for
+review, 2026-11-23.** This survey follows the active-loopback
 flood limitation retained by [Stage43](STAGE43_CLOSURE.md). It evaluates
 whether a Fang can enforce per-local-user admission fairness while preserving
 its current transparent TCP listener. No M2 implementation or policy change
 is authorized by this survey.
+
+The follow-on [M2 Unix-endpoint design](STAGE56_M2_LOCAL_UNIX_DESIGN.md)
+proposes an optional identity-bearing interface and lists the decisions
+required before any implementation.
 
 ## Finding
 
