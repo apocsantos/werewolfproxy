@@ -23,6 +23,11 @@ scenario, not evidence that it fixes Werewolf's transfer crawl or handshake
 resets. As checked November 24, the PR is still open. Quinn's releases page
 still identifies `quinn-proto` 0.11.19 as latest.
 
+The Stage34 record points to ignored diagnostic artifacts in
+`target/stage34-diag/` and `target/stage34-bisect/`. Neither directory is
+present in this checkout as of 2026-11-24, so the original packet captures
+and per-build diagnostics are unavailable here for offline comparison.
+
 ## Bounded next step
 
 1. Wait for an upstream merged change and a published `quinn-proto` release
@@ -32,11 +37,12 @@ still identifies `quinn-proto` 0.11.19 as latest.
 2. Once available, prepare an isolated dependency trial that changes no
    application transport settings. Review the complete lockfile diff and
    security advisories before running any S3-P2 workload.
-3. Reproduce the exact Stage34 seed-2030 cell sequence with its captures and
-   at least six rounds, comparing against the recorded 0.11.17 behavior.
-   Record setup resets, transfer progress, completion time, and assembler or
-   transport diagnostics where available. Do not infer causality from a
-   throughput-only improvement.
+3. Reproduce the exact Stage34 seed-2030 cell sequence, regenerate packet
+   captures because the recorded ignored artifacts are absent from this
+   checkout, and run at least six rounds against the recorded 0.11.17
+   behavior. Record setup resets, transfer progress, completion time, and
+   assembler or transport diagnostics where available. Do not infer
+   causality from a throughput-only improvement.
 4. If the regression check passes, separately obtain authorization for the
    Stage34 certification campaign. The campaign's 30-run rule and kernel-tail
    accounting remain unchanged. S3-P2 stays excluded until that campaign
