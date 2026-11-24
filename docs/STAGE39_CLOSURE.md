@@ -30,16 +30,24 @@ harness, dependency, bound or historical verdict.
 - **S39-D5 (real-WAN check of the relay-to-destination path): not run.**
   The owner chose to close without it. The result stays sandbox-only, and
   `KNOWN_LIMITATIONS.md` already says so ("has not been run over a real
-  WAN"). A later WAN check needs separate authorisation.
-- **Next stage:** CI coverage (survey §13, recommendation 3), starting with
-  a docs-only spec for owner review.
+  WAN").
+- **2026-11-24 follow-up:** the owner authorized a later WAN-check attempt.
+  SSH to the previously used Debian VPS (`51.83.41.28:22`) timed out from
+  both the sandbox and the host-view retry. No remote command or fault
+  injection ran, so S39-D5 remains unrun and no WAN evidence is claimed.
+- **Next stage:** hosted CI coverage (survey §13, recommendation 3) is
+  complete: specification in PR #184 and implementation in PR #185 are
+  merged. The next candidate is QUIC initiator resource-bound parity
+  (survey §13.2), which needs its own design and value decisions.
 
 ## 4. What remains open (unchanged by this closure)
 
-- The relay-to-destination path over a real WAN (S39-D5, not authorised).
+- The relay-to-destination path over a real WAN (S39-D5, authorized but not
+  run because the previously used VPS was unreachable).
 - QUIC initiator resource-bound parity (survey §13.2).
 - The routed-QUIC regression root cause (Stage34; survey §13.4).
 - IPv6 (survey §13.5).
 
-**Not authorised:** WAN testing, tokio promotion, reopening Stage38,
-rc.3, and release certification.
+**Not authorised:** tokio promotion, reopening Stage38, rc.3, and release
+certification. S39-D5 has since been authorized but remains unrun; see the
+follow-up above.

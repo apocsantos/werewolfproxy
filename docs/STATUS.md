@@ -138,6 +138,14 @@ hosted Rust CI jobs passed. See the [M1 survey](STAGE56_LOCAL_FANG_IDENTITY_SURV
 [M2 design](STAGE56_M2_LOCAL_UNIX_DESIGN.md), [M3 implementation](STAGE56_M3_UNIX_ENDPOINT_IMPLEMENTATION.md),
 [M4 regression](STAGE56_M4_UNIX_TRANSPORT_REGRESSION.md) and [closure](STAGE56_CLOSURE.md).
 
+## Hosted CI coverage
+
+PR #185 adds the Python integration unit tests and disposable checkout
+acceptance runner to the hosted Rust CI test job. The first hosted run passed
+both additions alongside the existing Rust tests, formatting, Clippy and
+release build. Namespace/netem, multi-UID and WAN campaigns remain outside
+hosted CI. See the [coverage record](CI_COVERAGE_SPEC.md).
+
 ## Certified
 
 | Area | Records |

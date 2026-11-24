@@ -2,18 +2,16 @@
 
 ## Status
 
-Proposal following the Stage39 closure handoff. This record scopes a small
-workflow change; it does not change workflow files or claim that hosted CI
-currently runs the Python suites.
+Implemented on `main` through PR #185, 2026-11-24. This record describes the
+hosted coverage added to the Rust CI workflow.
 
 ## Problem
 
-GitHub Actions currently runs Rust formatting, Clippy, workspace tests and a
-release build. The repository's Python unit tests and disposable checkout
-acceptance runner are exercised by `scripts/ci-local.sh`, but a regression in
-those checks can reach a pull request without a hosted result.
+Before PR #185, GitHub Actions ran Rust formatting, Clippy, workspace tests
+and a release build. Python integration unit tests and the disposable checkout
+acceptance runner were only exercised by `scripts/ci-local.sh`.
 
-## Proposed change
+## Workflow behavior
 
 Run these two existing commands in the hosted Rust CI test job for every pull
 request and push:
@@ -44,7 +42,7 @@ fail the workflow check.
   existing dependency resolution requires. The acceptance runner itself uses
   loopback-only fixtures and requires cached locked dependencies.
 
-## Acceptance criteria
+## Implementation checks
 
 1. The two commands run in the existing pull-request and push workflow on
    `ubuntu-latest`.
@@ -56,17 +54,25 @@ fail the workflow check.
 5. No hosted job runs a test that requires network namespaces, netem, a second
    UID mapping, or an external host.
 
-## Evidence and limits
+## Hosted result
 
-The commands already run under `scripts/ci-local.sh`; the documented lab
+PR #185's Rust CI run #632 passed formatting, Clippy, release build, the
+Python integration unit tests, the full workspace suite, and the disposable
+checkout acceptance suite. The acceptance runner completed its fixtures,
+including the 50 MiB encrypted-TCP transfer and daemon restart/profile
+restoration checks, in about 45 seconds. The local pre-push fast gate also
+passed.
+
+## Limits
+
+The commands also run under `scripts/ci-local.sh`; the documented lab
 prerequisites are Linux, Python 3.11+, Bash, curl, Git, Cargo/Rust, permitted
 TCP/UDP loopback and Unix sockets, and a populated Cargo cache. Hosted runs
-would establish behavior on the current Ubuntu runner only. They do not extend
-the project's platform certification or replace namespace, fault-injection or
-real-WAN evidence.
+establish behavior on the Ubuntu runner used for that workflow run only. They
+do not extend the project's platform certification or replace namespace,
+fault-injection or real-WAN evidence.
 
 The disposable acceptance run builds a second binary set under
 `target/stage1-lab/`, so it adds compile and fixture runtime to the existing
-test job. The implementation PR should report the observed hosted duration
-and split the acceptance runner into its own serialized job only if measured
-runtime or failure isolation makes that useful.
+test job. Keep the commands sequential; revisit a separate job only if
+measured runtime or failure isolation makes that useful.

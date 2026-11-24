@@ -67,7 +67,7 @@ contract is consolidated for the 1.0.0-rc.2 candidate.
 - [Stage56 M3 Linux Unix endpoint](STAGE56_M3_UNIX_ENDPOINT_IMPLEMENTATION.md) (merged)
 - [Stage56 M4 Unix transport regressions](STAGE56_M4_UNIX_TRANSPORT_REGRESSION.md) (five Fang paths and native UID check)
 - [Stage56 closure](STAGE56_CLOSURE.md) (M1–M4 merged; Linux scope and remaining limits)
-- [Hosted CI coverage specification](CI_COVERAGE_SPEC.md) (Python unit and disposable acceptance suites; workflow change pending)
+- [Hosted CI coverage](CI_COVERAGE_SPEC.md) (Python unit and disposable acceptance suites implemented in PR #185)
 
 The current Stage21 release uses the Stage20S-certified dependency graph:
 rustls 0.23.45 and rustls-webpki 0.103.15. Earlier stage reports retain the
