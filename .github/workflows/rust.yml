@@ -63,8 +63,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Run Python integration unit tests
+        run: python3 -B -m unittest discover -s tests/integration -p 'test_*.py'
+
       - name: Run test suite
         run: cargo test --workspace --all-features --verbose
+
+      - name: Run disposable checkout acceptance suite
+        run: python3 -B tests/integration/run.py
 
 
   build:
