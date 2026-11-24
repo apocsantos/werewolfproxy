@@ -162,7 +162,12 @@ Found by Stage34 ([record](docs/STAGE34_S3_P2_RECORD.md)):
   links can fail at setup or crawl for some loss patterns, where
   quinn-proto 0.11.17 and earlier completed in seconds; no corruption or
   security failure. The Stage32 cell S3-P2 is EXCLUDED, not certified,
-  until a later quinn-proto release is retested;
+  until a later quinn-proto release is retested. Upstream Quinn
+  [PR #2976](https://github.com/quinn-rs/quinn/pull/2976) proposes changing
+  the stream assembler's gap bound to address rejection
+  under sustained packet loss; this is a plausible lead, not a confirmed
+  cause or fix. It remains open as of 2026-11-24, so there is no candidate
+  release or S3-P2 retest yet ([Stage58 survey](docs/STAGE58_QUIC_GAP_BUFFER_SURVEY.md));
 - under the same loss, a routed encrypted-TCP hop can stall for up to
   about 100 s after the relay has forwarded everything, while the
   relay's kernel retransmits its last data (kernel TCP backoff, on every
