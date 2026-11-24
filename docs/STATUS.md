@@ -19,8 +19,11 @@ Stage50 dependency remediation is on `main` through owner-merged
 2026-11-16): quinn-proto 0.11.19 and quinn-udp 0.5.16. Workspace/proof
 audits, 460 Rust tests and 13/13 local gates passed. This resolves the
 Stage49 audit blocker. Hosted Rust CI and CodeQL could not start because
-GitHub reported an account billing lock. The [Stage50 closure](STAGE50_CLOSURE.md)
-records scope and remaining limits; the frozen releases above are unchanged.
+GitHub reported an account billing lock at that time. Hosted Rust CI was
+available again for PR #185; its run passed the Rust suite, disposable
+acceptance suite, formatting, Clippy and release build. The
+[Stage50 closure](STAGE50_CLOSURE.md) records scope and remaining limits;
+the frozen releases above are unchanged.
 
 ## Current development hostname behaviour
 
@@ -141,10 +144,22 @@ hosted Rust CI jobs passed. See the [M1 survey](STAGE56_LOCAL_FANG_IDENTITY_SURV
 ## Hosted CI coverage
 
 PR #185 adds the Python integration unit tests and disposable checkout
-acceptance runner to the hosted Rust CI test job. The first hosted run passed
-both additions alongside the existing Rust tests, formatting, Clippy and
-release build. Namespace/netem, multi-UID and WAN campaigns remain outside
-hosted CI. See the [coverage record](CI_COVERAGE_SPEC.md).
+acceptance runner to the hosted Rust CI test job. The hosted run passed both
+additions alongside the existing Rust tests, formatting, Clippy and release
+build. PR #186 closed the Stage57 coverage work. PR #187's hosted checks also
+passed. Namespace/netem, multi-UID and WAN campaigns remain outside hosted
+CI. See the [coverage record](CI_COVERAGE_SPEC.md).
+
+## Current routed QUIC loss limitation
+
+Stage58's survey records upstream Quinn PR #2976 as a plausible lead for the
+Stage34 S3-P2 failure under packet loss. The upstream PR remains open and the
+latest published `quinn-proto` remains 0.11.19 as checked on 2026-11-24.
+S3-P2 stays **EXCLUDED**; there has been no dependency or production
+transport change and no retest. A future candidate must be released,
+security-reviewed against Stage50, and pass Stage34's exact-sequence
+regression check before the separately gated certification campaign.
+See the [Stage58 survey](STAGE58_QUIC_GAP_BUFFER_SURVEY.md).
 
 ## Certified
 
@@ -224,14 +239,16 @@ See [known limitations](../KNOWN_LIMITATIONS.md). Main items:
 - No anonymity, cover traffic or timing obfuscation; a Stage26 relay sees
   who talks to which listener, when and how much.
 - No automatic peer pairing; public keys are exchanged out of band.
-- Not run anywhere: netem-style random loss, jitter and reordering, and
-  host clock changes. Restart, crash, path-loss, resource-pressure and
-  storage-fault behaviour was exercised on later builds by Stage22R
-  (D01–D09), not on the rc.1 archive.
+- Not run over a real WAN: netem-style random loss, jitter and reordering;
+  host clock changes on a real machine. Stage32 exercised network impairments
+  in local namespaces and clock jumps with `libfaketime`; Stage22R exercised
+  restart, crash, path-loss, resource-pressure and storage-fault behaviour
+  against later builds, not the frozen rc.1 archive.
 - Routing has one operator-set relay per destination, with no route
-  discovery or automatic selection. Path loss between the requester and the
-  relay was exercised on both hops; between the relay and the destination
-  it was not.
+  discovery or automatic selection. Path loss on both routed hops was
+  exercised in sandbox namespaces. The relay-to-destination path has not
+  been checked over a real WAN: Stage39-D5 was authorized but not run because
+  the previously used VPS was unreachable.
 - The shared transport trait, health scoring and automatic return to the
   preferred transport are not implemented.
 
